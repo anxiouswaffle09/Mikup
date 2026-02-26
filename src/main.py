@@ -5,9 +5,11 @@ import gc
 import sys
 import torch
 import logging
+import time
+from datetime import datetime
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Allow running as either `python src/main.py` or `python -m src.main`.
@@ -33,6 +35,15 @@ def flush_vram():
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         pass
 
+def emit_progress(stage, progress, message):
+    """Emit a JSON progress marker to stdout for Tauri to capture."""
+    print(json.dumps({
+        "type": "progress",
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "timestamp": time.time()
+    }), flush=True)
 
 def is_existing_file(path):
     return isinstance(path, str) and bool(path.strip()) and os.path.exists(path)
@@ -79,6 +90,43 @@ def normalize_and_validate_stems(stems):
 
     return normalized
 
+def update_history(payload, history_path="data/history.json"):
+    """Adds the current analysis to the history.json file."""
+    history = []
+    if os.path.exists(history_path):
+        try:
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except:
+            history = []
+    
+    # Create a summary entry
+    entry = {
+        "id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "filename": os.path.basename(payload["metadata"]["source_file"]),
+        "date": datetime.now().isoformat(),
+        "duration": payload["metrics"]["spatial_metrics"].get("total_duration", 0),
+        "payload": payload # Store full payload for instant loading
+    }
+    
+    history.insert(0, entry)
+    # Keep last 50 projects
+    history = history[:50]
+    
+    os.makedirs(os.path.dirname(history_path), exist_ok=True)
+    with open(history_path, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
+
+def cleanup_stems(stems):
+    """Deletes processed WAV stems to save space."""
+    for path in stems.values():
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+                logger.info(f"Cleaned up stem: {path}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup stem {path}: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="Project Mikup - Audio Drama Deconstruction Pipeline")
     parser.add_argument("--input", type=str, help="Path to raw audio file", required=True)
@@ -97,10 +145,10 @@ def main():
         logger.error("Unable to create output directory for %s: %s", args.output, exc)
         sys.exit(1)
         
-    logger.info(f"Starting Project Mikup pipeline...")
+    emit_progress("INIT", 0, "Initializing Project Mikup Pipeline...")
 
     if args.mock:
-        logger.info("RUNNING IN MOCK MODE")
+        emit_progress("MOCK", 50, "Running in MOCK mode...")
         stems = {
             "dialogue_raw": "data/processed/test_Vocals.wav",
             "background_raw": "data/processed/test_Instrumental.wav",
@@ -110,9 +158,11 @@ def main():
         transcription_path = "data/processed/mock_transcription.json"
     else:
         # Stage 1: Separation
+        emit_progress("SEPARATION", 10, "Surgical Separation (UVR5) starting...")
         separator = MikupSeparator(output_dir="data/processed")
         try:
             stems = normalize_and_validate_stems(separator.run_surgical_pipeline(args.input))
+            emit_progress("SEPARATION", 25, "Separation complete.")
         except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
             logger.error("Stage 1 Separation failed: %s", exc)
             sys.exit(1)
@@ -121,6 +171,7 @@ def main():
             flush_vram()
             
         # Stage 2: Transcription
+        emit_progress("TRANSCRIPTION", 30, "Transcription & Diarization (WhisperX) starting...")
         transcription_path = "data/processed/transcription.json"
         if is_existing_file(stems.get("dialogue_raw")):
             transcriber = MikupTranscriber()
@@ -129,6 +180,7 @@ def main():
                 transcription_result = transcriber.diarize(stems["dialogue_raw"], transcription_result, os.getenv("HF_TOKEN"))
                 
                 transcriber.save_results(transcription_result, transcription_path)
+                emit_progress("TRANSCRIPTION", 50, "Transcription complete.")
             except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
                 logger.error("Stage 2 Transcription failed: %s", exc)
                 try:
@@ -148,9 +200,11 @@ def main():
                 sys.exit(1)
 
     # Stage 3: Feature Extraction (DSP)
+    emit_progress("DSP", 60, "Feature Extraction (DSP/LUFS) starting...")
     processor = MikupDSPProcessor()
     try:
         dsp_metrics = processor.process_stems(stems, transcription_path)
+        emit_progress("DSP", 75, "DSP Analysis complete.")
     except (FileNotFoundError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         logger.error("Stage 3 DSP Processing failed: %s", exc)
         sys.exit(1)
@@ -161,12 +215,14 @@ def main():
     # Stage 4: Semantic Audio Understanding (CLAP)
     semantic_tags = []
     if args.mock:
-        logger.info("Mock mode: skipping Stage 4 Semantic Tagging.")
+        pass
     elif is_existing_file(stems.get("background_raw")):
+        emit_progress("SEMANTICS", 80, "Semantic Tagging (CLAP) starting...")
         tagger = None
         try:
             tagger = MikupSemanticTagger()
             semantic_tags = tagger.tag_audio(stems["background_raw"])
+            emit_progress("SEMANTICS", 85, "Semantics complete.")
         except (OSError, RuntimeError, ValueError, AttributeError) as exc:
             logger.error("Stage 4 Semantic Tagging failed: %s", exc)
         finally:
@@ -195,7 +251,8 @@ def main():
     final_payload = {
         "metadata": {
             "source_file": args.input,
-            "pipeline_version": "0.1.0-alpha"
+            "pipeline_version": "0.2.0-beta",
+            "timestamp": datetime.now().isoformat()
         },
         "transcription": transcription_data,
         "metrics": dsp_metrics,
@@ -209,8 +266,9 @@ def main():
 
     # Stage 5: The AI Director
     if args.mock:
-        logger.info("Mock mode: skipping Stage 5 AI Director.")
+        pass
     else:
+        emit_progress("AI_DIRECTOR", 90, "AI Director (Gemini 2.0) synthesis starting...")
         director = MikupDirector()
         report_md = director.generate_report(final_payload)
         if report_md:
@@ -225,15 +283,29 @@ def main():
                 logger.error("Failed to save AI Director markdown report: %s", exc)
         else:
             logger.warning("AI Director returned no usable report. Skipping ai_report field.")
+        emit_progress("AI_DIRECTOR", 95, "Synthesis complete.")
 
     # Save final output
     try:
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(final_payload, f, indent=2)
         logger.info("Pipeline complete. Payload saved to: %s", args.output)
+        
+        # Update History
+        update_history(final_payload)
+        
+        # Cleanup Stems (preserving disk space)
+        if not args.mock:
+            cleanup_stems(stems)
+            
+        emit_progress("COMPLETE", 100, "All stages finished. Results archived.")
     except OSError as exc:
         logger.error("Failed to save final payload: %s", exc)
         sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+
 
 if __name__ == "__main__":
     main()

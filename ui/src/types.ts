@@ -35,10 +35,23 @@ export interface AudioArtifacts {
   stem_paths: string[];
 }
 
+export interface LufsSeries {
+  integrated: number;
+  momentary: number[];
+  short_term: number[];
+}
+
+export interface DiagnosticMetrics {
+  intelligibility_snr: number;
+  stereo_correlation: number;
+  stereo_balance: number;
+}
+
 export interface MikupPayload {
   metadata?: {
     source_file: string;
     pipeline_version: string;
+    timestamp?: string;
   };
   transcription?: {
     segments: TranscriptionSegment[];
@@ -56,12 +69,22 @@ export interface MikupPayload {
     impact_metrics: {
       ducking_intensity?: number;
     };
+    lufs_graph?: Record<string, LufsSeries>;
+    diagnostic_meters?: DiagnosticMetrics;
   };
   semantics?: {
     background_tags: SemanticTag[];
   };
   artifacts?: AudioArtifacts;
   ai_report?: string;
+}
+
+export interface HistoryEntry {
+  id: string;
+  filename: string;
+  date: string;
+  duration: number;
+  payload: MikupPayload;
 }
 
 type PayloadRecord = Record<string, unknown>;
@@ -172,6 +195,7 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
       payload.metadata = {
         source_file: sourceFile,
         pipeline_version: pipelineVersion,
+        timestamp: asString(raw.metadata.timestamp),
       };
     }
   }
@@ -232,6 +256,27 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
         spatial_metrics: spatialMetrics,
         impact_metrics: impactMetrics,
       };
+
+      if (isRecord(raw.metrics.lufs_graph)) {
+        payload.metrics.lufs_graph = {};
+        for (const [key, value] of Object.entries(raw.metrics.lufs_graph)) {
+          if (isRecord(value)) {
+            payload.metrics.lufs_graph[key] = {
+              integrated: asNumber(value.integrated) ?? -70,
+              momentary: Array.isArray(value.momentary) ? (value.momentary as number[]) : [],
+              short_term: Array.isArray(value.short_term) ? (value.short_term as number[]) : [],
+            };
+          }
+        }
+      }
+
+      if (isRecord(raw.metrics.diagnostic_meters)) {
+        payload.metrics.diagnostic_meters = {
+          intelligibility_snr: asNumber(raw.metrics.diagnostic_meters.intelligibility_snr) ?? 0,
+          stereo_correlation: asNumber(raw.metrics.diagnostic_meters.stereo_correlation) ?? 1.0,
+          stereo_balance: asNumber(raw.metrics.diagnostic_meters.stereo_balance) ?? 0,
+        };
+      }
     }
   }
 
@@ -282,3 +327,4 @@ export function resolveStemAudioSources(payload: MikupPayload | null): string[] 
 
   return Array.from(stemPaths);
 }
+

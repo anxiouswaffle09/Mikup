@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import sys
+import pyloudnorm as pyln
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -12,11 +13,14 @@ class MikupDSPProcessor:
     """
     Stage 3: Feature Extraction (The 'Physics' Engine).
     Analyzes separated stems and transcription data to calculate objective metrics.
+    Updated for Sprint 02: EBU R128 LUFS, SNR, and Stereo Balance.
     """
 
     def __init__(self, sample_rate=22050, analysis_window_seconds=90.0):
         self.sr = sample_rate
         self.analysis_window_seconds = analysis_window_seconds
+        # EBU R128 Meter
+        self.meter = pyln.Meter(self.sr)
 
     @staticmethod
     def _is_existing_file(path):
@@ -75,14 +79,96 @@ class MikupDSPProcessor:
         )
         return y_a, y_b
 
-    def calculate_loudness_curve(self, y, frame_length=2048, hop_length=512):
-        """Calculates the RMS energy curve (proxy for perceived loudness)."""
-        rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
-        # Avoid -inf for absolute silence
-        if np.max(rms) == 0:
-            return np.zeros_like(rms)
-        rms_db = librosa.amplitude_to_db(rms, ref=np.max)
-        return rms_db
+    def calculate_lufs_series(self, y, hop_length=11025):
+        """
+        Calculates LUFS time-series using K-weighting.
+        Returns Integrated, Short-term (3s), and Momentary (400ms) curves.
+        Default hop_length of 11025 at 22050Hz = 2 data points per second.
+        """
+        # Ensure correct shape for pyloudnorm (samples, channels)
+        if y.ndim == 1:
+            y_pyln = y[:, np.newaxis]
+        else:
+            y_pyln = y.T
+            
+        # 1. Integrated LUFS
+        try:
+            integrated = self.meter.integrated_loudness(y_pyln)
+        except:
+            integrated = -70.0
+
+        # 2. K-weighted signal for ST/M calculation
+        # In pyloudnorm 0.2.0, we iterate through internal filters
+        y_weighted = y_pyln.copy()
+        try:
+            for f in self.meter._filters.values():
+                y_weighted = f.apply_filter(y_weighted)
+        except Exception as e:
+            logger.warning(f"Manual K-weighting failed: {e}. Falling back to unweighted.")
+            y_weighted = y_pyln
+        
+        # Momentary: 400ms window
+        m_win = int(0.4 * self.sr)
+        # Short-term: 3s window
+        st_win = int(3.0 * self.sr)
+        
+        m_lufs = []
+        st_lufs = []
+        
+        # Calculate in windows
+        for i in range(0, len(y_weighted), hop_length):
+            # Momentary
+            m_start = max(0, i - m_win // 2)
+            m_end = min(len(y_weighted), i + m_win // 2)
+            m_segment = y_weighted[m_start:m_end]
+            if len(m_segment) > 0:
+                m_val = 10 * np.log10(np.mean(m_segment**2) + 1e-12) - 0.691
+                m_lufs.append(float(np.clip(m_val, -70, 0)))
+            else:
+                m_lufs.append(-70.0)
+                
+            # Short-term
+            st_start = max(0, i - st_win // 2)
+            st_end = min(len(y_weighted), i + st_win // 2)
+            st_segment = y_weighted[st_start:st_end]
+            if len(st_segment) > 0:
+                st_val = 10 * np.log10(np.mean(st_segment**2) + 1e-12) - 0.691
+                st_lufs.append(float(np.clip(st_val, -70, 0)))
+            else:
+                st_lufs.append(-70.0)
+                
+        return {
+            "integrated": float(integrated),
+            "momentary": m_lufs,
+            "short_term": st_lufs
+        }
+
+    def calculate_stereo_balance(self, y_stereo):
+        """
+        Calculates L/R energy distribution.
+        -1 = Pure Left, 0 = Balanced, +1 = Pure Right.
+        """
+        if y_stereo.ndim < 2 or y_stereo.shape[0] < 2:
+            return 0.0
+            
+        l_rms = np.sqrt(np.mean(y_stereo[0]**2) + 1e-12)
+        r_rms = np.sqrt(np.mean(y_stereo[1]**2) + 1e-12)
+        
+        balance = (r_rms - l_rms) / (l_rms + r_rms + 1e-12)
+        return float(np.clip(balance, -1.0, 1.0))
+
+    def calculate_snr(self, dialogue_y, background_y):
+        """
+        Calculates Speech-to-Noise Ratio (SNR) for Intelligibility.
+        """
+        diag_mono = librosa.to_mono(dialogue_y) if dialogue_y.ndim > 1 else dialogue_y
+        bg_mono = librosa.to_mono(background_y) if background_y.ndim > 1 else background_y
+        
+        diag_pow = np.mean(diag_mono**2) + 1e-12
+        bg_pow = np.mean(bg_mono**2) + 1e-12
+        
+        snr = 10 * np.log10(diag_pow / bg_pow)
+        return float(np.clip(snr, -20, 60))
 
     def calculate_stereo_width(self, y_stereo):
         """
@@ -128,30 +214,6 @@ class MikupDSPProcessor:
         
         return gaps
 
-    def analyze_ducking(self, dialogue_y, music_y, hop_length=512):
-        """
-        Identifies 'Impact Mikups' where music ducks specifically for dialogue.
-        Uses a dynamic calculation comparing RMS peaks.
-        """
-        # Load as mono for RMS calculation if needed, but the original loading is stereo
-        diag_mono = librosa.to_mono(dialogue_y) if dialogue_y.ndim > 1 else dialogue_y
-        music_mono = librosa.to_mono(music_y) if music_y.ndim > 1 else music_y
-
-        diag_rms = librosa.feature.rms(y=diag_mono, hop_length=hop_length)[0]
-        music_rms = librosa.feature.rms(y=music_mono, hop_length=hop_length)[0]
-        
-        # Ducking index: measure correlation or inverse relationship
-        # Add 1e-6 to avoid divide by zero
-        mean_dialogue = self.safe_float(np.mean(diag_rms))
-        mean_music = self.safe_float(np.mean(music_rms))
-        if mean_dialogue is None or mean_music is None:
-            return None
-
-        ducking_index = mean_dialogue / (mean_music + 1e-6)
-        
-        # Clamp to realistic bounds
-        return self.safe_float(min(ducking_index, 100.0))
-
     def process_stems(self, stems, transcription_path):
         """
         Full processing pass for a set of stems.
@@ -191,34 +253,20 @@ class MikupDSPProcessor:
             "spatial_metrics": {
                 "total_duration": total_duration if total_duration is not None else 0.0
             },
-            "impact_metrics": {}
+            "impact_metrics": {},
+            "lufs_graph": {}
         }
 
-        # Analyze dialogue/reverb using bounded windows to avoid OOM on long inputs.
-        if self._is_existing_file(stems.get("dialogue_dry")):
-            try:
-                y, _ = self._load_analysis_window(stems["dialogue_dry"], mono=False)
-                vocal_clarity = self.safe_float(
-                    np.mean(librosa.feature.spectral_centroid(y=librosa.to_mono(y), sr=self.sr))
-                )
-                if vocal_clarity is not None:
-                    results["spatial_metrics"]["vocal_clarity"] = vocal_clarity
-                results["spatial_metrics"]["vocal_width"] = self.calculate_stereo_width(y)
-            except (OSError, ValueError, RuntimeError) as exc:
-                logger.error("Error processing dialogue_dry: %s", exc)
+        # LUFS Analysis for all stems
+        for stem_key in ["dialogue_raw", "background_raw"]:
+            if self._is_existing_file(stems.get(stem_key)):
+                try:
+                    y, _ = self._load_analysis_window(stems[stem_key], mono=False)
+                    results["lufs_graph"][stem_key] = self.calculate_lufs_series(y)
+                except Exception as exc:
+                    logger.error("Error calculating LUFS for %s: %s", stem_key, exc)
 
-        # Analyze Reverb Tail
-        if self._is_existing_file(stems.get("reverb_tail")):
-            try:
-                y_rev, _ = self._load_analysis_window(stems["reverb_tail"], mono=False)
-                reverb_density = self.safe_float(np.mean(librosa.feature.rms(y=librosa.to_mono(y_rev))))
-                if reverb_density is not None:
-                    results["spatial_metrics"]["reverb_density"] = reverb_density
-                results["spatial_metrics"]["reverb_width"] = self.calculate_stereo_width(y_rev)
-            except (OSError, ValueError, RuntimeError) as exc:
-                logger.error("Error processing reverb_tail: %s", exc)
-
-        # Analyze Music/Background for Ducking
+        # Diagnostic Meter Metrics
         if self._is_existing_file(stems.get("dialogue_raw")) and self._is_existing_file(stems.get("background_raw")):
             try:
                 y_diag, y_bg = self._load_aligned_windows(
@@ -226,14 +274,37 @@ class MikupDSPProcessor:
                     stems["background_raw"],
                     mono=False,
                 )
-                ducking_intensity = self.analyze_ducking(y_diag, y_bg)
-                if ducking_intensity is not None:
-                    results["impact_metrics"]["ducking_intensity"] = ducking_intensity
+                results["diagnostic_meters"] = {
+                    "intelligibility_snr": self.calculate_snr(y_diag, y_bg),
+                    "stereo_correlation": self.calculate_stereo_width(y_diag), # Use dialogue width as proxy for now
+                    "stereo_balance": self.calculate_stereo_balance(y_diag)
+                }
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.error("Error processing ducking metrics: %s", exc)
+                logger.error("Error processing diagnostic metrics: %s", exc)
 
         logger.info("DSP Processing Complete.")
         return results
+
+if __name__ == "__main__":
+    # Example usage
+    processor = MikupDSPProcessor()
+    # Mock paths
+    mock_stems = {
+        "dialogue_dry": "data/processed/test_Dry_Vocals.wav",
+        "reverb_tail": "data/processed/test_Reverb.wav",
+        "dialogue_raw": "data/processed/test_Vocals.wav",
+        "background_raw": "data/processed/test_Instrumental.wav"
+    }
+    mock_trans = "data/processed/mock_transcription.json"
+    
+    if os.path.exists(mock_trans):
+        try:
+            report = processor.process_stems(mock_stems, mock_trans)
+            print(json.dumps(report, indent=2))
+        except (FileNotFoundError, OSError, ValueError, RuntimeError) as exc:
+            logger.error("DSP processing failed: %s", exc)
+            sys.exit(1)
+
 
 if __name__ == "__main__":
     # Example usage

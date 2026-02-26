@@ -1,131 +1,292 @@
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, AreaChart, Area, YAxis } from 'recharts';
-import type { MikupPayload } from '../types';
+import React, { useState, useMemo } from 'react';
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, 
+  ResponsiveContainer, ReferenceLine, Label, Area, AreaChart 
+} from 'recharts';
+import { MikupPayload, LufsSeries } from '../types';
+import { Flag, Waves, Activity, Zap, Info, Layers, Maximize2 } from 'lucide-react';
+import { clsx } from 'clsx';
 
-export function MetricsPanel({ metrics, semantics }: { metrics?: MikupPayload['metrics'], semantics?: MikupPayload['semantics'] }) {
-  const pacingData = metrics?.pacing_mikups?.map((m, i) => ({
-    name: `Gap ${i+1}`,
-    duration: m.duration_ms,
-  })) || [];
+interface MetricsPanelProps {
+  payload: MikupPayload;
+}
 
-  // Mocking a loudness curve for visualization
-  const loudnessData = Array.from({ length: 60 }, (_, i) => ({
-    time: i,
-    dialogue: 45 + Math.sin(i * 0.4) * 15 + Math.random() * 5,
-    music: 20 + Math.cos(i * 0.3) * 8 + Math.random() * 3,
-  }));
+interface GraphDataPoint {
+  time: number;
+  timeStr: string;
+  diagM: number;
+  diagST: number;
+  bgM: number;
+  bgST: number;
+}
 
-  const tags = semantics?.background_tags || [];
+export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
+  const [activeStreams, setActiveStreams] = useState<Set<string>>(new Set(['diagST', 'bgST']));
+  const [flags, setFlags] = useState<{ time: number; label: string }[]>([]);
+  
+  const graphData = useMemo(() => {
+    const lufs = payload.metrics?.lufs_graph;
+    if (!lufs) return [];
+
+    const diag = lufs.dialogue_raw;
+    const bg = lufs.background_raw;
+    if (!diag && !bg) return [];
+
+    const maxLen = Math.max(diag?.momentary.length ?? 0, bg?.momentary.length ?? 0);
+    const data: GraphDataPoint[] = [];
+
+    // Assuming 2 data points per second (hop_length=11025 at 22050Hz)
+    for (let i = 0; i < maxLen; i++) {
+      const time = i / 2.0;
+      data.push({
+        time,
+        timeStr: `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}`,
+        diagM: diag?.momentary[i] ?? -70,
+        diagST: diag?.short_term[i] ?? -70,
+        bgM: bg?.momentary[i] ?? -70,
+        bgST: bg?.short_term[i] ?? -70,
+      });
+    }
+    return data;
+  }, [payload.metrics?.lufs_graph]);
+
+  const toggleStream = (stream: string) => {
+    const next = new Set(activeStreams);
+    if (next.has(stream)) next.delete(stream);
+    else next.add(stream);
+    setActiveStreams(next);
+  };
+
+  const handleGraphClick = (data: any) => {
+    if (data && data.activePayload && data.activePayload[0]) {
+      const point = data.activePayload[0].payload as GraphDataPoint;
+      const label = `Flag at ${point.timeStr}`;
+      setFlags([...flags, { time: point.time, label }]);
+    }
+  };
+
+  if (!payload.metrics?.lufs_graph) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-panel-border rounded-3xl bg-background/50">
+        <Activity size={48} className="text-text-muted/20 mb-4" />
+        <p className="text-text-muted font-medium italic">LUFS Graph data not available for this session.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full gap-12">
-      {/* Top Row: Loudness Curve */}
-      <div className="flex-1 min-h-[200px]">
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-xs text-textMuted uppercase tracking-widest font-bold">Loudness Density</h3>
-          <div className="flex gap-6">
-            <LegendItem color="var(--color-accent)" label="Dialogue" />
-            <LegendItem color="oklch(0.92 0.04 250)" label="Background" />
+    <div className="space-y-6 animate-in fade-in duration-700">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-accent/10 text-accent">
+            <Activity size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-text-main leading-tight">LUFS Laboratory</h3>
+            <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted">EBU R128 Density Mapping</p>
           </div>
         </div>
-        <div className="h-44 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={loudnessData}>
-              <defs>
-                <linearGradient id="colorDiag" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.2}/>
-                  <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'white', border: '1px solid var(--color-panel-border)', borderRadius: '12px', fontSize: '11px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.05)' }}
-                itemStyle={{ color: 'var(--color-text-main)' }}
-              />
+
+        <div className="flex flex-wrap gap-2">
+          <StreamToggle 
+            label="Dialogue" 
+            color="oklch(0.7 0.12 260)" // Blue
+            isActive={activeStreams.has('diagST')}
+            onClick={() => toggleStream('diagST')}
+          />
+          <StreamToggle 
+            label="Background" 
+            color="oklch(0.7 0.12 150)" // Green
+            isActive={activeStreams.has('bgST')}
+            onClick={() => toggleStream('bgST')}
+          />
+          <StreamToggle 
+            label="Momentary" 
+            color="oklch(0.7 0.12 300)" // Purple
+            isActive={activeStreams.has('diagM') || activeStreams.has('bgM')}
+            onClick={() => {
+              toggleStream('diagM');
+              toggleStream('bgM');
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="panel p-6 h-[380px] relative overflow-hidden group">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={graphData}
+            onClick={handleGraphClick}
+            margin={{ top: 20, right: 10, left: -20, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="colorDiag" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.7 0.12 260)" stopOpacity={0.15}/>
+                <stop offset="95%" stopColor="oklch(0.7 0.12 260)" stopOpacity={0}/>
+              </linearGradient>
+              <linearGradient id="colorBg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0.15}/>
+                <stop offset="95%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(0.9 0.01 250)" />
+            <XAxis 
+              dataKey="time" 
+              hide={true}
+            />
+            <YAxis 
+              domain={[-60, 0]} 
+              ticks={[-60, -48, -36, -24, -12, 0]}
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 9, fill: 'oklch(0.5 0.01 250)', fontWeight: 700 }}
+            />
+            <Tooltip 
+              content={<CustomTooltip />}
+              cursor={{ stroke: 'oklch(0.7 0.12 260)', strokeWidth: 1, strokeDasharray: '4 4' }}
+            />
+            
+            {activeStreams.has('diagST') && (
               <Area 
                 type="monotone" 
-                dataKey="dialogue" 
-                stroke="var(--color-accent)" 
+                dataKey="diagST" 
+                stroke="oklch(0.7 0.12 260)" 
+                strokeWidth={2.5}
                 fillOpacity={1} 
                 fill="url(#colorDiag)" 
-                strokeWidth={2.5} 
-                animationDuration={1000}
+                animationDuration={1500}
               />
+            )}
+            {activeStreams.has('bgST') && (
               <Area 
                 type="monotone" 
-                dataKey="music" 
-                stroke="oklch(0.9 0.02 250)" 
-                fill="oklch(0.96 0.01 250)" 
-                strokeWidth={1.5}
+                dataKey="bgST" 
+                stroke="oklch(0.7 0.12 150)" 
+                strokeWidth={2}
+                fillOpacity={1} 
+                fill="url(#colorBg)" 
+                animationDuration={1500}
               />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Bottom Row: Pacing and Semantics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-        <div className="flex flex-col">
-          <h3 className="text-xs text-textMuted mb-6 uppercase tracking-widest font-bold">Temporal Gaps</h3>
-          <div className="h-32">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pacingData}>
-                <XAxis dataKey="name" hide />
-                <YAxis hide domain={[0, 'auto']} />
-                <Tooltip 
-                  cursor={{ fill: 'var(--color-accent-dim)' }}
-                  contentStyle={{ backgroundColor: 'white', border: '1px solid var(--color-panel-border)', borderRadius: '10px', fontSize: '10px' }}
-                />
-                <Bar 
-                  dataKey="duration" 
-                  fill="var(--color-accent)" 
-                  radius={[4, 4, 4, 4]} 
-                  opacity={0.3}
-                  className="hover:opacity-100 transition-all duration-300"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="flex flex-col">
-          <h3 className="text-xs text-textMuted mb-6 uppercase tracking-widest font-bold">Semantic Vectors</h3>
-          <div className="grid gap-5">
-            {tags.length > 0 ? tags.slice(0, 4).map((tag, i) => (
-              <div key={i} className="group cursor-default">
-                <div className="flex justify-between text-[11px] mb-2 font-medium">
-                  <span className="text-textMain/70 group-hover:text-accent transition-colors">{tag.label ? tag.label.toUpperCase() : 'UNKNOWN'}</span>
-                  <span className="text-textMuted">{Math.round((tag.score || 0) * 100)}%</span>
-                </div>
-                <div className="w-full bg-background h-2 rounded-full overflow-hidden border border-panel-border">
-                  <div 
-                    className="bg-accent h-full transition-all duration-1000 ease-out opacity-40 group-hover:opacity-100" 
-                    style={{ width: `${Math.min(Math.max((tag.score || 0) * 100, 0), 100)}%` }} 
-                  />
-                </div>
-              </div>
-            )) : (
-              <div className="flex items-center justify-center h-24 border-2 border-dashed border-panel-border rounded-2xl bg-background/50">
-                <p className="text-xs text-textMuted font-medium italic">Waiting for analysis...</p>
-              </div>
             )}
+            
+            {activeStreams.has('diagM') && (
+              <Line 
+                type="monotone" 
+                dataKey="diagM" 
+                stroke="oklch(0.7 0.12 260)" 
+                strokeWidth={1} 
+                dot={false} 
+                strokeOpacity={0.3}
+              />
+            )}
+            {activeStreams.has('bgM') && (
+              <Line 
+                type="monotone" 
+                dataKey="bgM" 
+                stroke="oklch(0.7 0.12 150)" 
+                strokeWidth={1} 
+                dot={false} 
+                strokeOpacity={0.3}
+              />
+            )}
+
+            <ReferenceLine y={-23} stroke="oklch(0.8 0.1 350)" strokeDasharray="3 3">
+              <Label value="TARGET (-23)" position="insideTopRight" fill="oklch(0.8 0.1 350)" fontSize={8} fontWeight={900} />
+            </ReferenceLine>
+
+            {flags.map((flag, i) => (
+              <ReferenceLine 
+                key={i} 
+                x={flag.time} 
+                stroke="oklch(0.7 0.12 300)" 
+                strokeWidth={2}
+              >
+                <Label content={<FlagLabel label={flag.label} />} />
+              </ReferenceLine>
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+
+        {/* Floating Metrics Overlay */}
+        <div className="absolute bottom-6 right-8 flex items-center gap-6 bg-white/60 backdrop-blur-xl px-5 py-3 rounded-2xl border border-panel-border shadow-xl ring-1 ring-black/[0.03]">
+          <div className="flex flex-col">
+            <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Integrated</span>
+            <span className="text-xl font-black text-text-main tracking-tighter">
+              {payload.metrics?.lufs_graph?.dialogue_raw?.integrated.toFixed(1) ?? '--'} <span className="text-xs font-medium text-text-muted">LUFS</span>
+            </span>
+          </div>
+          <div className="w-px h-8 bg-panel-border/60" />
+          <div className="flex flex-col">
+            <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Peak S.Term</span>
+            <span className="text-xl font-black text-text-main tracking-tighter">
+              {graphData.length > 0 ? Math.max(...graphData.map(d => d.diagST)).toFixed(1) : '--'}
+            </span>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div 
-        className="w-3 h-0.5" 
-        style={{ 
-          backgroundColor: color, 
-          borderTop: dashed ? `1px dashed ${color}` : 'none',
-          height: dashed ? 0 : '2px'
-        }} 
-      />
-      <span className="text-[9px] text-textMuted font-bold uppercase tracking-tighter">{label}</span>
+      <div className="flex items-start gap-4 p-4 rounded-2xl bg-accent/5 border border-accent/10 transition-all hover:bg-accent/10">
+        <div className="p-2 rounded-xl bg-white shadow-sm text-accent shrink-0">
+          <Info size={16} />
+        </div>
+        <p className="text-[11px] text-text-muted leading-relaxed font-medium">
+          <span className="font-black text-accent uppercase tracking-wider mr-1">Laboratory Note:</span> 
+          The graph above maps perceived loudness density over time. <strong>Short-term (3s)</strong> provides a stable view of structural dynamics, while <strong>Momentary (400ms)</strong> captures surgical transients. Click to place analysis anchors.
+        </p>
+      </div>
     </div>
   );
-}
+};
+
+const StreamToggle: React.FC<{ label: string; color: string; isActive: boolean; onClick: () => void }> = ({ 
+  label, color, isActive, onClick 
+}) => (
+  <button 
+    onClick={onClick}
+    className={clsx(
+      "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all duration-500 flex items-center gap-2",
+      isActive 
+        ? "bg-white shadow-md border-panel-border scale-105" 
+        : "opacity-30 grayscale border-transparent hover:opacity-100 hover:grayscale-0"
+    )}
+    style={{ color: isActive ? color : undefined }}
+  >
+    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+    {label}
+  </button>
+);
+
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload as GraphDataPoint;
+    return (
+      <div className="bg-white/95 backdrop-blur-2xl border border-panel-border p-4 rounded-2xl shadow-2xl ring-1 ring-black/[0.05] space-y-3">
+        <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] border-b border-panel-border pb-2">{data.timeStr}</div>
+        <div className="space-y-2">
+          <TooltipRow label="Dialogue" value={data.diagST} color="oklch(0.7 0.12 260)" />
+          <TooltipRow label="Background" value={data.bgST} color="oklch(0.7 0.12 150)" />
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+const TooltipRow = ({ label, value, color }: { label: string; value: number; color: string }) => (
+  <div className="flex items-center justify-between gap-8">
+    <div className="flex items-center gap-2.5">
+      <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: color }} />
+      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{label}</span>
+    </div>
+    <span className="text-sm font-black text-text-main tracking-tighter">{value.toFixed(1)} <span className="text-[9px] font-medium text-text-muted">dB</span></span>
+  </div>
+);
+
+const FlagLabel = ({ label }: { label: string }) => (
+  <g transform="translate(0, -10)">
+    <rect x="-45" y="-22" width="90" height="22" rx="6" fill="oklch(0.7 0.12 300)" className="shadow-lg" />
+    <text x="0" y="-7" textAnchor="middle" fill="white" fontSize="9" fontWeight="900" textTransform="uppercase" letterSpacing="0.05em">
+      {label}
+    </text>
+  </g>
+);

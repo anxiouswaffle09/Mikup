@@ -1,7 +1,17 @@
 use std::collections::HashSet;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use tauri::Emitter;
 use tauri::Manager;
+use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+
+#[derive(Clone, serde::Serialize)]
+struct ProgressPayload {
+    stage: String,
+    progress: u32,
+    message: String,
+}
 
 fn contains_unsafe_shell_tokens(value: &str) -> bool {
     value.contains(';')
@@ -53,6 +63,23 @@ fn resolve_python_path(project_root: &Path) -> String {
 }
 
 #[tauri::command]
+async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let project_root =
+        find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
+    let history_path = project_root.join("data/history.json");
+
+    if !history_path.exists() {
+        return Ok(serde_json::Value::Array(vec![]));
+    }
+
+    let content = tokio::fs::read_to_string(history_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let history: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(history)
+}
+
+#[tauri::command]
 async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<String, String> {
     if input_path.trim().is_empty() {
         return Err("Input path must not be empty".to_string());
@@ -73,7 +100,8 @@ async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<Stri
 
     let input_path_arg = PathBuf::from(input_path).to_string_lossy().into_owned();
     let python_path = resolve_python_path(&project_root);
-    let output = app
+
+    let (mut rx, _child) = app
         .shell()
         .command(&python_path)
         .current_dir(&project_root)
@@ -85,13 +113,41 @@ async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<Stri
             "--output",
             output_path_arg.as_str(),
         ])
-        .output()
-        .await
+        .spawn()
         .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Pipeline failed: {}", error));
+    let mut final_payload = String::new();
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                for sub_line in line_str.lines() {
+                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(sub_line) {
+                        if json_val["type"] == "progress" {
+                            let _ = app.emit(
+                                "process-status",
+                                ProgressPayload {
+                                    stage: json_val["stage"].as_str().unwrap_or("").to_string(),
+                                    progress: json_val["progress"].as_u64().unwrap_or(0) as u32,
+                                    message: json_val["message"].as_str().unwrap_or("").to_string(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+            CommandEvent::Stderr(line) => {
+                eprintln!("Python Error: {}", String::from_utf8_lossy(&line));
+            }
+            CommandEvent::Terminated(status) => {
+                if status.code != Some(0) {
+                    return Err(format!("Pipeline failed with exit code {:?}", status.code));
+                }
+                break;
+            }
+            _ => {}
+        }
     }
 
     // Read result using tokio
@@ -106,8 +162,9 @@ async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<Stri
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![process_audio])
+        .invoke_handler(tauri::generate_handler![process_audio, get_history])
         .setup(|app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

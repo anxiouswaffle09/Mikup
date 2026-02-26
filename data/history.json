@@ -1,0 +1,620 @@
+[
+  {
+    "id": "20260226_154752",
+    "filename": "test.wav",
+    "date": "2026-02-26T15:47:52.640743",
+    "duration": 10.0,
+    "payload": {
+      "metadata": {
+        "source_file": "test.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-02-26T15:47:52.640092"
+      },
+      "transcription": {
+        "segments": [
+          {
+            "start": 1.0,
+            "end": 3.5,
+            "text": "I can't believe we're actually doing this.",
+            "speaker": "SPEAKER_01"
+          },
+          {
+            "start": 4.2,
+            "end": 5.8,
+            "text": "We don't have a choice, Arthur.",
+            "speaker": "SPEAKER_02"
+          },
+          {
+            "start": 7.5,
+            "end": 9.2,
+            "text": "The engine is failing, and we're losing oxygen.",
+            "speaker": "SPEAKER_02"
+          }
+        ],
+        "word_segments": [
+          {
+            "word": "I",
+            "start": 1.0,
+            "end": 1.2
+          },
+          {
+            "word": "can't",
+            "start": 1.2,
+            "end": 1.5
+          },
+          {
+            "word": "believe",
+            "start": 1.5,
+            "end": 1.8
+          },
+          {
+            "word": "we're",
+            "start": 1.8,
+            "end": 2.0
+          },
+          {
+            "word": "actually",
+            "start": 2.0,
+            "end": 2.5
+          },
+          {
+            "word": "doing",
+            "start": 2.5,
+            "end": 3.0
+          },
+          {
+            "word": "this",
+            "start": 3.0,
+            "end": 3.5
+          }
+        ]
+      },
+      "metrics": {
+        "pacing_mikups": [
+          {
+            "timestamp": 3.5,
+            "duration_ms": 700,
+            "context": "Between SPEAKER_01 and SPEAKER_02"
+          },
+          {
+            "timestamp": 5.8,
+            "duration_ms": 1700,
+            "context": "Between SPEAKER_02 and SPEAKER_02"
+          }
+        ],
+        "spatial_metrics": {
+          "total_duration": 10.0
+        },
+        "impact_metrics": {},
+        "lufs_graph": {
+          "dialogue_raw": {
+            "integrated": -65.19078441394534,
+            "momentary": [
+              -65.44151885121316,
+              -65.4003476046704,
+              -65.4206353042901,
+              -65.31730589403882,
+              -65.4351646100399,
+              -65.24258553147382,
+              -65.35910371704375,
+              -65.42885573466125,
+              -65.39880600851762,
+              -65.36090642716391,
+              -65.30382273840287,
+              -65.32055095199695,
+              -65.44292153504891,
+              -65.42711024000624,
+              -65.43193919589586,
+              -65.42766334957578,
+              -65.36195821341856,
+              -65.34752060727678,
+              -65.28538018090565,
+              -65.34928670980771
+            ],
+            "short_term": [
+              -65.3934611019462,
+              -65.39491530022535,
+              -65.3728556303543,
+              -65.36788532916883,
+              -65.34876367149977,
+              -65.36207236231469,
+              -65.36133635295636,
+              -65.34365156945209,
+              -65.35370881847588,
+              -65.36124430619563,
+              -65.3870871835855,
+              -65.38832236167548,
+              -65.38824639344988,
+              -65.40394064401069,
+              -65.40357558110536,
+              -65.40605074725441,
+              -65.39299670933995,
+              -65.36635766876897,
+              -65.3577136042565,
+              -65.35060203119215
+            ]
+          },
+          "background_raw": {
+            "integrated": -65.19078441394534,
+            "momentary": [
+              -65.44151885121316,
+              -65.4003476046704,
+              -65.4206353042901,
+              -65.31730589403882,
+              -65.4351646100399,
+              -65.24258553147382,
+              -65.35910371704375,
+              -65.42885573466125,
+              -65.39880600851762,
+              -65.36090642716391,
+              -65.30382273840287,
+              -65.32055095199695,
+              -65.44292153504891,
+              -65.42711024000624,
+              -65.43193919589586,
+              -65.42766334957578,
+              -65.36195821341856,
+              -65.34752060727678,
+              -65.28538018090565,
+              -65.34928670980771
+            ],
+            "short_term": [
+              -65.3934611019462,
+              -65.39491530022535,
+              -65.3728556303543,
+              -65.36788532916883,
+              -65.34876367149977,
+              -65.36207236231469,
+              -65.36133635295636,
+              -65.34365156945209,
+              -65.35370881847588,
+              -65.36124430619563,
+              -65.3870871835855,
+              -65.38832236167548,
+              -65.38824639344988,
+              -65.40394064401069,
+              -65.40357558110536,
+              -65.40605074725441,
+              -65.39299670933995,
+              -65.36635766876897,
+              -65.3577136042565,
+              -65.35060203119215
+            ]
+          }
+        },
+        "diagnostic_meters": {
+          "intelligibility_snr": 0.0,
+          "stereo_correlation": 1.0,
+          "stereo_balance": 0.0
+        }
+      },
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "data/processed/test_Vocals.wav",
+          "data/processed/test_Instrumental.wav",
+          "data/processed/test_Dry_Vocals.wav",
+          "data/processed/test_Reverb.wav"
+        ]
+      }
+    }
+  },
+  {
+    "id": "20260226_154752",
+    "filename": "test.wav",
+    "date": "2026-02-26T15:47:52.370808",
+    "duration": 10.0,
+    "payload": {
+      "metadata": {
+        "source_file": "test.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-02-26T15:47:52.370018"
+      },
+      "transcription": {
+        "segments": [
+          {
+            "start": 1.0,
+            "end": 3.5,
+            "text": "I can't believe we're actually doing this.",
+            "speaker": "SPEAKER_01"
+          },
+          {
+            "start": 4.2,
+            "end": 5.8,
+            "text": "We don't have a choice, Arthur.",
+            "speaker": "SPEAKER_02"
+          },
+          {
+            "start": 7.5,
+            "end": 9.2,
+            "text": "The engine is failing, and we're losing oxygen.",
+            "speaker": "SPEAKER_02"
+          }
+        ],
+        "word_segments": [
+          {
+            "word": "I",
+            "start": 1.0,
+            "end": 1.2
+          },
+          {
+            "word": "can't",
+            "start": 1.2,
+            "end": 1.5
+          },
+          {
+            "word": "believe",
+            "start": 1.5,
+            "end": 1.8
+          },
+          {
+            "word": "we're",
+            "start": 1.8,
+            "end": 2.0
+          },
+          {
+            "word": "actually",
+            "start": 2.0,
+            "end": 2.5
+          },
+          {
+            "word": "doing",
+            "start": 2.5,
+            "end": 3.0
+          },
+          {
+            "word": "this",
+            "start": 3.0,
+            "end": 3.5
+          }
+        ]
+      },
+      "metrics": {
+        "pacing_mikups": [
+          {
+            "timestamp": 3.5,
+            "duration_ms": 700,
+            "context": "Between SPEAKER_01 and SPEAKER_02"
+          },
+          {
+            "timestamp": 5.8,
+            "duration_ms": 1700,
+            "context": "Between SPEAKER_02 and SPEAKER_02"
+          }
+        ],
+        "spatial_metrics": {
+          "total_duration": 10.0
+        },
+        "impact_metrics": {},
+        "lufs_graph": {
+          "dialogue_raw": {
+            "integrated": -65.19078441394534,
+            "momentary": [
+              -65.44151885121316,
+              -65.4003476046704,
+              -65.4206353042901,
+              -65.31730589403882,
+              -65.4351646100399,
+              -65.24258553147382,
+              -65.35910371704375,
+              -65.42885573466125,
+              -65.39880600851762,
+              -65.36090642716391,
+              -65.30382273840287,
+              -65.32055095199695,
+              -65.44292153504891,
+              -65.42711024000624,
+              -65.43193919589586,
+              -65.42766334957578,
+              -65.36195821341856,
+              -65.34752060727678,
+              -65.28538018090565,
+              -65.34928670980771
+            ],
+            "short_term": [
+              -65.3934611019462,
+              -65.39491530022535,
+              -65.3728556303543,
+              -65.36788532916883,
+              -65.34876367149977,
+              -65.36207236231469,
+              -65.36133635295636,
+              -65.34365156945209,
+              -65.35370881847588,
+              -65.36124430619563,
+              -65.3870871835855,
+              -65.38832236167548,
+              -65.38824639344988,
+              -65.40394064401069,
+              -65.40357558110536,
+              -65.40605074725441,
+              -65.39299670933995,
+              -65.36635766876897,
+              -65.3577136042565,
+              -65.35060203119215
+            ]
+          },
+          "background_raw": {
+            "integrated": -65.19078441394534,
+            "momentary": [
+              -65.44151885121316,
+              -65.4003476046704,
+              -65.4206353042901,
+              -65.31730589403882,
+              -65.4351646100399,
+              -65.24258553147382,
+              -65.35910371704375,
+              -65.42885573466125,
+              -65.39880600851762,
+              -65.36090642716391,
+              -65.30382273840287,
+              -65.32055095199695,
+              -65.44292153504891,
+              -65.42711024000624,
+              -65.43193919589586,
+              -65.42766334957578,
+              -65.36195821341856,
+              -65.34752060727678,
+              -65.28538018090565,
+              -65.34928670980771
+            ],
+            "short_term": [
+              -65.3934611019462,
+              -65.39491530022535,
+              -65.3728556303543,
+              -65.36788532916883,
+              -65.34876367149977,
+              -65.36207236231469,
+              -65.36133635295636,
+              -65.34365156945209,
+              -65.35370881847588,
+              -65.36124430619563,
+              -65.3870871835855,
+              -65.38832236167548,
+              -65.38824639344988,
+              -65.40394064401069,
+              -65.40357558110536,
+              -65.40605074725441,
+              -65.39299670933995,
+              -65.36635766876897,
+              -65.3577136042565,
+              -65.35060203119215
+            ]
+          }
+        },
+        "diagnostic_meters": {
+          "intelligibility_snr": 0.0,
+          "stereo_correlation": 1.0,
+          "stereo_balance": 0.0
+        }
+      },
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "data/processed/test_Vocals.wav",
+          "data/processed/test_Instrumental.wav",
+          "data/processed/test_Dry_Vocals.wav",
+          "data/processed/test_Reverb.wav"
+        ]
+      }
+    }
+  },
+  {
+    "id": "20260226_154637",
+    "filename": "test.wav",
+    "date": "2026-02-26T15:46:37.121371",
+    "duration": 10.0,
+    "payload": {
+      "metadata": {
+        "source_file": "test.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-02-26T15:46:37.120838"
+      },
+      "transcription": {
+        "segments": [
+          {
+            "start": 1.0,
+            "end": 3.5,
+            "text": "I can't believe we're actually doing this.",
+            "speaker": "SPEAKER_01"
+          },
+          {
+            "start": 4.2,
+            "end": 5.8,
+            "text": "We don't have a choice, Arthur.",
+            "speaker": "SPEAKER_02"
+          },
+          {
+            "start": 7.5,
+            "end": 9.2,
+            "text": "The engine is failing, and we're losing oxygen.",
+            "speaker": "SPEAKER_02"
+          }
+        ],
+        "word_segments": [
+          {
+            "word": "I",
+            "start": 1.0,
+            "end": 1.2
+          },
+          {
+            "word": "can't",
+            "start": 1.2,
+            "end": 1.5
+          },
+          {
+            "word": "believe",
+            "start": 1.5,
+            "end": 1.8
+          },
+          {
+            "word": "we're",
+            "start": 1.8,
+            "end": 2.0
+          },
+          {
+            "word": "actually",
+            "start": 2.0,
+            "end": 2.5
+          },
+          {
+            "word": "doing",
+            "start": 2.5,
+            "end": 3.0
+          },
+          {
+            "word": "this",
+            "start": 3.0,
+            "end": 3.5
+          }
+        ]
+      },
+      "metrics": {
+        "pacing_mikups": [
+          {
+            "timestamp": 3.5,
+            "duration_ms": 700,
+            "context": "Between SPEAKER_01 and SPEAKER_02"
+          },
+          {
+            "timestamp": 5.8,
+            "duration_ms": 1700,
+            "context": "Between SPEAKER_02 and SPEAKER_02"
+          }
+        ],
+        "spatial_metrics": {
+          "total_duration": 10.0
+        },
+        "impact_metrics": {},
+        "lufs_graph": {},
+        "diagnostic_meters": {
+          "intelligibility_snr": 0.0,
+          "stereo_correlation": 1.0,
+          "stereo_balance": 0.0
+        }
+      },
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "data/processed/test_Vocals.wav",
+          "data/processed/test_Instrumental.wav",
+          "data/processed/test_Dry_Vocals.wav",
+          "data/processed/test_Reverb.wav"
+        ]
+      }
+    }
+  },
+  {
+    "id": "20260226_154636",
+    "filename": "test.wav",
+    "date": "2026-02-26T15:46:36.929335",
+    "duration": 10.0,
+    "payload": {
+      "metadata": {
+        "source_file": "test.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-02-26T15:46:36.928576"
+      },
+      "transcription": {
+        "segments": [
+          {
+            "start": 1.0,
+            "end": 3.5,
+            "text": "I can't believe we're actually doing this.",
+            "speaker": "SPEAKER_01"
+          },
+          {
+            "start": 4.2,
+            "end": 5.8,
+            "text": "We don't have a choice, Arthur.",
+            "speaker": "SPEAKER_02"
+          },
+          {
+            "start": 7.5,
+            "end": 9.2,
+            "text": "The engine is failing, and we're losing oxygen.",
+            "speaker": "SPEAKER_02"
+          }
+        ],
+        "word_segments": [
+          {
+            "word": "I",
+            "start": 1.0,
+            "end": 1.2
+          },
+          {
+            "word": "can't",
+            "start": 1.2,
+            "end": 1.5
+          },
+          {
+            "word": "believe",
+            "start": 1.5,
+            "end": 1.8
+          },
+          {
+            "word": "we're",
+            "start": 1.8,
+            "end": 2.0
+          },
+          {
+            "word": "actually",
+            "start": 2.0,
+            "end": 2.5
+          },
+          {
+            "word": "doing",
+            "start": 2.5,
+            "end": 3.0
+          },
+          {
+            "word": "this",
+            "start": 3.0,
+            "end": 3.5
+          }
+        ]
+      },
+      "metrics": {
+        "pacing_mikups": [
+          {
+            "timestamp": 3.5,
+            "duration_ms": 700,
+            "context": "Between SPEAKER_01 and SPEAKER_02"
+          },
+          {
+            "timestamp": 5.8,
+            "duration_ms": 1700,
+            "context": "Between SPEAKER_02 and SPEAKER_02"
+          }
+        ],
+        "spatial_metrics": {
+          "total_duration": 10.0
+        },
+        "impact_metrics": {},
+        "lufs_graph": {},
+        "diagnostic_meters": {
+          "intelligibility_snr": 0.0,
+          "stereo_correlation": 1.0,
+          "stereo_balance": 0.0
+        }
+      },
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "data/processed/test_Vocals.wav",
+          "data/processed/test_Instrumental.wav",
+          "data/processed/test_Dry_Vocals.wav",
+          "data/processed/test_Reverb.wav"
+        ]
+      }
+    }
+  }
+]
