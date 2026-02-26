@@ -1,0 +1,25 @@
+# Audio Processing & Separation
+audio-separator
+librosa>=0.10.0
+soundfile>=0.12.1
+pydub>=0.25.1
+
+# Machine Learning & AI
+torch
+torchaudio
+
+# Transcription & Diarization
+whisperx
+pyannote.audio
+
+# The "AI Director"
+google-generativeai
+anthropic
+openai
+
+# Utilities
+numpy
+pandas
+scipy
+python-dotenv
+tqdm
