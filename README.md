@@ -13,11 +13,11 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
 
 ### Headless Pipeline
 
-1. **Ingestion & Surgical Separation:** UVR5 framework (htdemucs_ft) for dialogue/music/SFX splitting.
-2. **Transcription & Micro-Alignment:** WhisperX / Pyannote.audio for word-level timestamps and diarization.
+1. **Ingestion & Surgical Separation:** UVR5/Roformer frameworks for dialogue/music/SFX splitting.
+2. **Transcription & Micro-Alignment:** WhisperX / Pyannote.audio (v4 Community-1) for word-level timestamps and diarization.
 3. **Feature Extraction (DSP):** Librosa / Essentia for LUFS, onset detection, frequency analysis.
-4. **Semantic Audio Understanding:** CLAP for semantic text tagging of audio stems.
-5. **The "AI Director":** LLM (Gemini 1.5 Pro / Claude 3.5 Sonnet) generates the actionable "Mikup Report."
+4. **Semantic Audio Understanding:** CLAP / Transformers v5 for semantic text tagging of audio stems.
+5. **The "AI Director":** LLM (Gemini 2.0 Flash via Google-GenAI SDK) generates the actionable "Mikup Report."
 
 ## Getting Started
 
@@ -38,7 +38,8 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
    ```bash
    pip install -r requirements.txt
    ```
-4. Copy `.env.example` to `.env` and add your API keys.
+4. (Optional, for full Stage 2 transcription) install `whisperx` in a compatible environment.
+5. Copy `.env.example` to `.env` and add your API keys.
 
 ### Usage
 

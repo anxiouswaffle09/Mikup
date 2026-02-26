@@ -1,25 +1,28 @@
 # Audio Processing & Separation
-audio-separator
-librosa>=0.10.0
-soundfile>=0.12.1
+audio-separator==0.41.1
+librosa>=0.11.0,<0.12.0
+soundfile>=0.13.1
 pydub>=0.25.1
 
 # Machine Learning & AI
-torch
-torchaudio
+torch==2.10.0
+torchaudio==2.10.0
+transformers==5.2.0
+torchao==0.7.0
 
 # Transcription & Diarization
-whisperx
-pyannote.audio
+# whisperx currently enforces torch~=2.8 and huggingface-hub<1.0.
+# Keep it optional until upstream publishes compatibility for the upgraded stack.
+pyannote.audio==4.0.4
 
 # The "AI Director"
-google-generativeai
-anthropic
-openai
+google-genai==1.0.0
+anthropic==0.84.0
+openai==2.24.0
 
 # Utilities
-numpy
-pandas
-scipy
-python-dotenv
-tqdm
+numpy>=2.1.0
+pandas==2.2.3
+scipy>=1.15.0
+python-dotenv==1.0.1
+tqdm==4.67.1

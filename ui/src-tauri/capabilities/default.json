@@ -6,6 +6,36 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": ".venv/bin/python3",
+          "cmd": ".venv/bin/python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" }
+          ]
+        },
+        {
+          "name": "python3",
+          "cmd": "python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" }
+          ]
+        }
+      ]
+    }
   ]
 }

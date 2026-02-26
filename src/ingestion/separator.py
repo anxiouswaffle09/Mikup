@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from audio_separator.separator import Separator
 
@@ -15,6 +16,30 @@ class MikupSeparator:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.separator = Separator() # Single instance to be reused
+
+    @staticmethod
+    def _tokens_from_path(file_path):
+        """Extract normalized stem tokens from a path for structured matching."""
+        if not isinstance(file_path, str):
+            return set()
+        stem_name = os.path.splitext(os.path.basename(file_path))[0].lower()
+        tokens = {token for token in re.split(r"[^a-z0-9]+", stem_name) if token}
+        # Normalize compact form used by some models.
+        if "noreverb" in tokens:
+            tokens.update({"no", "reverb"})
+        return tokens
+
+    def _pick_stem(self, stem_paths, required_tokens=None, forbidden_tokens=None):
+        required_tokens = set(required_tokens or [])
+        forbidden_tokens = set(forbidden_tokens or [])
+        for stem_path in stem_paths or []:
+            tokens = self._tokens_from_path(stem_path)
+            if required_tokens and not required_tokens.issubset(tokens):
+                continue
+            if forbidden_tokens and forbidden_tokens.intersection(tokens):
+                continue
+            return stem_path
+        return None
         
     def separate_dialogue(self, input_file, model_name="BS-Roformer-Viperx-v2.ckpt"):
         """
@@ -51,11 +76,11 @@ class MikupSeparator:
         Runs the full Mikup Stage 1 pipeline.
         """
         # 1. Separate Dialogue from Music/SFX
-        primary_stems = self.separate_dialogue(input_file)
+        primary_stems = self.separate_dialogue(input_file) or []
         
-        # Identify dialogue stem (usually contains 'Vocals' in the filename)
-        dialogue_stem = next((f for f in primary_stems if "Vocals" in f), None)
-        bg_stem = next((f for f in primary_stems if "Instrumental" in f), None)
+        # Identify dialogue and background stems using structured token matching.
+        dialogue_stem = self._pick_stem(primary_stems, required_tokens={"vocals"})
+        bg_stem = self._pick_stem(primary_stems, required_tokens={"instrumental"})
         
         results = {
             "dialogue_raw": dialogue_stem,
@@ -64,9 +89,16 @@ class MikupSeparator:
         
         if dialogue_stem:
             # 2. De-reverb the dialogue for spatial metrics
-            reverb_stems = self.dereverb_dialogue(dialogue_stem)
-            results["dialogue_dry"] = next((f for f in reverb_stems if "No_Reverb" in f or "Vocals" in f), None)
-            results["reverb_tail"] = next((f for f in reverb_stems if "Reverb" in f), None)
+            reverb_stems = self.dereverb_dialogue(dialogue_stem) or []
+            results["dialogue_dry"] = (
+                self._pick_stem(reverb_stems, required_tokens={"no", "reverb"})
+                or self._pick_stem(reverb_stems, required_tokens={"vocals"}, forbidden_tokens={"reverb"})
+            )
+            results["reverb_tail"] = self._pick_stem(
+                reverb_stems,
+                required_tokens={"reverb"},
+                forbidden_tokens={"no"},
+            )
             
         return results
 

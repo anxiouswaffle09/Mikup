@@ -1,44 +1,95 @@
-import React, { useState } from 'react';
-import { Send, Sparkles } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Send, User, Sparkles } from 'lucide-react';
+import type { DirectorChatMessage, MikupPayload } from '../types';
 
-export function DirectorChat({ payload }: { payload: any }) {
-  const [messages, setMessages] = useState([
-    { role: 'ai', text: "Hello! I've analyzed the audio. We have some interesting pacing gaps between Speakers 1 and 2. What would you like to dive into?" }
-  ]);
+function getInitialMessages(payload: MikupPayload | null): DirectorChatMessage[] {
+  if (payload?.ai_report) {
+    return [
+      { role: 'ai', text: 'Pipeline analysis complete. I have synthesized the production data into an actionable report.' },
+      { role: 'ai', text: payload.ai_report },
+    ];
+  }
+  if (payload) {
+    return [{ role: 'ai', text: 'Audio architecture deconstructed. Metrics are available for review in the dashboard.' }];
+  }
+  return [{ role: 'ai', text: 'System Online. Awaiting audio master for architectural deconstruction.' }];
+}
+
+export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
+  const [messages, setMessages] = useState<DirectorChatMessage[]>(() => getInitialMessages(payload));
   const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isThinking]);
 
   const handleSend = () => {
-    if (!input) return;
-    setMessages([...messages, { role: 'user', text: input }]);
-    // In a real app, this would call the API
-    setTimeout(() => {
-      setMessages(prev => [...prev, { role: 'ai', text: "Analyzing that specific moment... It looks like the ducking intensity here is 0.99, which is keeping the focus very intimate." }]);
-    }, 1000);
+    if (!input.trim()) return;
+    
+    setMessages(prev => [...prev, { role: 'user', text: input }]);
     setInput('');
+    setIsThinking(true);
+    
+    setTimeout(() => {
+      setIsThinking(false);
+      setMessages(prev => [...prev, { role: 'ai', text: "Analyzing the session dynamics... I've detected a significant shift in spatial breathing around the second act. Would you like a detailed breakdown of the reverb indexing for those specific segments?" }]);
+    }, 1200);
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+    <div className="flex flex-col h-full overflow-hidden">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-6 pr-4 pb-4 scroll-smooth no-scrollbar">
         {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] p-3 rounded-lg text-sm ${m.role === 'user' ? 'bg-accent' : 'bg-white/5'}`}>
+          <div key={i} className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+              m.role === 'user' 
+                ? 'bg-accent/10 text-accent' 
+                : 'bg-background border border-panel-border text-textMuted'
+            }`}>
+              {m.role === 'user' ? <User size={18} /> : <Sparkles size={18} />}
+            </div>
+            <div className={`max-w-[80%] p-4 rounded-2xl text-[13px] leading-relaxed ${
+              m.role === 'user' 
+                ? 'bg-accent text-white rounded-tr-none shadow-lg shadow-accent/10' 
+                : 'bg-background text-textMain border border-panel-border rounded-tl-none'
+            }`}>
               {m.text}
             </div>
           </div>
         ))}
+
+        {isThinking && (
+          <div className="flex gap-4">
+             <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-background border border-panel-border text-accent animate-pulse">
+              <Sparkles size={18} />
+            </div>
+            <div className="bg-background border border-panel-border p-4 rounded-2xl rounded-tl-none flex gap-1.5 items-center">
+              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce" />
+            </div>
+          </div>
+        )}
       </div>
       
-      <div className="mt-4 relative">
+      <div className="mt-4 pt-6 border-t border-panel-border relative">
         <input 
           type="text" 
-          placeholder="Ask about a specific Mikup..."
-          className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 pr-10 text-sm focus:outline-none focus:border-accent"
+          placeholder="Ask the Director anything..."
+          className="w-full bg-background border border-panel-border rounded-xl py-3.5 px-5 pr-14 text-sm transition-all focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/5 placeholder:text-textMuted/50"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
         />
-        <button onClick={handleSend} className="absolute right-2 top-1.5 text-textMuted hover:text-white">
+        <button 
+          onClick={handleSend} 
+          disabled={!input.trim() || isThinking}
+          className="absolute right-3.5 top-[38px] w-9 h-9 flex items-center justify-center rounded-lg text-textMuted hover:text-accent hover:bg-accent/5 transition-all disabled:opacity-20"
+        >
           <Send size={18} />
         </button>
       </div>

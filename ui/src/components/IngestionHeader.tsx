@@ -1,73 +1,127 @@
-import React, { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Activity, Radio, Cpu, HardDrive, Loader2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { parseMikupPayload, type MikupPayload } from '../types';
 
-export function IngestionHeader({ metadata, onPayloadUpdate }: { metadata?: any, onPayloadUpdate?: (payload: any) => void }) {
+interface IngestionHeaderProps {
+  metadata?: MikupPayload['metadata'];
+  inputPath: string;
+  onInputPathChange: (path: string) => void;
+  onPayloadUpdate?: (payload: MikupPayload) => void;
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message;
+  return 'Unknown processing error.';
+}
+
+export function IngestionHeader({
+  metadata,
+  inputPath,
+  onInputPathChange,
+  onPayloadUpdate,
+}: IngestionHeaderProps) {
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleProcess = async () => {
+    const requestedPath = inputPath.trim();
+    if (!requestedPath) {
+      setErrorMessage('Enter an input audio path before processing.');
+      return;
+    }
+
     setLoading(true);
+    setErrorMessage(null);
     try {
-      // In a real Tauri app, we'd open a file picker first
-      // For this demo, we'll process the test file
-      const result: string = await invoke('process_audio', { inputPath: 'data/raw/test.wav' });
-      const payload = JSON.parse(result);
+      const result: string = await invoke('process_audio', { inputPath: requestedPath });
+      const payload = parseMikupPayload(JSON.parse(result) as unknown);
       if (onPayloadUpdate) onPayloadUpdate(payload);
-      alert("Pipeline complete!");
-    } catch (err) {
-      console.error(err);
-      alert("Error: " + err);
+    } catch (error: unknown) {
+      console.error(error);
+      setErrorMessage(formatErrorMessage(error));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex justify-between items-center bg-panel border border-white/5 p-3 rounded-lg">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-accent/20 rounded-md flex items-center justify-center text-accent">
-            <Radio size={20} />
+    <div className="glass-panel p-5 rounded-2xl shrink-0 transition-all">
+      <div className="flex flex-col lg:flex-row items-center justify-between gap-8">
+        {/* Left Section: Branding */}
+        <div className="flex items-center gap-8 shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 bg-accent/10 rounded-xl flex items-center justify-center text-accent">
+              <Radio size={24} />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-textMain">Mikup</h1>
+              <p className="text-[10px] text-textMuted uppercase tracking-widest font-medium">Audio Pipeline</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-sm font-bold leading-tight">Project Mikup</h1>
-            <p className="text-[10px] text-textMuted uppercase tracking-tighter">Audio Architecture Deconstructor</p>
+
+          <div className="h-8 w-px bg-panel-border mx-2 hidden lg:block" />
+
+          <div className="flex gap-6 items-center">
+            <StatusItem label="System" status="Online" colorClass="text-green-600" active icon={<Cpu size={14} />} />
+            <StatusItem label="Engine" status="Ready" colorClass="text-accent" active icon={<Activity size={14} />} />
           </div>
         </div>
-        
-        <div className="h-8 w-px bg-white/5 mx-2" />
-        
-        <div className="flex gap-6">
-          <StatusItem label="Ingestion" status="Online" icon={<HardDrive size={12} />} />
-          <StatusItem label="DSP Engine" status="Ready" icon={<Cpu size={12} />} />
-          <StatusItem label="AI Director" status="Awaiting" icon={<Activity size={12} />} />
+
+        {/* Middle Section: Input Area */}
+        <div className="flex-1 max-w-2xl w-full">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-textMuted">
+              <HardDrive size={16} />
+            </div>
+            <input
+              type="text"
+              value={inputPath}
+              onChange={(event) => onInputPathChange(event.target.value)}
+              className="w-full bg-background border border-panel-border group-hover:border-accent/30 rounded-xl py-3 pl-12 pr-32 text-sm transition-all focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/5"
+              placeholder="Paste path to audio file..."
+            />
+            <div className="absolute inset-y-1.5 right-1.5 flex items-center">
+              <button
+                onClick={handleProcess}
+                disabled={loading}
+                className="h-full bg-accent hover:bg-accent/90 text-white px-6 rounded-lg text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="animate-spin" size={14} /> : 'Process'}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {/* Right Section: Session Pill */}
+        {metadata?.source_file && (
+          <div className="hidden xl:flex items-center gap-3 bg-accent/5 px-4 py-2 rounded-full border border-accent/10">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs font-medium text-accent truncate max-w-[120px]">
+              {metadata.source_file.split('/').pop()}
+            </span>
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-2">
-        <div className="text-right mr-4">
-          <p className="text-[10px] text-textMuted uppercase">Active Payload</p>
-          <p className="text-xs font-mono">{metadata?.source_file || 'No file selected'}</p>
+      {errorMessage && (
+        <div className="mt-4 flex items-center gap-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+          {errorMessage}
         </div>
-        <button 
-          onClick={handleProcess}
-          disabled={loading}
-          className="bg-accent hover:bg-accent/80 px-4 py-2 rounded-md text-xs font-bold transition-colors flex items-center gap-2"
-        >
-          {loading ? <Loader2 className="animate-spin" size={14} /> : 'PROCESS NEW FILE'}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
 
-function StatusItem({ label, status, icon }: { label: string, status: string, icon: any }) {
+function StatusItem({ label, status, colorClass, active, icon }: { label: string; status: string; colorClass: string; active?: boolean, icon: ReactNode }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       <div className="text-textMuted">{icon}</div>
-      <div>
-        <p className="text-[10px] text-textMuted uppercase">{label}</p>
-        <p className="text-[10px] font-bold text-green-400">{status}</p>
+      <div className="flex flex-col">
+        <p className="text-[10px] text-textMuted uppercase font-bold tracking-wider mb-0.5">{label}</p>
+        <p className={`text-xs font-semibold leading-none ${active ? colorClass : 'text-textMuted/40'}`}>{status}</p>
       </div>
     </div>
   );

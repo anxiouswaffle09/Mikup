@@ -54,6 +54,3 @@ def create_mock_data(input_file):
 
 if __name__ == "__main__":
     create_mock_data("test.wav")
-
-if __name__ == "__main__":
-    create_mock_data("test.wav")

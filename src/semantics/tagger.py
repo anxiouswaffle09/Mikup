@@ -15,7 +15,8 @@ class MikupSemanticTagger:
 
     def __init__(self, model_id="laion/clap-htsat-fused", device=None):
         if device is None:
-            self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+            has_mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+            self.device = "cuda" if torch.cuda.is_available() else "mps" if has_mps else "cpu"
         else:
             self.device = device
             
