@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tauri::Manager;
@@ -116,14 +115,23 @@ async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<Stri
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    let mut final_payload = String::new();
+    let mut stdout_buf = String::new();
+    let mut clean_exit = false;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
 
-    while let Some(event) = rx.recv().await {
-        match event {
-            CommandEvent::Stdout(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                for sub_line in line_str.lines() {
-                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(sub_line) {
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let maybe_event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .map_err(|_| "Pipeline timed out after 10 minutes".to_string())?;
+
+        match maybe_event {
+            Some(CommandEvent::Stdout(chunk)) => {
+                stdout_buf.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(pos) = stdout_buf.find('\n') {
+                    let line: String = stdout_buf.drain(..=pos).collect();
+                    let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
                         if json_val["type"] == "progress" {
                             let _ = app.emit(
                                 "process-status",
@@ -137,17 +145,25 @@ async fn process_audio(app: tauri::AppHandle, input_path: String) -> Result<Stri
                     }
                 }
             }
-            CommandEvent::Stderr(line) => {
-                eprintln!("Python Error: {}", String::from_utf8_lossy(&line));
+            Some(CommandEvent::Stderr(line)) => {
+                let msg = String::from_utf8_lossy(&line).to_string();
+                eprintln!("Python Error: {}", msg);
+                let _ = app.emit("process-error", msg);
             }
-            CommandEvent::Terminated(status) => {
+            Some(CommandEvent::Terminated(status)) => {
                 if status.code != Some(0) {
                     return Err(format!("Pipeline failed with exit code {:?}", status.code));
                 }
+                clean_exit = true;
                 break;
             }
-            _ => {}
+            Some(_) => {}
+            None => break,
         }
+    }
+
+    if !clean_exit {
+        return Err("Pipeline terminated unexpectedly".to_string());
     }
 
     // Read result using tokio

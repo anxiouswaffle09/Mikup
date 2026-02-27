@@ -48,14 +48,14 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
               m.role === 'user' 
                 ? 'bg-accent/10 text-accent' 
-                : 'bg-background border border-panel-border text-textMuted'
+                : 'bg-background border border-panel-border text-text-muted'
             }`}>
               {m.role === 'user' ? <User size={18} /> : <Sparkles size={18} />}
             </div>
             <div className={`max-w-[80%] p-4 rounded-2xl text-[13px] leading-relaxed ${
               m.role === 'user' 
                 ? 'bg-accent text-white rounded-tr-none shadow-lg shadow-accent/10' 
-                : 'bg-background text-textMain border border-panel-border rounded-tl-none'
+                : 'bg-background text-text-main border border-panel-border rounded-tl-none'
             }`}>
               {m.text}
             </div>
@@ -80,7 +80,7 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
         <input 
           type="text" 
           placeholder="Ask the Director anything..."
-          className="w-full bg-background border border-panel-border rounded-xl py-3.5 px-5 pr-14 text-sm transition-all focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/5 placeholder:text-textMuted/50"
+          className="w-full bg-background border border-panel-border rounded-xl py-3.5 px-5 pr-14 text-sm transition-all focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/5 placeholder:text-text-muted/50"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
@@ -88,7 +88,7 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
         <button 
           onClick={handleSend} 
           disabled={!input.trim() || isThinking}
-          className="absolute right-3.5 top-[38px] w-9 h-9 flex items-center justify-center rounded-lg text-textMuted hover:text-accent hover:bg-accent/5 transition-all disabled:opacity-20"
+          className="absolute right-3.5 top-[38px] w-9 h-9 flex items-center justify-center rounded-lg text-text-muted hover:text-accent hover:bg-accent/5 transition-all disabled:opacity-20"
         >
           <Send size={18} />
         </button>

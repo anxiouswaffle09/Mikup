@@ -3,6 +3,7 @@ import argparse
 import json
 import gc
 import sys
+import uuid
 import torch
 import logging
 import time
@@ -97,12 +98,12 @@ def update_history(payload, history_path="data/history.json"):
         try:
             with open(history_path, "r", encoding="utf-8") as f:
                 history = json.load(f)
-        except:
+        except (OSError, json.JSONDecodeError):
             history = []
     
     # Create a summary entry
     entry = {
-        "id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "id": str(uuid.uuid4()),
         "filename": os.path.basename(payload["metadata"]["source_file"]),
         "date": datetime.now().isoformat(),
         "duration": payload["metrics"]["spatial_metrics"].get("total_duration", 0),
@@ -302,10 +303,6 @@ def main():
     except OSError as exc:
         logger.error("Failed to save final payload: %s", exc)
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-
 
 if __name__ == "__main__":
     main()

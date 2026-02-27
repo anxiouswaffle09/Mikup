@@ -216,67 +216,57 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
   }
 
   if (isRecord(raw.metrics)) {
-    const spacingDuration = isRecord(raw.metrics.spatial_metrics)
-      ? asNumber(raw.metrics.spatial_metrics.total_duration)
-      : undefined;
-    if (spacingDuration !== undefined) {
-      const spatialMetrics: NonNullable<MikupPayload['metrics']>['spatial_metrics'] = {
-        total_duration: spacingDuration,
-      };
-
-      const vocalClarity = isRecord(raw.metrics.spatial_metrics)
-        ? asNumber(raw.metrics.spatial_metrics.vocal_clarity)
-        : undefined;
-      const reverbDensity = isRecord(raw.metrics.spatial_metrics)
-        ? asNumber(raw.metrics.spatial_metrics.reverb_density)
-        : undefined;
-      const vocalWidth = isRecord(raw.metrics.spatial_metrics)
-        ? asNumber(raw.metrics.spatial_metrics.vocal_width)
-        : undefined;
-      const reverbWidth = isRecord(raw.metrics.spatial_metrics)
-        ? asNumber(raw.metrics.spatial_metrics.reverb_width)
-        : undefined;
+    const spatialMetrics: NonNullable<MikupPayload['metrics']>['spatial_metrics'] = {
+      total_duration: 0,
+    };
+    if (isRecord(raw.metrics.spatial_metrics)) {
+      const totalDuration = asNumber(raw.metrics.spatial_metrics.total_duration);
+      if (totalDuration !== undefined) spatialMetrics.total_duration = totalDuration;
+      const vocalClarity = asNumber(raw.metrics.spatial_metrics.vocal_clarity);
+      const reverbDensity = asNumber(raw.metrics.spatial_metrics.reverb_density);
+      const vocalWidth = asNumber(raw.metrics.spatial_metrics.vocal_width);
+      const reverbWidth = asNumber(raw.metrics.spatial_metrics.reverb_width);
       if (vocalClarity !== undefined) spatialMetrics.vocal_clarity = vocalClarity;
       if (reverbDensity !== undefined) spatialMetrics.reverb_density = reverbDensity;
       if (vocalWidth !== undefined) spatialMetrics.vocal_width = vocalWidth;
       if (reverbWidth !== undefined) spatialMetrics.reverb_width = reverbWidth;
+    }
 
-      const impactMetrics: NonNullable<MikupPayload['metrics']>['impact_metrics'] = {};
-      if (isRecord(raw.metrics.impact_metrics)) {
-        const ducking = asNumber(raw.metrics.impact_metrics.ducking_intensity);
-        if (ducking !== undefined) impactMetrics.ducking_intensity = ducking;
-      }
+    const impactMetrics: NonNullable<MikupPayload['metrics']>['impact_metrics'] = {};
+    if (isRecord(raw.metrics.impact_metrics)) {
+      const ducking = asNumber(raw.metrics.impact_metrics.ducking_intensity);
+      if (ducking !== undefined) impactMetrics.ducking_intensity = ducking;
+    }
 
-      payload.metrics = {
-        pacing_mikups: Array.isArray(raw.metrics.pacing_mikups)
-          ? raw.metrics.pacing_mikups
-              .map(parsePacingMikup)
-              .filter((item): item is PacingMikup => item !== null)
-          : [],
-        spatial_metrics: spatialMetrics,
-        impact_metrics: impactMetrics,
-      };
+    payload.metrics = {
+      pacing_mikups: Array.isArray(raw.metrics.pacing_mikups)
+        ? raw.metrics.pacing_mikups
+            .map(parsePacingMikup)
+            .filter((item): item is PacingMikup => item !== null)
+        : [],
+      spatial_metrics: spatialMetrics,
+      impact_metrics: impactMetrics,
+    };
 
-      if (isRecord(raw.metrics.lufs_graph)) {
-        payload.metrics.lufs_graph = {};
-        for (const [key, value] of Object.entries(raw.metrics.lufs_graph)) {
-          if (isRecord(value)) {
-            payload.metrics.lufs_graph[key] = {
-              integrated: asNumber(value.integrated) ?? -70,
-              momentary: Array.isArray(value.momentary) ? (value.momentary as number[]) : [],
-              short_term: Array.isArray(value.short_term) ? (value.short_term as number[]) : [],
-            };
-          }
+    if (isRecord(raw.metrics.lufs_graph)) {
+      payload.metrics.lufs_graph = {};
+      for (const [key, value] of Object.entries(raw.metrics.lufs_graph)) {
+        if (isRecord(value)) {
+          payload.metrics.lufs_graph[key] = {
+            integrated: asNumber(value.integrated) ?? -70,
+            momentary: Array.isArray(value.momentary) ? (value.momentary as number[]) : [],
+            short_term: Array.isArray(value.short_term) ? (value.short_term as number[]) : [],
+          };
         }
       }
+    }
 
-      if (isRecord(raw.metrics.diagnostic_meters)) {
-        payload.metrics.diagnostic_meters = {
-          intelligibility_snr: asNumber(raw.metrics.diagnostic_meters.intelligibility_snr) ?? 0,
-          stereo_correlation: asNumber(raw.metrics.diagnostic_meters.stereo_correlation) ?? 1.0,
-          stereo_balance: asNumber(raw.metrics.diagnostic_meters.stereo_balance) ?? 0,
-        };
-      }
+    if (isRecord(raw.metrics.diagnostic_meters)) {
+      payload.metrics.diagnostic_meters = {
+        intelligibility_snr: asNumber(raw.metrics.diagnostic_meters.intelligibility_snr) ?? 0,
+        stereo_correlation: asNumber(raw.metrics.diagnostic_meters.stereo_correlation) ?? 1.0,
+        stereo_balance: asNumber(raw.metrics.diagnostic_meters.stereo_balance) ?? 0,
+      };
     }
   }
 

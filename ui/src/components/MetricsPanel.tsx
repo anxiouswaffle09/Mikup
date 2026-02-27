@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, ReferenceLine, Label, Area, AreaChart 
+import {
+  Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Label, Area, AreaChart
 } from 'recharts';
-import { MikupPayload, LufsSeries } from '../types';
-import { Flag, Waves, Activity, Zap, Info, Layers, Maximize2 } from 'lucide-react';
+import type { MikupPayload } from '../types';
+import { Activity, Info } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface MetricsPanelProps {
@@ -51,15 +51,19 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
   }, [payload.metrics?.lufs_graph]);
 
   const toggleStream = (stream: string) => {
-    const next = new Set(activeStreams);
-    if (next.has(stream)) next.delete(stream);
-    else next.add(stream);
-    setActiveStreams(next);
+    setActiveStreams(prev => {
+      const next = new Set(prev);
+      if (next.has(stream)) next.delete(stream);
+      else next.add(stream);
+      return next;
+    });
   };
 
-  const handleGraphClick = (data: any) => {
-    if (data && data.activePayload && data.activePayload[0]) {
-      const point = data.activePayload[0].payload as GraphDataPoint;
+  type ChartClickHandler = NonNullable<React.ComponentProps<typeof AreaChart>['onClick']>;
+  const handleGraphClick = (data: Parameters<ChartClickHandler>[0]) => {
+    const d = data as { activePayload?: Array<{ payload: GraphDataPoint }> } | null;
+    if (d?.activePayload?.[0]) {
+      const point = d.activePayload[0].payload;
       const label = `Flag at ${point.timeStr}`;
       setFlags([...flags, { time: point.time, label }]);
     }
@@ -256,9 +260,14 @@ const StreamToggle: React.FC<{ label: string; color: string; isActive: boolean; 
   </button>
 );
 
-const CustomTooltip = ({ active, payload }: any) => {
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: GraphDataPoint }>;
+}
+
+const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
-    const data = payload[0].payload as GraphDataPoint;
+    const data = payload[0].payload;
     return (
       <div className="bg-white/95 backdrop-blur-2xl border border-panel-border p-4 rounded-2xl shadow-2xl ring-1 ring-black/[0.05] space-y-3">
         <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] border-b border-panel-border pb-2">{data.timeStr}</div>
@@ -285,8 +294,8 @@ const TooltipRow = ({ label, value, color }: { label: string; value: number; col
 const FlagLabel = ({ label }: { label: string }) => (
   <g transform="translate(0, -10)">
     <rect x="-45" y="-22" width="90" height="22" rx="6" fill="oklch(0.7 0.12 300)" className="shadow-lg" />
-    <text x="0" y="-7" textAnchor="middle" fill="white" fontSize="9" fontWeight="900" textTransform="uppercase" letterSpacing="0.05em">
-      {label}
+    <text x="0" y="-7" textAnchor="middle" fill="white" fontSize="9" fontWeight="900" letterSpacing="0.05em">
+      {label.toUpperCase()}
     </text>
   </g>
 );

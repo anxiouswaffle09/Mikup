@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, History, FileAudio, ChevronRight, Search, Clock, Trash2, Database } from 'lucide-react';
+import { Upload, History, FileAudio, ChevronRight, Search, Clock, Database } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { HistoryEntry, MikupPayload } from '../types';
+import type { HistoryEntry, MikupPayload } from '../types';
 import { clsx } from 'clsx';
 
 interface LandingHubProps {
@@ -19,10 +19,6 @@ export const LandingHub: React.FC<LandingHubProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
   const loadHistory = async () => {
     try {
       const data = await invoke<HistoryEntry[]>('get_history');
@@ -31,6 +27,11 @@ export const LandingHub: React.FC<LandingHubProps> = ({
       console.error('Failed to load history:', err);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadHistory();
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();

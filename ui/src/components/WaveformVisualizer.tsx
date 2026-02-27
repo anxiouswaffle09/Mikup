@@ -96,6 +96,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
     const wavesurfer = wavesurferRef.current;
     if (!wavesurfer || localSources.length === 0) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsReady(false);
     const loadSequence = ++loadSequenceRef.current;
 
@@ -178,7 +179,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
           <button 
             onClick={handleReset}
             disabled={!isReady}
-            className="text-textMuted hover:text-textMain transition-colors disabled:opacity-20"
+            className="text-text-muted hover:text-text-main transition-colors disabled:opacity-20"
           >
             <RefreshCcw size={16} />
           </button>
@@ -186,12 +187,12 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
 
         <div className="flex items-center gap-10">
           <div className="flex flex-col items-end">
-            <span className="text-[10px] text-textMuted uppercase font-bold tracking-wider mb-1">Elapsed</span>
-            <span className="text-sm text-textMain font-bold tabular-nums">00:00:00.000</span>
+            <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Elapsed</span>
+            <span className="text-sm text-text-main font-bold tabular-nums">00:00:00.000</span>
           </div>
           <div className="flex flex-col items-end">
-            <span className="text-[10px] text-textMuted uppercase font-bold tracking-wider mb-1">Analysis</span>
-            <span className="text-sm text-textMain font-bold uppercase tracking-widest">{markers.length} Mikups</span>
+            <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Analysis</span>
+            <span className="text-sm text-text-main font-bold uppercase tracking-widest">{markers.length} Mikups</span>
           </div>
         </div>
       </div>
@@ -199,7 +200,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
       {localSources.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-background/80 px-6 py-3 rounded-2xl border border-panel-border shadow-xl backdrop-blur-md">
-            <p className="text-xs text-textMuted uppercase tracking-widest font-bold italic">Awaiting source input...</p>
+            <p className="text-xs text-text-muted uppercase tracking-widest font-bold italic">Awaiting source input...</p>
           </div>
         </div>
       )}

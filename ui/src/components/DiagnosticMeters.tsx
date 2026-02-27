@@ -1,5 +1,5 @@
 import React from 'react';
-import { DiagnosticMetrics } from '../types';
+import type { DiagnosticMetrics } from '../types';
 import { Activity, ShieldCheck, Zap } from 'lucide-react';
 
 interface DiagnosticMetersProps {
@@ -87,7 +87,7 @@ const MeterCard: React.FC<MeterCardProps> = ({ label, value, min, max, unit, ico
 
         {/* Needle */}
         <div 
-          className="absolute bottom-0 left-1/2 w-0.5 h-20 bg-text-main origin-bottom transition-transform duration-1000 ease-out"
+          className="absolute bottom-0 left-1/2 w-0.5 h-12 bg-text-main origin-bottom transition-transform duration-1000 ease-out"
           style={{ transform: `translateX(-50%) rotate(${rotation}deg)` }}
         >
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-text-main" />

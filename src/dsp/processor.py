@@ -94,7 +94,8 @@ class MikupDSPProcessor:
         # 1. Integrated LUFS
         try:
             integrated = self.meter.integrated_loudness(y_pyln)
-        except:
+        except (ValueError, RuntimeError) as e:
+            logger.warning("LUFS calc failed: %s", e)
             integrated = -70.0
 
         # 2. K-weighted signal for ST/M calculation
@@ -182,7 +183,7 @@ class MikupDSPProcessor:
         right = y_stereo[1]
         
         # Guard against zero-variance signals (pure silence)
-        if np.var(left) == 0 or np.var(right) == 0:
+        if np.var(left) < 1e-10 or np.var(right) < 1e-10:
             return 1.0
             
         correlation = np.corrcoef(left, right)[0, 1]
@@ -296,28 +297,7 @@ if __name__ == "__main__":
         "background_raw": "data/processed/test_Instrumental.wav"
     }
     mock_trans = "data/processed/mock_transcription.json"
-    
-    if os.path.exists(mock_trans):
-        try:
-            report = processor.process_stems(mock_stems, mock_trans)
-            print(json.dumps(report, indent=2))
-        except (FileNotFoundError, OSError, ValueError, RuntimeError) as exc:
-            logger.error("DSP processing failed: %s", exc)
-            sys.exit(1)
 
-
-if __name__ == "__main__":
-    # Example usage
-    processor = MikupDSPProcessor()
-    # Mock paths
-    mock_stems = {
-        "dialogue_dry": "data/processed/test_Dry_Vocals.wav",
-        "reverb_tail": "data/processed/test_Reverb.wav",
-        "dialogue_raw": "data/processed/test_Vocals.wav",
-        "background_raw": "data/processed/test_Instrumental.wav"
-    }
-    mock_trans = "data/processed/mock_transcription.json"
-    
     if os.path.exists(mock_trans):
         try:
             report = processor.process_stems(mock_stems, mock_trans)

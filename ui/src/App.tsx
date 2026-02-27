@@ -31,6 +31,7 @@ function App() {
   const [payload, setPayload] = useState<MikupPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressStatus>({ stage: 'INIT', progress: 0, message: '' });
+  const [pipelineErrors, setPipelineErrors] = useState<string[]>([]);
 
   useEffect(() => {
     const unlisten = listen<ProgressStatus>('process-status', (event) => {
@@ -42,9 +43,20 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen<string>('process-error', (event) => {
+      setPipelineErrors(prev => [...prev, event.payload]);
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, []);
+
   const handleStartNewProcess = async (filePath: string) => {
     setView('processing');
     setError(null);
+    setPipelineErrors([]);
     setProgress({ stage: 'INIT', progress: 0, message: 'Starting pipeline...' });
 
     try {
@@ -52,8 +64,8 @@ function App() {
       const parsed = parseMikupPayload(JSON.parse(result));
       setPayload(parsed);
       setView('analysis');
-    } catch (err: any) {
-      setError(err.toString());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
       setView('landing');
     }
   };
@@ -126,7 +138,7 @@ function App() {
 
           <div className="pt-8">
             <div className="w-full h-1.5 bg-panel-border/30 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-accent transition-all duration-700 ease-out"
                 style={{ width: `${progress.progress}%` }}
               />
@@ -136,6 +148,14 @@ function App() {
               <span>{progress.progress}%</span>
             </div>
           </div>
+
+          {pipelineErrors.length > 0 && (
+            <div className="mt-6 max-h-32 overflow-y-auto space-y-1 p-3 bg-red-50 border border-red-100 rounded-2xl">
+              {pipelineErrors.map((msg, i) => (
+                <p key={i} className="text-[10px] font-mono text-red-600 leading-relaxed">{msg}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
