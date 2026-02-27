@@ -397,14 +397,13 @@ async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
 
     let state_path = PathBuf::from(&output_directory).join("stage_state.json");
 
-    let mut state: serde_json::Value = if state_path.exists() {
-        let content = tokio::fs::read_to_string(&state_path)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::from_str(&content)
-            .unwrap_or_else(|_| serde_json::json!({ "stages": {} }))
-    } else {
-        serde_json::json!({ "stages": {} })
+    let mut state: serde_json::Value = match tokio::fs::read_to_string(&state_path).await {
+        Ok(content) => serde_json::from_str(&content)
+            .unwrap_or_else(|_| serde_json::json!({ "stages": {} })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::json!({ "stages": {} })
+        }
+        Err(e) => return Err(e.to_string()),
     };
 
     state["stages"]["dsp"] = serde_json::json!({ "completed": true });
@@ -568,29 +567,45 @@ async fn stream_audio_metrics(
 
 #[cfg(test)]
 mod lib_tests {
+    use std::io::Write;
+
     #[test]
-    fn stage_state_json_merge() {
-        let existing = serde_json::json!({
-            "stages": {
-                "separation": { "completed": true },
-                "transcription": { "completed": true }
-            }
-        });
-        let mut state = existing.clone();
+    fn stage_state_json_merge_preserves_existing_stages() {
+        // Simulate the read-parse-merge-serialize logic used by mark_dsp_complete
+        let initial_json = r#"{"stages":{"separation":{"completed":true},"transcription":{"completed":true}}}"#;
+
+        let mut state: serde_json::Value = serde_json::from_str(initial_json)
+            .unwrap_or_else(|_| serde_json::json!({ "stages": {} }));
+
         state["stages"]["dsp"] = serde_json::json!({ "completed": true });
 
-        assert_eq!(
-            state["stages"]["separation"]["completed"].as_bool(),
-            Some(true)
-        );
-        assert_eq!(
-            state["stages"]["dsp"]["completed"].as_bool(),
-            Some(true)
-        );
-        assert_eq!(
-            state["stages"]["transcription"]["completed"].as_bool(),
-            Some(true)
-        );
+        let serialized = serde_json::to_string(&state).unwrap();
+
+        // Round-trip: parse the serialized output to verify the full write/read cycle
+        let roundtripped: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(roundtripped["stages"]["separation"]["completed"].as_bool(), Some(true));
+        assert_eq!(roundtripped["stages"]["transcription"]["completed"].as_bool(), Some(true));
+        assert_eq!(roundtripped["stages"]["dsp"]["completed"].as_bool(), Some(true));
+
+        // Verify serialization produces valid JSON (not just in-memory state)
+        assert!(serialized.contains(r#""dsp":{"completed":true}"#) ||
+                serialized.contains(r#""dsp": {"completed": true}"#));
+    }
+
+    #[test]
+    fn stage_state_json_merge_starts_fresh_on_missing_file() {
+        // Simulate fallback when file doesn't exist (parse fails → empty state)
+        let corrupt_or_empty = "";
+
+        let mut state: serde_json::Value = serde_json::from_str(corrupt_or_empty)
+            .unwrap_or_else(|_| serde_json::json!({ "stages": {} }));
+
+        state["stages"]["dsp"] = serde_json::json!({ "completed": true });
+
+        assert_eq!(state["stages"]["dsp"]["completed"].as_bool(), Some(true));
+        // Other stages should not exist (we started from empty)
+        assert!(state["stages"]["separation"].is_null());
     }
 }
 
