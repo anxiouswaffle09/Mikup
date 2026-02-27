@@ -18,6 +18,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Models (downloaded by scripts/download_models.py — not committed)
+models/
+
 # Data & Outputs
 data/raw/*
 !data/raw/.gitkeep

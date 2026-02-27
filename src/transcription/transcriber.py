@@ -5,6 +5,12 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Project-local model directory (populated by scripts/download_models.py)
+_MODELS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "models",
+)
+
 
 def _detect_devices():
     """Auto-detect best available compute device for each engine.
@@ -65,12 +71,14 @@ class MikupTranscriber:
         """
         from faster_whisper import WhisperModel
 
+        local_path = os.path.join(_MODELS_DIR, "whisper-small")
+        model_id = local_path if os.path.exists(os.path.join(local_path, "model.bin")) else self.model_size
         logger.info(
             "Loading WhisperModel (%s) on %s / %s...",
-            self.model_size, self.ct2_device, self.ct2_compute,
+            model_id, self.ct2_device, self.ct2_compute,
         )
         model = WhisperModel(
-            self.model_size,
+            model_id,
             device=self.ct2_device,
             compute_type=self.ct2_compute,
         )
