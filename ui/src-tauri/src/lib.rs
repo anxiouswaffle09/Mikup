@@ -1,15 +1,74 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+
+use crate::dsp::loudness::LoudnessAnalyzer;
+use crate::dsp::spatial::SpatialAnalyzer;
+use crate::dsp::spectral::SpectralAnalyzer;
+use crate::dsp::MikupAudioDecoder;
+
+pub mod dsp;
+
+const DSP_FRAME_SIZE: usize = 2048;
+const DSP_SAMPLE_RATE: u32 = 48_000;
+/// Maximum Lissajous points to send per frame (subsampled from the raw 2048-sample frame).
+const LISSAJOUS_MAX_POINTS: usize = 128;
+/// Minimum wall-clock interval between emitted frames; guards against render-cycle flooding
+/// if a caller ever uses a smaller frame size than the default 2048/48kHz (~42 ms/frame).
+const MIN_EMIT_INTERVAL_MS: u64 = 16;
 
 #[derive(Clone, serde::Serialize)]
 struct ProgressPayload {
     stage: String,
     progress: u32,
     message: String,
+}
+
+/// Per-frame payload streamed via the `dsp-frame` Tauri event.
+/// All float fields use f32 for compact JSON; the frontend rounds as needed.
+#[derive(Clone, serde::Serialize)]
+struct DspFramePayload {
+    /// Monotonic counter (1-based) of frames processed so far.
+    frame_index: u64,
+    /// Elapsed time in seconds at the start of this frame.
+    timestamp_secs: f32,
+    // --- Loudness (dialogue stem) ---
+    dialogue_momentary_lufs: f32,
+    dialogue_short_term_lufs: f32,
+    dialogue_true_peak_dbtp: f32,
+    dialogue_crest_factor: f32,
+    // --- Loudness (background stem) ---
+    background_momentary_lufs: f32,
+    background_short_term_lufs: f32,
+    background_true_peak_dbtp: f32,
+    background_crest_factor: f32,
+    // --- Spatial ---
+    phase_correlation: f32,
+    /// Subsampled Lissajous coordinates [[x, y], ...] for vectorscope rendering.
+    lissajous_points: Vec<[f32; 2]>,
+    // --- Spectral ---
+    dialogue_centroid_hz: f32,
+    background_centroid_hz: f32,
+    speech_pocket_masked: bool,
+    dialogue_speech_energy: f32,
+    background_speech_energy: f32,
+    snr_db: f32,
+}
+
+/// Emitted once via `dsp-complete` when the decoder naturally reaches EOF.
+/// Contains integrated (whole-file) metrics suitable for writing to mikup_payload.json.
+#[derive(Clone, serde::Serialize)]
+struct DspCompletePayload {
+    total_frames: u64,
+    dialogue_integrated_lufs: f32,
+    dialogue_loudness_range_lu: f32,
+    background_integrated_lufs: f32,
+    background_loudness_range_lu: f32,
 }
 
 fn contains_unsafe_shell_tokens(value: &str) -> bool {
@@ -64,14 +123,19 @@ fn resolve_python_path(project_root: &Path) -> String {
     if unix_python.is_file() {
         return unix_python.to_string_lossy().into_owned();
     }
-    let windows_python = project_root.join(".venv").join("Scripts").join("python.exe");
+    let windows_python = project_root
+        .join(".venv")
+        .join("Scripts")
+        .join("python.exe");
     if windows_python.is_file() {
         return windows_python.to_string_lossy().into_owned();
     }
     "python3".to_string()
 }
 
-fn resolve_output_paths(output_directory: &str) -> Result<(PathBuf, String, PathBuf, String), String> {
+fn resolve_output_paths(
+    output_directory: &str,
+) -> Result<(PathBuf, String, PathBuf, String), String> {
     ensure_safe_argument("Output directory", output_directory)?;
     let output_directory_path = PathBuf::from(output_directory);
     let output_directory_arg = output_directory_path.to_string_lossy().into_owned();
@@ -255,7 +319,8 @@ async fn run_pipeline_stage(
         ));
     }
 
-    let mut args = build_base_pipeline_args(&input_path_arg, &output_directory_arg, &output_path_arg);
+    let mut args =
+        build_base_pipeline_args(&input_path_arg, &output_directory_arg, &output_path_arg);
     args.extend(["--stage".to_string(), stage_arg.clone()]);
     if fast_mode.unwrap_or(false) {
         args.push("--fast".to_string());
@@ -299,7 +364,13 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
         None => return Ok(0),
     };
 
-    let canonical_order = ["separation", "transcription", "dsp", "semantics", "director"];
+    let canonical_order = [
+        "separation",
+        "transcription",
+        "dsp",
+        "semantics",
+        "director",
+    ];
     let mut count = 0u32;
     for stage_name in canonical_order.iter() {
         let completed = stages_map
@@ -317,9 +388,216 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
     Ok(count)
 }
 
+/// Marks the DSP stage as complete in `stage_state.json`.
+/// Called by the frontend after the Rust `stream_audio_metrics` stream ends naturally.
+/// This allows `get_pipeline_state` to correctly report 3 completed stages on resume.
+#[tauri::command]
+async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
+    ensure_safe_argument("Output directory", &output_directory)?;
+
+    let state_path = PathBuf::from(&output_directory).join("stage_state.json");
+
+    let mut state: serde_json::Value = if state_path.exists() {
+        let content = tokio::fs::read_to_string(&state_path)
+            .await
+            .map_err(|e| e.to_string())?;
+        serde_json::from_str(&content)
+            .unwrap_or_else(|_| serde_json::json!({ "stages": {} }))
+    } else {
+        serde_json::json!({ "stages": {} })
+    };
+
+    state["stages"]["dsp"] = serde_json::json!({ "completed": true });
+
+    let serialized = serde_json::to_string(&state).map_err(|e| e.to_string())?;
+    tokio::fs::write(&state_path, serialized)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Signal a running `stream_audio_metrics` call to stop after the current frame.
+#[tauri::command]
+async fn stop_dsp_stream(
+    cancel_flag: tauri::State<'_, Arc<AtomicBool>>,
+) -> Result<(), String> {
+    cancel_flag.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Stream DSP metrics from the dialogue and background WAV stems to the frontend.
+///
+/// Emits:
+/// - `dsp-frame`    — `DspFramePayload` at up to 60 FPS during processing.
+/// - `dsp-complete` — `DspCompletePayload` once when the file finishes naturally.
+/// - `dsp-error`    — `String` if a decode or analysis error occurs.
+///
+/// Calling this command while a previous stream is in progress automatically cancels
+/// the previous stream (the shared `cancel_flag` is reset to `false` then re-used).
+#[tauri::command]
+async fn stream_audio_metrics(
+    app: tauri::AppHandle,
+    cancel_flag: tauri::State<'_, Arc<AtomicBool>>,
+    dialogue_path: String,
+    background_path: String,
+) -> Result<(), String> {
+    ensure_safe_argument("Dialogue path", &dialogue_path)?;
+    ensure_safe_argument("Background path", &background_path)?;
+
+    // Reset cancellation so any lingering previous stream sees `true` → stops, and
+    // our new stream starts clean with `false`.
+    cancel_flag.store(false, Ordering::Relaxed);
+    let cancel = Arc::clone(&*cancel_flag);
+
+    tokio::task::spawn_blocking(move || {
+        let mut decoder =
+            MikupAudioDecoder::new(&dialogue_path, &background_path, DSP_SAMPLE_RATE, DSP_FRAME_SIZE)
+                .map_err(|e| e.to_string())?;
+
+        let sample_rate = decoder.target_sample_rate();
+        let frame_size = decoder.frame_size();
+
+        let mut loudness = LoudnessAnalyzer::new(sample_rate).map_err(|e| e.to_string())?;
+        let spatial = SpatialAnalyzer::new();
+        let mut spectral = SpectralAnalyzer::new(sample_rate, frame_size);
+
+        let mut frame_index: u64 = 0;
+        let min_interval = std::time::Duration::from_millis(MIN_EMIT_INTERVAL_MS);
+        let mut last_emit: Option<std::time::Instant> = None;
+        let mut eof_natural = false;
+
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let frame = match decoder.read_frame() {
+                Ok(Some(f)) => f,
+                Ok(None) => {
+                    eof_natural = true;
+                    break;
+                }
+                Err(e) => {
+                    let _ = app.emit("dsp-error", e.to_string());
+                    return Err(e.to_string());
+                }
+            };
+
+            let timestamp_secs =
+                frame_index as f32 * frame_size as f32 / sample_rate as f32;
+
+            let loudness_metrics = match loudness.process_frame(&frame) {
+                Ok(m) => m,
+                Err(e) => {
+                    let _ = app.emit("dsp-error", e.to_string());
+                    return Err(e.to_string());
+                }
+            };
+
+            let spatial_metrics = spatial.process_frame(&frame);
+            let spectral_metrics = spectral.process_frame(&frame);
+
+            frame_index += 1;
+
+            // Throttle: skip emit if the minimum interval hasn't elapsed yet.
+            let now = std::time::Instant::now();
+            let should_emit = match last_emit {
+                None => true,
+                Some(t) => now.duration_since(t) >= min_interval,
+            };
+            if !should_emit {
+                continue;
+            }
+            last_emit = Some(now);
+
+            // Subsample Lissajous points so each frame emits at most LISSAJOUS_MAX_POINTS.
+            let step =
+                (spatial_metrics.lissajous_points.len() / LISSAJOUS_MAX_POINTS).max(1);
+            let lissajous_points: Vec<[f32; 2]> = spatial_metrics
+                .lissajous_points
+                .iter()
+                .step_by(step)
+                .map(|p| [p.x, p.y])
+                .collect();
+
+            let payload = DspFramePayload {
+                frame_index,
+                timestamp_secs,
+                dialogue_momentary_lufs: loudness_metrics.dialogue.momentary_lufs,
+                dialogue_short_term_lufs: loudness_metrics.dialogue.short_term_lufs,
+                dialogue_true_peak_dbtp: loudness_metrics.dialogue.true_peak_dbtp,
+                dialogue_crest_factor: loudness_metrics.dialogue.crest_factor,
+                background_momentary_lufs: loudness_metrics.background.momentary_lufs,
+                background_short_term_lufs: loudness_metrics.background.short_term_lufs,
+                background_true_peak_dbtp: loudness_metrics.background.true_peak_dbtp,
+                background_crest_factor: loudness_metrics.background.crest_factor,
+                phase_correlation: spatial_metrics.phase_correlation,
+                lissajous_points,
+                dialogue_centroid_hz: spectral_metrics.dialogue_centroid_hz,
+                background_centroid_hz: spectral_metrics.background_centroid_hz,
+                speech_pocket_masked: spectral_metrics.speech_pocket_masked,
+                dialogue_speech_energy: spectral_metrics.dialogue_speech_energy,
+                background_speech_energy: spectral_metrics.background_speech_energy,
+                snr_db: spectral_metrics.snr_db,
+            };
+
+            let _ = app.emit("dsp-frame", payload);
+        }
+
+        // Only emit the completion event when we reached EOF naturally (not cancelled).
+        if eof_natural {
+            let final_metrics = loudness.final_metrics();
+            let _ = app.emit(
+                "dsp-complete",
+                DspCompletePayload {
+                    total_frames: frame_index,
+                    dialogue_integrated_lufs: final_metrics.dialogue.integrated_lufs,
+                    dialogue_loudness_range_lu: final_metrics.dialogue.loudness_range_lu,
+                    background_integrated_lufs: final_metrics.background.integrated_lufs,
+                    background_loudness_range_lu: final_metrics.background.loudness_range_lu,
+                },
+            );
+        }
+
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod lib_tests {
+    #[test]
+    fn stage_state_json_merge() {
+        let existing = serde_json::json!({
+            "stages": {
+                "separation": { "completed": true },
+                "transcription": { "completed": true }
+            }
+        });
+        let mut state = existing.clone();
+        state["stages"]["dsp"] = serde_json::json!({ "completed": true });
+
+        assert_eq!(
+            state["stages"]["separation"]["completed"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            state["stages"]["dsp"]["completed"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            state["stages"]["transcription"]["completed"].as_bool(),
+            Some(true)
+        );
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(Arc::new(AtomicBool::new(false)))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -327,7 +605,10 @@ pub fn run() {
             run_pipeline_stage,
             read_output_payload,
             get_history,
-            get_pipeline_state
+            get_pipeline_state,
+            stream_audio_metrics,
+            stop_dsp_stream,
+            mark_dsp_complete,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
