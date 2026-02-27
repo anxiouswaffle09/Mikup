@@ -202,3 +202,29 @@ class TestDiarize:
         with patch("pyannote.audio.Pipeline.from_pretrained", return_value=mock_pipeline):
             out = t.diarize("fake.wav", result, hf_token="tok")
         assert out["segments"] == []
+
+
+# ── save_results() ────────────────────────────────────────────────────────────
+
+class TestSaveResults:
+    def _transcriber(self):
+        with patch("src.transcription.transcriber._detect_devices",
+                   return_value=("cpu", "int8", "cpu")):
+            return MikupTranscriber()
+
+    def test_writes_valid_json(self, tmp_path):
+        t = self._transcriber()
+        result = {
+            "segments": [{"start": 0.0, "end": 1.0, "text": "Hi", "speaker": "SPEAKER_00"}],
+            "word_segments": [{"word": "Hi", "start": 0.0, "end": 0.3}],
+        }
+        out_path = tmp_path / "out.json"
+        t.save_results(result, str(out_path))
+        assert json.loads(out_path.read_text()) == result
+
+    def test_creates_file_at_path(self, tmp_path):
+        t = self._transcriber()
+        out_path = tmp_path / "sub" / "out.json"
+        out_path.parent.mkdir()
+        t.save_results({"segments": [], "word_segments": []}, str(out_path))
+        assert out_path.exists()
