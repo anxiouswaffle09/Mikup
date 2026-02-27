@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import subprocess
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,6 +32,17 @@ def test_separation_wav_missing(tmp_path):
     stems_json.write_text(json.dumps({
         "dialogue_raw": str(tmp_path / "nonexistent.wav"),
         "background_raw": str(tmp_path / "also_missing.wav"),
+    }))
+    assert validate_stage_artifacts("separation", str(tmp_path)) is False
+
+
+def test_separation_only_one_wav_present(tmp_path):
+    dialogue = tmp_path / "vocals.wav"
+    dialogue.write_bytes(b"RIFF")
+    stems_json = tmp_path / "stems.json"
+    stems_json.write_text(json.dumps({
+        "dialogue_raw": str(dialogue),
+        "background_raw": str(tmp_path / "missing.wav"),
     }))
     assert validate_stage_artifacts("separation", str(tmp_path)) is False
 

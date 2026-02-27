@@ -145,25 +145,18 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
             if not isinstance(stems, dict):
                 return False
             for key in ("dialogue_raw", "background_raw"):
-                wav_path = stems.get(key)
-                if not isinstance(wav_path, str) or not os.path.exists(wav_path):
+                if not is_existing_file(stems.get(key)):
                     return False
             return True
 
         if stage_name == "transcription":
-            path = os.path.join(output_dir, "transcription.json")
-            payload = _read_json_file(path)
-            return isinstance(payload, dict) and isinstance(payload.get("segments"), list)
+            return _has_transcription_payload(os.path.join(output_dir, "transcription.json"))
 
         if stage_name == "dsp":
-            path = os.path.join(output_dir, "dsp_metrics.json")
-            payload = _read_json_file(path)
-            return isinstance(payload, dict) and bool(payload)
+            return _has_dsp_payload(os.path.join(output_dir, "dsp_metrics.json"))
 
         if stage_name == "semantics":
-            path = os.path.join(output_dir, "semantics.json")
-            payload = _read_json_file(path)
-            return isinstance(payload, list)
+            return _has_semantics_payload(os.path.join(output_dir, "semantics.json"))
 
         if stage_name == "director":
             path = os.path.join(output_dir, "mikup_payload.json")
@@ -171,7 +164,8 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
             return isinstance(payload, dict) and bool(payload)
 
         return False
-    except Exception:
+    except Exception as exc:
+        logger.warning("validate_stage_artifacts(%s): unexpected error: %s", stage_name, exc)
         return False
 
 
