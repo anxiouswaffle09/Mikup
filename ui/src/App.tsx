@@ -145,7 +145,7 @@ function App() {
     }
   };
 
-  const runStage = async (stageIndex: number): Promise<void> => {
+  const runStage = async (stageIndex: number, force = false): Promise<void> => {
     if (!inputPath || !workspaceDirectory) {
       setError('Input file and workspace folder are required before running stages.');
       return;
@@ -172,9 +172,10 @@ function App() {
         outputDirectory: workspaceDirectory,
         stage: stage.id,
         fastMode,
+        force,
       });
 
-      const nextCompletedCount = stageIndex + 1;
+      const nextCompletedCount = Math.max(completedStageCount, stageIndex + 1);
       setCompletedStageCount(nextCompletedCount);
       setRunningStageIndex(null);
 
@@ -207,6 +208,10 @@ function App() {
 
   const handleRunNextStage = async () => {
     await runStage(completedStageCount);
+  };
+
+  const handleRerunStage = async (stageIndex: number) => {
+    await runStage(stageIndex, true);
   };
 
   const handleSelectProject = (projectPayload: MikupPayload) => {
@@ -285,9 +290,21 @@ function App() {
                   <span className={clsx('text-sm transition-colors', (isRunning || isReady) ? 'text-text-main font-medium' : 'text-text-muted')}>
                     {stage.label}
                   </span>
-                  <span className="ml-auto text-[10px] font-mono text-text-muted">
-                    {isComplete ? 'Complete' : isRunning ? 'Running' : isReady ? 'Ready' : 'Locked'}
-                  </span>
+                  {isComplete ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRerunStage(i)}
+                      disabled={runningStageIndex !== null}
+                      className="ml-auto text-[10px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40"
+                      title={`Re-run ${stage.label}`}
+                    >
+                      Re-run
+                    </button>
+                  ) : (
+                    <span className="ml-auto text-[10px] font-mono text-text-muted">
+                      {isRunning ? 'Running' : isReady ? 'Ready' : 'Locked'}
+                    </span>
+                  )}
                   {isRunning && <Loader2 size={12} className="animate-spin text-accent" />}
                 </div>
               );
