@@ -432,17 +432,15 @@ def main():
     dsp_metrics_path = artifacts["dsp_metrics"]
     semantics_path = artifacts["semantics"]
 
+    has_separation = validate_stage_artifacts("separation", output_dir) and not args.force
+    should_run_separation = (args.stage == "separation") or (full_pipeline and not has_separation)
+
     validated_stems = None
-    if not (args.stage == "separation" and args.force):
+    if not should_run_separation:
         try:
             validated_stems = normalize_and_validate_stems(stems)
         except (FileNotFoundError, ValueError):
             validated_stems = None
-
-    should_run_separation = (
-        (args.stage == "separation") or
-        (full_pipeline and (args.force or not validate_stage_artifacts("separation", output_dir)))
-    )
 
     if should_run_separation:
         if args.mock:
