@@ -132,12 +132,6 @@ function App() {
             short_term: prev?.metrics?.lufs_graph?.background_raw?.short_term ?? [],
           },
         },
-        diagnostic_meters: {
-          intelligibility_snr: 0,
-          stereo_correlation: 0,
-          stereo_balance: 0,
-          ...(prev?.metrics?.diagnostic_meters ?? {}),
-        },
       },
     }));
 
@@ -408,7 +402,7 @@ function App() {
 
               <button
                 type="button"
-                onClick={() => dspStream.stopStream()}
+                onClick={() => { dspStream.stopStream(); setRunningStageIndex(null); }}
                 className="text-[10px] font-mono text-text-muted hover:text-accent transition-colors"
               >
                 Stop stream
