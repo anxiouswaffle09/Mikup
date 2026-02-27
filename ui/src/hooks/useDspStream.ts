@@ -58,6 +58,8 @@ export function useDspStream(): UseDspStreamReturn {
       cleanedUp = true;
       unlistenersRef.current.forEach((fn) => fn());
       unlistenersRef.current = [];
+      // Stop any in-progress Rust stream so it doesn't burn CPU after unmount.
+      invoke<void>('stop_dsp_stream').catch(() => {});
     };
   }, []);
 
