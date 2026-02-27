@@ -283,15 +283,16 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
 
     let state_path = PathBuf::from(&output_directory).join("stage_state.json");
 
-    if !state_path.exists() {
-        return Ok(0);
-    }
+    let content = match tokio::fs::read_to_string(&state_path).await {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e.to_string()),
+    };
 
-    let content = tokio::fs::read_to_string(&state_path)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let state: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
+    let state: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return Ok(0),
+    };
 
     let stages_map = match state.get("stages").and_then(|s| s.as_object()) {
         Some(m) => m,
