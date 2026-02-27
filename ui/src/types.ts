@@ -1,3 +1,10 @@
+export type PipelineStageId = 'SEPARATION' | 'TRANSCRIPTION' | 'DSP' | 'SEMANTICS' | 'DIRECTOR';
+
+export interface PipelineStageDefinition {
+  id: PipelineStageId;
+  label: string;
+}
+
 export interface PacingMikup {
   timestamp: number;
   duration_ms: number;
@@ -24,15 +31,9 @@ export interface WordSegment {
   score?: number;
 }
 
-export type DirectorChatRole = 'user' | 'ai';
-
-export interface DirectorChatMessage {
-  role: DirectorChatRole;
-  text: string;
-}
-
 export interface AudioArtifacts {
   stem_paths: string[];
+  output_dir?: string;
 }
 
 export interface LufsSeries {
@@ -175,9 +176,13 @@ function deriveStemPathsFromSource(sourceFile: string): string[] {
   if (!baseName) return [];
   return [
     `data/processed/${baseName}_Vocals.wav`,
-    `data/processed/${baseName}_Dry_Vocals.wav`,
-    `data/processed/${baseName}_Instrumental.wav`,
+    `data/processed/${baseName}_Background.wav`,
+    `data/processed/${baseName}_Music.wav`,
+    `data/processed/${baseName}_Foley.wav`,
+    `data/processed/${baseName}_SFX.wav`,
+    `data/processed/${baseName}_Ambience.wav`,
     `data/processed/${baseName}_Reverb.wav`,
+    `data/processed/${baseName}_Dry_Vocals.wav`,
   ];
 }
 
@@ -287,34 +292,71 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
   const stemPaths = new Set<string>();
   collectStemPaths(raw.stems, stemPaths);
   collectStemPaths(raw.generated_stems, stemPaths);
+  let outputDir: string | undefined;
   if (isRecord(raw.artifacts)) {
     collectStemPaths(raw.artifacts.stem_paths, stemPaths);
     collectStemPaths(raw.artifacts.generated_stems, stemPaths);
     collectStemPaths(raw.artifacts.stems, stemPaths);
+    outputDir = asString(raw.artifacts.output_dir);
   }
-  if (stemPaths.size > 0) {
-    payload.artifacts = { stem_paths: Array.from(stemPaths).filter(isLikelyLocalPath) };
+  const resolvedStems = Array.from(stemPaths).filter(isLikelyLocalPath);
+  if (resolvedStems.length > 0 || outputDir) {
+    payload.artifacts = { stem_paths: resolvedStems };
+    if (outputDir) payload.artifacts.output_dir = outputDir;
   }
 
   return payload;
 }
 
+function resolveToAbsolute(path: string, outputDir?: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return trimmed;
+  // Already absolute (Unix or Windows)
+  if (trimmed.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(trimmed)) return trimmed;
+  // Relative — prepend output_dir if available
+  if (outputDir) return `${outputDir}/${trimmed}`;
+  return trimmed;
+}
+
 export function resolveStemAudioSources(payload: MikupPayload | null): string[] {
   if (!payload) return [];
 
+  const outputDir = payload.artifacts?.output_dir;
   const stemPaths = new Set<string>();
+
   for (const path of payload.artifacts?.stem_paths ?? []) {
-    if (path.trim() && isLikelyLocalPath(path)) {
-      stemPaths.add(path.trim());
-    }
+    const trimmed = path.trim();
+    if (!trimmed || !isLikelyLocalPath(trimmed)) continue;
+    stemPaths.add(resolveToAbsolute(trimmed, outputDir));
   }
 
-  if (payload.metadata?.source_file) {
+  if (stemPaths.size === 0 && payload.metadata?.source_file) {
     for (const path of deriveStemPathsFromSource(payload.metadata.source_file)) {
-      stemPaths.add(path);
+      stemPaths.add(resolveToAbsolute(path, outputDir));
     }
   }
 
   return Array.from(stemPaths);
 }
 
+export function parseHistoryEntry(raw: unknown): HistoryEntry | null {
+  if (!isRecord(raw)) return null;
+
+  const id = asString(raw.id);
+  if (!id) return null;
+
+  let payload: MikupPayload = {};
+  try {
+    payload = parseMikupPayload(raw.payload);
+  } catch {
+    payload = {};
+  }
+
+  return {
+    id,
+    filename: asString(raw.filename) || 'Unknown',
+    date: asString(raw.date) || new Date().toISOString(),
+    duration: asNumber(raw.duration) ?? 0,
+    payload,
+  };
+}

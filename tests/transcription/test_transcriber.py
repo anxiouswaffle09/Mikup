@@ -71,7 +71,7 @@ class TestAssignSpeaker:
 
     def test_no_overlap_returns_unknown(self):
         d = _make_diarization([(10.0, 20.0, "SPEAKER_00")])
-        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "UNKNOWN"
+        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "Dialogue"
 
     def test_picks_majority_speaker(self):
         # SPEAKER_00: 2s overlap, SPEAKER_01: 0.5s overlap
@@ -83,7 +83,7 @@ class TestAssignSpeaker:
 
     def test_empty_diarization_returns_unknown(self):
         d = _make_diarization([])
-        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "UNKNOWN"
+        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "Dialogue"
 
     def test_partial_overlap_counted(self):
         # segment 1.0–3.0, speaker turn 2.0–5.0 → 1s overlap
@@ -114,7 +114,7 @@ class TestTranscribe:
 
         assert len(result["segments"]) == 1
         assert result["segments"][0] == {
-            "start": 0.0, "end": 1.0, "text": "Hello world", "speaker": "UNKNOWN"
+            "start": 0.0, "end": 1.0, "text": "Hello world", "speaker": "Dialogue"
         }
         assert result["word_segments"] == [
             {"word": "Hello", "start": 0.0, "end": 0.4},
@@ -140,7 +140,7 @@ class TestTranscribe:
         seg = _make_fw_segment(1.0, 2.0, "test")
         with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
             result = t.transcribe("fake.wav")
-        assert result["segments"][0]["speaker"] == "UNKNOWN"
+        assert result["segments"][0]["speaker"] == "Dialogue"
 
     def test_text_is_stripped(self):
         t = self._transcriber()
@@ -171,7 +171,7 @@ class TestDiarize:
         t = self._transcriber()
         result = self._base_result()
         out = t.diarize("fake.wav", result, hf_token=None)
-        assert all(s["speaker"] == "UNKNOWN" for s in out["segments"])
+        assert [s["speaker"] for s in out["segments"]] == ["Speaker 1", "Speaker 2"]
 
     def test_assigns_speaker_labels(self):
         t = self._transcriber()
@@ -192,7 +192,7 @@ class TestDiarize:
         with patch("pyannote.audio.Pipeline.from_pretrained",
                    side_effect=RuntimeError("auth failed")):
             out = t.diarize("fake.wav", result, hf_token="bad_token")
-        assert all(s["speaker"] == "UNKNOWN" for s in out["segments"])
+        assert [s["speaker"] for s in out["segments"]] == ["Speaker 1", "Speaker 2"]
 
     def test_empty_segments_no_crash(self):
         t = self._transcriber()

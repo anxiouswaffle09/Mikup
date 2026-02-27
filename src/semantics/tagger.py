@@ -1,6 +1,5 @@
 import torch
 import librosa
-import numpy as np
 import logging
 from transformers import AutoProcessor, ClapModel
 
@@ -19,9 +18,14 @@ class MikupSemanticTagger:
             self.device = "cuda" if torch.cuda.is_available() else "mps" if has_mps else "cpu"
         else:
             self.device = device
-            
+        self.model_dtype = torch.float16 if self.device in {"cuda", "mps"} else torch.float32
+
         logger.info(f"Loading CLAP model {model_id} on {self.device}...")
-        self.model = ClapModel.from_pretrained(model_id).to(self.device)
+        self.model = ClapModel.from_pretrained(
+            model_id,
+            torch_dtype=self.model_dtype,
+        ).to(self.device)
+        self.model.eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         
         # Default candidate labels for audio drama scenes
@@ -61,13 +65,22 @@ class MikupSemanticTagger:
         y, _ = librosa.load(audio_path, sr=48000, offset=start_sec, duration=duration_to_load)
         
         # Prepare inputs
-        inputs = self.processor(
+        raw_inputs = self.processor(
             text=candidate_labels, 
             audios=y, 
             return_tensors="pt", 
             padding=True,
             sampling_rate=48000
-        ).to(self.device)
+        )
+        inputs = {}
+        for key, value in raw_inputs.items():
+            if torch.is_tensor(value):
+                if value.is_floating_point():
+                    inputs[key] = value.to(device=self.device, dtype=self.model_dtype)
+                else:
+                    inputs[key] = value.to(device=self.device)
+            else:
+                inputs[key] = value
 
         with torch.no_grad():
             outputs = self.model(**inputs)

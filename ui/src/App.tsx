@@ -17,12 +17,18 @@ import {
 import { clsx } from 'clsx';
 
 type ViewState = 'landing' | 'processing' | 'analysis';
+type LoudnessTargetId = 'streaming' | 'broadcast';
 
 interface ProgressStatus {
   stage: string;
   progress: number;
   message: string;
 }
+
+const LOUDNESS_TARGETS: Record<LoudnessTargetId, { label: string; value: number }> = {
+  streaming: { label: 'Streaming (-14 LUFS)', value: -14 },
+  broadcast: { label: 'Broadcast (-23 LUFS)', value: -23 },
+};
 
 const PIPELINE_STAGES: PipelineStageDefinition[] = [
   { id: 'SEPARATION', label: 'Surgical Separation' },
@@ -53,6 +59,9 @@ function App() {
   const [workflowMessage, setWorkflowMessage] = useState('Select an audio file to begin.');
   const [fastMode, setFastMode] = useState(false);
   const [isPreparingWorkflow, setIsPreparingWorkflow] = useState(false);
+  const [loudnessTargetId, setLoudnessTargetId] = useState<LoudnessTargetId>('streaming');
+
+  const loudnessTarget = LOUDNESS_TARGETS[loudnessTargetId];
 
   useEffect(() => {
     const unlisten = listen<ProgressStatus>('process-status', (event) => {
@@ -389,7 +398,7 @@ function App() {
         {payload?.metrics?.diagnostic_meters && (
           <StatsBar
             metrics={payload.metrics.diagnostic_meters}
-            gapCount={payload?.metrics?.pacing_mikups?.length ?? 0}
+            eventCount={payload?.metrics?.pacing_mikups?.length ?? 0}
             integratedLufs={payload?.metrics?.lufs_graph?.dialogue_raw?.integrated ?? null}
           />
         )}
@@ -401,7 +410,7 @@ function App() {
             <div className="flex items-center justify-between mb-4">
               <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Timeline</span>
               <span className="text-[10px] font-mono text-text-muted">
-                {payload?.metrics?.pacing_mikups?.length ?? 0} gaps detected
+                {payload?.metrics?.pacing_mikups?.length ?? 0} Events detected
               </span>
             </div>
             <div className="flex-1 min-h-0">
@@ -415,7 +424,29 @@ function App() {
           </section>
 
           <section className="flex-1 px-6 py-5 min-h-[360px]">
-            <MetricsPanel payload={payload!} />
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Loudness Target</span>
+              <div className="inline-flex border border-panel-border">
+                {(Object.entries(LOUDNESS_TARGETS) as [LoudnessTargetId, { label: string; value: number }][]).map(
+                  ([targetId, target]) => (
+                    <button
+                      key={targetId}
+                      type="button"
+                      onClick={() => setLoudnessTargetId(targetId)}
+                      className={clsx(
+                        'px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest transition-colors',
+                        loudnessTargetId === targetId
+                          ? 'bg-accent/10 text-accent'
+                          : 'text-text-muted hover:text-text-main'
+                      )}
+                    >
+                      {target.label}
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+            <MetricsPanel payload={payload!} loudnessTarget={loudnessTarget} />
           </section>
         </div>
 

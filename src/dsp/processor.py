@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import pyloudnorm as pyln
+from scipy.signal import oaconvolve
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ class MikupDSPProcessor:
     Updated for Sprint 02: EBU R128 LUFS, SNR, and Stereo Balance.
     """
 
-    def __init__(self, sample_rate=22050, analysis_window_seconds=90.0):
+    def __init__(self, sample_rate=22050, analysis_window_seconds=None):
         self.sr = sample_rate
         self.analysis_window_seconds = analysis_window_seconds
         # EBU R128 Meter
@@ -45,27 +46,27 @@ class MikupDSPProcessor:
 
     def _load_analysis_window(self, audio_path, mono=False, max_duration=None):
         """
-        Load a centered window instead of full-file audio to limit peak memory usage.
+        Load full-file audio by default. Optional max_duration can bound loading when needed.
         """
         full_duration = librosa.get_duration(path=audio_path)
-        duration = min(
-            full_duration,
-            max_duration if max_duration is not None else self.analysis_window_seconds
-        )
-        if duration <= 0:
+        duration_limit = max_duration if max_duration is not None else self.analysis_window_seconds
+        if full_duration <= 0:
             raise ValueError(f"Audio has non-positive duration: {audio_path}")
 
+        if duration_limit is None:
+            return librosa.load(audio_path, sr=self.sr, mono=mono)
+
+        duration = min(full_duration, duration_limit)
         offset = max(0.0, (full_duration - duration) / 2.0)
         return librosa.load(audio_path, sr=self.sr, mono=mono, offset=offset, duration=duration)
 
     def _load_aligned_windows(self, audio_path_a, audio_path_b, mono=False, max_duration=None):
         duration_a = librosa.get_duration(path=audio_path_a)
         duration_b = librosa.get_duration(path=audio_path_b)
-        shared_duration = min(
-            duration_a,
-            duration_b,
-            max_duration if max_duration is not None else self.analysis_window_seconds
-        )
+        duration_limit = max_duration if max_duration is not None else self.analysis_window_seconds
+        shared_duration = min(duration_a, duration_b)
+        if duration_limit is not None:
+            shared_duration = min(shared_duration, duration_limit)
         if shared_duration <= 0:
             raise ValueError("Aligned audio window duration must be positive.")
 
@@ -79,17 +80,61 @@ class MikupDSPProcessor:
         )
         return y_a, y_b
 
+    @staticmethod
+    def _moving_mean(signal, window_size):
+        """Vectorized centered moving mean with edge normalization."""
+        if signal.size == 0:
+            return np.array([], dtype=np.float32)
+        if window_size <= 1:
+            return signal.astype(np.float32, copy=True)
+
+        window = np.ones(window_size, dtype=np.float32)
+        summed = oaconvolve(signal, window, mode="same")
+        counts = oaconvolve(np.ones(signal.shape[0], dtype=np.float32), window, mode="same")
+        return (summed / np.maximum(counts, 1.0)).astype(np.float32, copy=False)
+
+    def _moving_mean_chunked(self, signal, window_size, chunk_samples):
+        """
+        Chunk-safe centered moving mean for long audio.
+        Uses overlap to preserve identical values at chunk boundaries.
+        """
+        n_samples = signal.shape[0]
+        if n_samples <= chunk_samples:
+            return self._moving_mean(signal, window_size)
+
+        output = np.empty(n_samples, dtype=np.float32)
+        half_window = window_size // 2
+        for chunk_start in range(0, n_samples, chunk_samples):
+            chunk_end = min(n_samples, chunk_start + chunk_samples)
+            ext_start = max(0, chunk_start - half_window)
+            ext_end = min(n_samples, chunk_end + half_window)
+
+            local = signal[ext_start:ext_end]
+            local_mean = self._moving_mean(local, window_size)
+
+            core_start = chunk_start - ext_start
+            core_end = core_start + (chunk_end - chunk_start)
+            output[chunk_start:chunk_end] = local_mean[core_start:core_end]
+
+        return output
+
     def calculate_lufs_series(self, y, hop_length=11025):
         """
         Calculates LUFS time-series using K-weighting.
         Returns Integrated, Short-term (3s), and Momentary (400ms) curves.
         Default hop_length of 11025 at 22050Hz = 2 data points per second.
         """
+        if hop_length <= 0:
+            hop_length = 1
+
         # Ensure correct shape for pyloudnorm (samples, channels)
         if y.ndim == 1:
             y_pyln = y[:, np.newaxis]
         else:
             y_pyln = y.T
+
+        if y_pyln.shape[0] == 0:
+            return {"integrated": -70.0, "momentary": [], "short_term": []}
             
         # 1. Integrated LUFS
         try:
@@ -112,36 +157,34 @@ class MikupDSPProcessor:
         m_win = int(0.4 * self.sr)
         # Short-term: 3s window
         st_win = int(3.0 * self.sr)
-        
-        m_lufs = []
-        st_lufs = []
-        
-        # Calculate in windows
-        for i in range(0, len(y_weighted), hop_length):
-            # Momentary
-            m_start = max(0, i - m_win // 2)
-            m_end = min(len(y_weighted), i + m_win // 2)
-            m_segment = y_weighted[m_start:m_end]
-            if len(m_segment) > 0:
-                m_val = 10 * np.log10(np.mean(m_segment**2) + 1e-12) - 0.691
-                m_lufs.append(float(np.clip(m_val, -70, 0)))
-            else:
-                m_lufs.append(-70.0)
-                
-            # Short-term
-            st_start = max(0, i - st_win // 2)
-            st_end = min(len(y_weighted), i + st_win // 2)
-            st_segment = y_weighted[st_start:st_end]
-            if len(st_segment) > 0:
-                st_val = 10 * np.log10(np.mean(st_segment**2) + 1e-12) - 0.691
-                st_lufs.append(float(np.clip(st_val, -70, 0)))
-            else:
-                st_lufs.append(-70.0)
-                
+
+        # Collapse channels to a single per-sample mean-square signal.
+        squared = np.square(y_weighted.astype(np.float32, copy=False))
+        mean_square = np.mean(squared, axis=1, dtype=np.float32)
+
+        # Memory safety: process long signals in 15-minute chunks.
+        chunk_samples = int(15 * 60 * self.sr)
+        momentary_ms = self._moving_mean_chunked(mean_square, m_win, chunk_samples)
+        short_term_ms = self._moving_mean_chunked(mean_square, st_win, chunk_samples)
+
+        # Vectorized LUFS transform.
+        # Calibrate the series so its global average aligns to the file-wide integrated LUFS.
+        series_integrated = 10.0 * np.log10(np.maximum(np.mean(mean_square), 1e-12)) - 0.691
+        calibration_offset = float(integrated) - float(series_integrated)
+        momentary_lufs = 10.0 * np.log10(np.maximum(momentary_ms, 1e-12)) - 0.691
+        short_term_lufs = 10.0 * np.log10(np.maximum(short_term_ms, 1e-12)) - 0.691
+        momentary_lufs += calibration_offset
+        short_term_lufs += calibration_offset
+
+        # Downsample for compact payloads.
+        sample_idx = np.arange(0, mean_square.shape[0], hop_length, dtype=np.int64)
+        m_lufs = np.clip(momentary_lufs[sample_idx], -70.0, 0.0).astype(np.float32)
+        st_lufs = np.clip(short_term_lufs[sample_idx], -70.0, 0.0).astype(np.float32)
+
         return {
             "integrated": float(integrated),
-            "momentary": m_lufs,
-            "short_term": st_lufs
+            "momentary": m_lufs.tolist(),
+            "short_term": st_lufs.tolist()
         }
 
     def calculate_stereo_balance(self, y_stereo):
@@ -192,7 +235,7 @@ class MikupDSPProcessor:
 
     def analyze_pacing(self, transcription_data):
         """
-        Calculates 'Pacing Mikups' - silence gaps between speaker segments.
+        Calculates pacing events (silence gaps between adjacent speaker segments).
         """
         segments = transcription_data.get("segments", [])
         if not isinstance(segments, list):

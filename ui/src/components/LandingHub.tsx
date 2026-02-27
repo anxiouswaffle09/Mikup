@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { FileAudio, ChevronRight, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+import { parseHistoryEntry } from '../types';
 import type { HistoryEntry, MikupPayload } from '../types';
 import { clsx } from 'clsx';
 
@@ -18,11 +20,15 @@ export const LandingHub: React.FC<LandingHubProps> = ({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dropError, setDropError] = useState<string | null>(null);
 
   const loadHistory = async () => {
     try {
-      const data = await invoke<HistoryEntry[]>('get_history');
-      setHistory(data);
+      const data = await invoke<unknown[]>('get_history');
+      const parsed = Array.isArray(data)
+        ? data.map(parseHistoryEntry).filter((e): e is HistoryEntry => e !== null)
+        : [];
+      setHistory(parsed);
     } catch (err) {
       console.error('Failed to load history:', err);
     }
@@ -40,20 +46,48 @@ export const LandingHub: React.FC<LandingHubProps> = ({
 
   const handleDragLeave = () => setIsDragging(false);
 
+  const isSupportedAudioFile = (name: string) =>
+    name.toLowerCase().endsWith('.wav') ||
+    name.toLowerCase().endsWith('.mp3') ||
+    name.toLowerCase().endsWith('.flac');
+
+  const handleSelectFile = async () => {
+    const selectedPath = await open({
+      multiple: false,
+      directory: false,
+      filters: [
+        {
+          name: 'Audio',
+          extensions: ['wav', 'mp3', 'flac'],
+        },
+      ],
+    });
+
+    if (typeof selectedPath === 'string') {
+      onStartNewProcess(selectedPath);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    const audioFile = files.find(f =>
-      f.name.endsWith('.wav') || f.name.endsWith('.mp3') || f.name.endsWith('.flac')
-    );
-    if (audioFile && !isProcessing) {
-      onStartNewProcess(audioFile.name);
+    const audioFile = files.find(f => isSupportedAudioFile(f.name));
+    if (!audioFile || isProcessing) return;
+
+    const audioFilePath = (audioFile as File & { path?: string }).path;
+    const isAbsolute = audioFilePath && (audioFilePath.includes('/') || audioFilePath.includes('\\'));
+    if (!isAbsolute) {
+      setDropError('Full path unavailable via drag & drop. Use "Click to select" instead.');
+      setTimeout(() => setDropError(null), 4000);
+      return;
     }
+
+    onStartNewProcess(audioFilePath);
   };
 
   const filteredHistory = history.filter(item =>
-    item.filename.toLowerCase().includes(searchQuery.toLowerCase())
+    (item.filename ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -71,8 +105,9 @@ export const LandingHub: React.FC<LandingHubProps> = ({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onClick={handleSelectFile}
           className={clsx(
-            "h-28 border border-dashed flex items-center justify-center transition-colors duration-200 cursor-default select-none",
+            "h-28 border border-dashed flex items-center justify-center transition-colors duration-200 cursor-pointer select-none",
             isDragging
               ? "border-accent bg-accent/5 text-accent"
               : "border-panel-border text-text-muted hover:border-accent/50 hover:text-accent/70",
@@ -83,6 +118,9 @@ export const LandingHub: React.FC<LandingHubProps> = ({
             {isProcessing ? 'Processing...' : 'Drag & drop or click to select'}
           </span>
         </div>
+        {dropError && (
+          <p className="mt-2 text-[11px] text-red-400 font-mono">{dropError}</p>
+        )}
       </div>
 
       <div className="border-t border-panel-border pt-6 mt-8">
@@ -102,25 +140,34 @@ export const LandingHub: React.FC<LandingHubProps> = ({
 
         <div className="space-y-px">
           {filteredHistory.length > 0 ? (
-            filteredHistory.map((entry) => (
-              <button
-                key={entry.id}
-                onClick={() => onSelectProject(entry.payload)}
-                className="w-full group text-left flex items-center gap-4 py-2.5 px-1 border-b border-panel-border hover:bg-accent/5 transition-colors"
-              >
-                <FileAudio size={14} className="text-text-muted shrink-0" />
-                <span className="flex-1 text-sm text-text-main font-mono truncate">
-                  {entry.filename}
-                </span>
-                <span className="text-[11px] font-mono text-text-muted tabular-nums">
-                  {new Date(entry.date).toLocaleDateString()}
-                </span>
-                <span className="text-[11px] font-mono text-text-muted tabular-nums">
-                  {(entry.duration / 60).toFixed(1)}m
-                </span>
-                <ChevronRight size={12} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
-            ))
+            filteredHistory.map((entry) => {
+              const isCorrupt = !entry.payload.metrics || !entry.payload.metadata;
+              const dateStr = entry.date
+                ? new Date(entry.date).toLocaleDateString()
+                : 'Unknown date';
+              const durationStr = typeof entry.duration === 'number'
+                ? `${(entry.duration / 60).toFixed(1)}m`
+                : '--';
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => !isCorrupt && onSelectProject(entry.payload)}
+                  disabled={isCorrupt}
+                  className="w-full group text-left flex items-center gap-4 py-2.5 px-1 border-b border-panel-border hover:bg-accent/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileAudio size={14} className="text-text-muted shrink-0" />
+                  <span className="flex-1 text-sm font-mono truncate">
+                    {isCorrupt
+                      ? <span className="text-red-400">Data Corrupt — {entry.filename}</span>
+                      : <span className="text-text-main">{entry.filename}</span>
+                    }
+                  </span>
+                  <span className="text-[11px] font-mono text-text-muted tabular-nums">{dateStr}</span>
+                  <span className="text-[11px] font-mono text-text-muted tabular-nums">{durationStr}</span>
+                  <ChevronRight size={12} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              );
+            })
           ) : (
             <p className="text-sm text-text-muted py-6">No history found.</p>
           )}

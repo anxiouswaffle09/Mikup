@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "shell:allow-execute",
+    "dialog:default",
     {
       "identifier": "shell:allow-execute",
       "allow": [
@@ -19,8 +20,43 @@
             "src.main",
             "--input",
             { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
             "--output",
             { "validator": "^[^;|&`\\r\\n]+$" }
+          ]
+        },
+        {
+          "name": ".venv/bin/python3-stage",
+          "cmd": ".venv/bin/python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--stage",
+            { "validator": "^(separation|transcription|dsp|semantics|director)$" }
+          ]
+        },
+        {
+          "name": ".venv/bin/python3-stage-fast",
+          "cmd": ".venv/bin/python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--stage",
+            { "validator": "^(separation|transcription|dsp|semantics|director)$" },
+            "--fast"
           ]
         },
         {
@@ -31,8 +67,43 @@
             "src.main",
             "--input",
             { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
             "--output",
             { "validator": "^[^;|&`\\r\\n]+$" }
+          ]
+        },
+        {
+          "name": "python3-stage",
+          "cmd": "python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--stage",
+            { "validator": "^(separation|transcription|dsp|semantics|director)$" }
+          ]
+        },
+        {
+          "name": "python3-stage-fast",
+          "cmd": "python3",
+          "args": [
+            "-m",
+            "src.main",
+            "--input",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output-dir",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--output",
+            { "validator": "^[^;|&`\\r\\n]+$" },
+            "--stage",
+            { "validator": "^(separation|transcription|dsp|semantics|director)$" },
+            "--fast"
           ]
         }
       ]

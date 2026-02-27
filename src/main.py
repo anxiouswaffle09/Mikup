@@ -3,6 +3,7 @@ import argparse
 import json
 import gc
 import sys
+import wave
 import uuid
 import torch
 import logging
@@ -169,13 +170,59 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
         return False
 
 
-def _mock_stems():
-    processed_dir = os.path.join(project_root, "data", "processed")
+def _write_silent_wav(path, duration_seconds=3.0, sample_rate=22050, channels=2):
+    ensure_output_dir(path)
+    frame_count = max(1, int(duration_seconds * sample_rate))
+    silence_frame = b"\x00\x00" * channels
+    with wave.open(path, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(silence_frame * frame_count)
+
+
+def _mock_stems(output_dir, source_hint="mock"):
+    base_name = os.path.splitext(os.path.basename(source_hint))[0] or "mock"
+    stems = {
+        "dialogue_raw": os.path.join(output_dir, f"{base_name}_Vocals.wav"),
+        "background_raw": os.path.join(output_dir, f"{base_name}_Background.wav"),
+        "dialogue_dry": os.path.join(output_dir, f"{base_name}_Dry_Vocals.wav"),
+        "reverb_tail": os.path.join(output_dir, f"{base_name}_Reverb.wav"),
+        "music": os.path.join(output_dir, f"{base_name}_Music.wav"),
+        "foley": os.path.join(output_dir, f"{base_name}_Foley.wav"),
+        "sfx": os.path.join(output_dir, f"{base_name}_SFX.wav"),
+        "ambience": os.path.join(output_dir, f"{base_name}_Ambience.wav"),
+    }
+    for stem_path in stems.values():
+        if not is_existing_file(stem_path):
+            _write_silent_wav(stem_path)
+    return stems
+
+
+def _mock_dsp_metrics(duration_seconds=3.0):
     return {
-        "dialogue_raw": os.path.join(processed_dir, "test_Vocals.wav"),
-        "background_raw": os.path.join(processed_dir, "test_Instrumental.wav"),
-        "dialogue_dry": os.path.join(processed_dir, "test_Dry_Vocals.wav"),
-        "reverb_tail": os.path.join(processed_dir, "test_Reverb.wav"),
+        "pacing_mikups": [],
+        "spatial_metrics": {
+            "total_duration": duration_seconds,
+        },
+        "impact_metrics": {},
+        "lufs_graph": {
+            "dialogue_raw": {
+                "integrated": -70.0,
+                "momentary": [],
+                "short_term": [],
+            },
+            "background_raw": {
+                "integrated": -70.0,
+                "momentary": [],
+                "short_term": [],
+            },
+        },
+        "diagnostic_meters": {
+            "intelligibility_snr": 0.0,
+            "stereo_correlation": 1.0,
+            "stereo_balance": 0.0,
+        },
     }
 
 
@@ -184,7 +231,16 @@ def normalize_and_validate_stems(stems):
         raise ValueError("Separator returned invalid stems payload.")
 
     normalized = {}
-    for key in ("dialogue_raw", "background_raw", "dialogue_dry", "reverb_tail"):
+    for key in (
+        "dialogue_raw",
+        "background_raw",
+        "dialogue_dry",
+        "reverb_tail",
+        "music",
+        "foley",
+        "sfx",
+        "ambience",
+    ):
         value = stems.get(key)
         normalized[key] = value if isinstance(value, str) and value.strip() else None
 
@@ -197,7 +253,7 @@ def normalize_and_validate_stems(stems):
             f"Stage 1 missing required stem files: {', '.join(missing_required)}"
         )
 
-    for key in ("dialogue_dry", "reverb_tail"):
+    for key in ("dialogue_dry", "reverb_tail", "music", "foley", "sfx", "ambience"):
         stem_path = normalized.get(key)
         if stem_path and not os.path.exists(stem_path):
             logger.warning(
@@ -321,7 +377,7 @@ def build_mikup_context_markdown(payload):
     else:
         lines.append("- None detected.")
 
-    lines.extend(["", "## Atomic Events (Pacing Mikups, first 15)"])
+    lines.extend(["", "## Events (First 15 Pacing Intervals)"])
     pacing_mikups = metrics.get("pacing_mikups")
     parsed_events = []
     if isinstance(pacing_mikups, list):
@@ -350,7 +406,7 @@ def build_mikup_context_markdown(payload):
     if parsed_events:
         lines.extend(parsed_events)
     else:
-        lines.append("- No pacing events detected.")
+        lines.append("- No events detected.")
 
     ai_report = payload.get("ai_report")
     if isinstance(ai_report, str) and ai_report.strip():
@@ -445,7 +501,11 @@ def main():
     if should_run_separation:
         if args.mock:
             emit_progress("SEPARATION", 10, "Mock separation stage initialized...")
-            stems = _mock_stems()
+            try:
+                stems = _mock_stems(output_dir, args.input)
+            except OSError as exc:
+                logger.error("Stage 1 Separation failed: %s", exc)
+                sys.exit(1)
             emit_progress("SEPARATION", 25, "Mock separation artifacts registered.")
         else:
             emit_progress("SEPARATION", 10, "Surgical Separation (UVR5) starting...")
@@ -552,18 +612,23 @@ def main():
 
     if should_run_dsp:
         emit_progress("DSP", 60, "Feature Extraction (DSP/LUFS) starting...")
-        processor = MikupDSPProcessor()
-        try:
-            dsp_metrics = processor.process_stems(stems, transcription_path)
+        if args.mock:
+            dsp_metrics = _mock_dsp_metrics()
             _write_json_file(dsp_metrics_path, dsp_metrics)
-            emit_progress("DSP", 75, "DSP Analysis complete.")
-        except (FileNotFoundError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
-            logger.error("Stage 3 DSP Processing failed: %s", exc)
-            sys.exit(1)
-        finally:
-            del processor
-            flush_vram()
-            gc.collect()
+            emit_progress("DSP", 75, "Mock DSP artifact written.")
+        else:
+            processor = MikupDSPProcessor()
+            try:
+                dsp_metrics = processor.process_stems(stems, transcription_path)
+                _write_json_file(dsp_metrics_path, dsp_metrics)
+                emit_progress("DSP", 75, "DSP Analysis complete.")
+            except (FileNotFoundError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                logger.error("Stage 3 DSP Processing failed: %s", exc)
+                sys.exit(1)
+            finally:
+                del processor
+                flush_vram()
+                gc.collect()
 
         _mark_stage_complete(stage_state, "dsp", {"dsp_metrics": dsp_metrics_path})
         _persist_state(artifacts["stage_state"], stage_state, args, output_dir, artifacts, stems)
@@ -696,7 +761,10 @@ def main():
                 json.dump(final_payload, f, indent=2)
             logger.info("Pipeline complete. Payload saved to: %s", args.output)
 
-            update_history(final_payload)
+            try:
+                update_history(final_payload)
+            except OSError as exc:
+                logger.error("Failed to update history file: %s", exc)
 
             try:
                 write_mikup_context_file(final_payload)

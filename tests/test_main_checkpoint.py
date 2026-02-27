@@ -136,3 +136,15 @@ def test_force_flag_accepted(tmp_path):
     )
     assert "unrecognized arguments" not in result.stderr, result.stderr
     assert "error: unrecognized" not in result.stderr, result.stderr
+
+
+def test_mock_separation_writes_valid_stems(tmp_path):
+    """Mock separation must create real stem WAVs so DSP can run in smoke tests."""
+    result = _subprocess.run(
+        [sys.executable, "src/main.py", "--input", "dummy", "--mock",
+         "--stage", "separation", "--output-dir", str(tmp_path)],
+        capture_output=True, text=True,
+        cwd="/Users/test/Documents/Dev Projects/Mikup"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert validate_stage_artifacts("separation", str(tmp_path)) is True

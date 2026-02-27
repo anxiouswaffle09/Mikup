@@ -8,27 +8,37 @@ interface WaveformVisualizerProps {
   pacing?: PacingMikup[];
   duration?: number;
   audioSources?: string[];
+  outputDir?: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function toWaveSurferSource(path: string): string {
+function toWaveSurferSource(path: string, outputDir?: string): string {
   const trimmed = path.trim();
   if (!trimmed) return trimmed;
   if (trimmed.startsWith('file://')) return trimmed;
-  if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
+
+  // Resolve relative paths to absolute using outputDir
+  let resolved = trimmed;
+  if (!resolved.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(resolved) && outputDir) {
+    resolved = `${outputDir}/${resolved}`;
+  }
+
+  // Convert any absolute local path to a Tauri-safe asset URL
+  if (resolved.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(resolved)) {
     try {
-      return convertFileSrc(trimmed);
+      return convertFileSrc(resolved);
     } catch {
-      return trimmed;
+      return resolved;
     }
   }
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+
+  return resolved;
 }
 
-export function WaveformVisualizer({ pacing, duration = 10, audioSources }: WaveformVisualizerProps) {
+export function WaveformVisualizer({ pacing, duration = 10, audioSources, outputDir }: WaveformVisualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const loadSequenceRef = useRef(0);
@@ -103,7 +113,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
     const loadNextSource = (sourceIndex: number) => {
       if (sourceIndex >= localSources.length) return;
 
-      const selectedSource = toWaveSurferSource(localSources[sourceIndex]);
+      const selectedSource = toWaveSurferSource(localSources[sourceIndex], outputDir);
       
       wavesurfer.once('ready', () => {
         if (loadSequence !== loadSequenceRef.current) return;
@@ -119,7 +129,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
     };
 
     loadNextSource(0);
-  }, [localSources]);
+  }, [localSources, outputDir]);
 
   const togglePlay = () => wavesurferRef.current?.playPause();
   const handleReset = () => {
@@ -188,8 +198,8 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
             <span className="text-sm text-text-main font-bold tabular-nums">00:00:00.000</span>
           </div>
           <div className="flex flex-col items-end">
-            <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Analysis</span>
-            <span className="text-sm text-text-main font-bold uppercase tracking-widest">{markers.length} Mikups</span>
+            <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Events</span>
+            <span className="text-sm text-text-main font-bold tracking-widest">{markers.length} Events detected</span>
           </div>
         </div>
       </div>
@@ -202,4 +212,3 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
     </div>
   );
 }
-
