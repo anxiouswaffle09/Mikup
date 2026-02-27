@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, ReferenceLine, Label, Area, AreaChart
 } from 'recharts';
 import type { MikupPayload } from '../types';
-import { Activity, Info } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface MetricsPanelProps {
@@ -86,8 +86,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
             <Activity size={20} />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-text-main leading-tight">LUFS Laboratory</h3>
-            <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted">EBU R128 Density Mapping</p>
+            <h3 className="text-[10px] uppercase tracking-widest font-bold text-text-muted leading-tight">Loudness Analysis</h3>
           </div>
         </div>
 
@@ -116,7 +115,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
         </div>
       </div>
 
-      <div className="panel p-6 h-[380px] relative overflow-hidden group">
+      <div className="h-[380px] relative overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={graphData}
@@ -212,7 +211,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
         </ResponsiveContainer>
 
         {/* Floating Metrics Overlay */}
-        <div className="absolute bottom-6 right-8 flex items-center gap-6 bg-white/60 backdrop-blur-xl px-5 py-3 rounded-2xl border border-panel-border shadow-xl ring-1 ring-black/[0.03]">
+        <div className="absolute bottom-4 right-2 flex items-center gap-5 bg-background/90 px-4 py-2 border border-panel-border">
           <div className="flex flex-col">
             <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Integrated</span>
             <span className="text-xl font-black text-text-main tracking-tighter">
@@ -229,29 +228,20 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
         </div>
       </div>
 
-      <div className="flex items-start gap-4 p-4 rounded-2xl bg-accent/5 border border-accent/10 transition-all hover:bg-accent/10">
-        <div className="p-2 rounded-xl bg-white shadow-sm text-accent shrink-0">
-          <Info size={16} />
-        </div>
-        <p className="text-[11px] text-text-muted leading-relaxed font-medium">
-          <span className="font-black text-accent uppercase tracking-wider mr-1">Laboratory Note:</span> 
-          The graph above maps perceived loudness density over time. <strong>Short-term (3s)</strong> provides a stable view of structural dynamics, while <strong>Momentary (400ms)</strong> captures surgical transients. Click to place analysis anchors.
-        </p>
-      </div>
     </div>
   );
 };
 
-const StreamToggle: React.FC<{ label: string; color: string; isActive: boolean; onClick: () => void }> = ({ 
-  label, color, isActive, onClick 
+const StreamToggle: React.FC<{ label: string; color: string; isActive: boolean; onClick: () => void }> = ({
+  label, color, isActive, onClick
 }) => (
-  <button 
+  <button
     onClick={onClick}
     className={clsx(
-      "px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all duration-500 flex items-center gap-2",
-      isActive 
-        ? "bg-white shadow-md border-panel-border scale-105" 
-        : "opacity-30 grayscale border-transparent hover:opacity-100 hover:grayscale-0"
+      "px-2.5 py-1 border text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center gap-1.5",
+      isActive
+        ? "border-panel-border text-text-main"
+        : "border-transparent text-text-muted opacity-40 hover:opacity-70"
     )}
     style={{ color: isActive ? color : undefined }}
   >
@@ -269,7 +259,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-white/95 backdrop-blur-2xl border border-panel-border p-4 rounded-2xl shadow-2xl ring-1 ring-black/[0.05] space-y-3">
+      <div className="bg-background border border-panel-border p-3 space-y-2">
         <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] border-b border-panel-border pb-2">{data.timeStr}</div>
         <div className="space-y-2">
           <TooltipRow label="Dialogue" value={data.diagST} color="oklch(0.7 0.12 260)" />
