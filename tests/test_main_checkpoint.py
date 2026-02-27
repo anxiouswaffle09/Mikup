@@ -120,3 +120,19 @@ def test_director_empty(tmp_path):
 
 def test_unknown_stage_returns_false(tmp_path):
     assert validate_stage_artifacts("bogus", str(tmp_path)) is False
+
+
+# ─── --force flag CLI test ─────────────────────────────────────────────────
+
+import subprocess as _subprocess  # noqa: E402
+
+def test_force_flag_accepted(tmp_path):
+    """--force must be accepted by argparse without error."""
+    result = _subprocess.run(
+        [sys.executable, "src/main.py", "--input", "dummy", "--mock",
+         "--stage", "separation", "--output-dir", str(tmp_path), "--force"],
+        capture_output=True, text=True,
+        cwd="/Users/test/Documents/Dev Projects/Mikup"
+    )
+    assert "unrecognized arguments" not in result.stderr, result.stderr
+    assert "error: unrecognized" not in result.stderr, result.stderr

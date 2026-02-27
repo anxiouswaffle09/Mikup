@@ -380,6 +380,7 @@ def main():
     parser.add_argument("--stage", choices=STAGE_CHOICES, help="Run only the specified stage and exit")
     parser.add_argument("--fast", action="store_true", help="Quick mode: skip heavy separation/transcription work")
     parser.add_argument("--mock", action="store_true", help="Use mock data for testing")
+    parser.add_argument("--force", action="store_true", help="Force re-run of stage(s) even if artifacts exist")
 
     args = parser.parse_args()
     args.input = os.path.abspath(args.input)
@@ -432,12 +433,16 @@ def main():
     semantics_path = artifacts["semantics"]
 
     validated_stems = None
-    try:
-        validated_stems = normalize_and_validate_stems(stems)
-    except (FileNotFoundError, ValueError):
-        validated_stems = None
+    if not (args.stage == "separation" and args.force):
+        try:
+            validated_stems = normalize_and_validate_stems(stems)
+        except (FileNotFoundError, ValueError):
+            validated_stems = None
 
-    should_run_separation = (args.stage == "separation") or (full_pipeline and validated_stems is None)
+    should_run_separation = (
+        (args.stage == "separation") or
+        (full_pipeline and (args.force or not validate_stage_artifacts("separation", output_dir)))
+    )
 
     if should_run_separation:
         if args.mock:
@@ -480,7 +485,7 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_transcription = _has_transcription_payload(transcription_path)
+    has_transcription = validate_stage_artifacts("transcription", output_dir) and not args.force
     should_run_transcription = (args.stage == "transcription") or (full_pipeline and not has_transcription)
 
     if should_run_transcription:
@@ -544,7 +549,7 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_dsp_metrics = _has_dsp_payload(dsp_metrics_path)
+    has_dsp_metrics = validate_stage_artifacts("dsp", output_dir) and not args.force
     should_run_dsp = (args.stage == "dsp") or (full_pipeline and not has_dsp_metrics)
 
     if should_run_dsp:
@@ -572,7 +577,7 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_semantics = _has_semantics_payload(semantics_path)
+    has_semantics = validate_stage_artifacts("semantics", output_dir) and not args.force
     should_run_semantics = (args.stage == "semantics") or (full_pipeline and not has_semantics)
 
     semantic_tags = []
