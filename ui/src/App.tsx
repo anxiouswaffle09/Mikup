@@ -92,7 +92,7 @@ function App() {
       });
 
       if (typeof selectedDirectory !== 'string') {
-        setError('Pipeline setup canceled. Choose an output folder to start.');
+        setError('No output folder selected. Choose a folder to continue.');
         return;
       }
 
@@ -119,8 +119,19 @@ function App() {
         );
         setProgress({ stage: 'INIT', progress: 0, message: `Resuming from stage ${resumeCount + 1}.` });
       } else if (resumeCount >= PIPELINE_STAGES.length) {
-        setWorkflowMessage('All stages previously completed. Re-run any stage or view results.');
-        setProgress({ stage: 'COMPLETE', progress: 100, message: 'Previously completed.' });
+        try {
+          const result = await invoke<string>('read_output_payload', {
+            outputDirectory: selectedDirectory,
+          });
+          const parsed = parseMikupPayload(JSON.parse(result));
+          setPayload(parsed);
+          setView('analysis');
+          return;
+        } catch {
+          // payload not readable yet — fall through to processing view
+          setWorkflowMessage('All stages previously completed. Re-run any stage or load results.');
+          setProgress({ stage: 'COMPLETE', progress: 100, message: 'Previously completed.' });
+        }
       } else {
         setWorkflowMessage('Workspace selected. Run Stage 1: Surgical Separation.');
         setProgress({ stage: 'INIT', progress: 0, message: 'Ready to run stage 1.' });
