@@ -157,17 +157,14 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
         </div>
 
         {!isReady && localSources.length > 0 && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm z-20 rounded-2xl">
-            <div className="flex flex-col items-center gap-4">
-              <RefreshCcw size={28} className="animate-spin text-accent" />
-              <span className="text-xs text-accent uppercase tracking-widest font-bold">Initializing Stems...</span>
-            </div>
+          <div className="absolute inset-0 flex items-center justify-center bg-background/70 z-20">
+            <span className="text-[10px] font-mono text-text-muted uppercase tracking-widest">Loading...</span>
           </div>
         )}
       </div>
 
       {/* Control Bar */}
-      <div className="h-16 mt-4 bg-background border border-panel-border rounded-2xl flex items-center justify-between px-6">
+      <div className="h-12 mt-3 border-t border-panel-border flex items-center justify-between px-1">
         <div className="flex items-center gap-6">
           <button 
             onClick={togglePlay}
@@ -199,9 +196,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
 
       {localSources.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-background/80 px-6 py-3 rounded-2xl border border-panel-border shadow-xl backdrop-blur-md">
-            <p className="text-xs text-text-muted uppercase tracking-widest font-bold italic">Awaiting source input...</p>
-          </div>
+          <p className="text-[10px] font-mono text-text-muted uppercase tracking-widest">No audio source</p>
         </div>
       )}
     </div>
