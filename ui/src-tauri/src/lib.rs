@@ -567,8 +567,6 @@ async fn stream_audio_metrics(
 
 #[cfg(test)]
 mod lib_tests {
-    use std::io::Write;
-
     #[test]
     fn stage_state_json_merge_preserves_existing_stages() {
         // Simulate the read-parse-merge-serialize logic used by mark_dsp_complete
