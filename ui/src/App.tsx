@@ -7,12 +7,15 @@ import { WaveformVisualizer } from './components/WaveformVisualizer';
 import { MetricsPanel } from './components/MetricsPanel';
 import { AIBridge } from './components/AIBridge';
 import { LandingHub } from './components/LandingHub';
-import { StatsBar } from './components/DiagnosticMeters';
+import { StatsBar, LiveMeters } from './components/DiagnosticMeters';
+import { Vectorscope } from './components/Vectorscope';
+import { useDspStream } from './hooks/useDspStream';
 import {
   parseMikupPayload,
   resolveStemAudioSources,
   type MikupPayload,
   type PipelineStageDefinition,
+  type DspCompletePayload,
 } from './types';
 import { clsx } from 'clsx';
 
@@ -37,6 +40,25 @@ const PIPELINE_STAGES: PipelineStageDefinition[] = [
   { id: 'SEMANTICS', label: 'Semantic Understanding' },
   { id: 'DIRECTOR', label: 'AI Director Synthesis' },
 ];
+
+const DSP_STAGE_INDEX = PIPELINE_STAGES.findIndex((s) => s.id === 'DSP');
+
+/**
+ * Derive dialogue and background WAV stem paths from the source file and workspace.
+ * Convention: Stage 1 (Separation) places stems as `{baseName}_Vocals.wav` and
+ * `{baseName}_Instrumental.wav` in the workspace directory.
+ *
+ * NOTE: If Stage 1 produces differently named files (verify by inspecting the
+ * workspace after a real Stage 1 run), update the suffixes here.
+ */
+function deriveStemPaths(inputPath: string, workspaceDir: string): [string, string] {
+  const filename = inputPath.replace(/^.*[\\/]/, '');
+  const baseName = filename.replace(/\.[^/.]+$/, '');
+  return [
+    `${workspaceDir}/${baseName}_Vocals.wav`,
+    `${workspaceDir}/${baseName}_Instrumental.wav`,
+  ];
+}
 
 function buildProceedPrompt(completedStageLabel: string, nextStage: PipelineStageDefinition): string {
   if (nextStage.id === 'TRANSCRIPTION') {
@@ -63,6 +85,8 @@ function App() {
 
   const loudnessTarget = LOUDNESS_TARGETS[loudnessTargetId];
 
+  const dspStream = useDspStream();
+
   useEffect(() => {
     const unlisten = listen<ProgressStatus>('process-status', (event) => {
       setProgress(event.payload);
@@ -82,6 +106,66 @@ function App() {
       unlisten.then((f) => f());
     };
   }, []);
+
+  useEffect(() => {
+    const complete: DspCompletePayload | null = dspStream.completePayload;
+    if (!complete || runningStageIndex !== DSP_STAGE_INDEX) return;
+
+    // Merge integrated LUFS/LRA into the in-memory payload so Stage 5 (AI Director) sees it.
+    setPayload((prev) => ({
+      ...prev,
+      metrics: {
+        pacing_mikups: prev?.metrics?.pacing_mikups ?? [],
+        spatial_metrics: prev?.metrics?.spatial_metrics ?? { total_duration: 0 },
+        impact_metrics: prev?.metrics?.impact_metrics ?? {},
+        ...prev?.metrics,
+        lufs_graph: {
+          ...(prev?.metrics?.lufs_graph ?? {}),
+          dialogue_raw: {
+            integrated: complete.dialogue_integrated_lufs,
+            momentary: prev?.metrics?.lufs_graph?.dialogue_raw?.momentary ?? [],
+            short_term: prev?.metrics?.lufs_graph?.dialogue_raw?.short_term ?? [],
+          },
+          background_raw: {
+            integrated: complete.background_integrated_lufs,
+            momentary: prev?.metrics?.lufs_graph?.background_raw?.momentary ?? [],
+            short_term: prev?.metrics?.lufs_graph?.background_raw?.short_term ?? [],
+          },
+        },
+        diagnostic_meters: {
+          intelligibility_snr: 0,
+          stereo_correlation: 0,
+          stereo_balance: 0,
+          ...(prev?.metrics?.diagnostic_meters ?? {}),
+        },
+      },
+    }));
+
+    // Persist stage completion so get_pipeline_state returns 3 on resume.
+    if (workspaceDirectory) {
+      invoke<void>('mark_dsp_complete', { outputDirectory: workspaceDirectory }).catch(() => {
+        // Non-fatal — resume will re-trigger DSP if state file is missing.
+      });
+    }
+
+    // Advance the pipeline.
+    const nextCount = Math.max(completedStageCount, DSP_STAGE_INDEX + 1);
+    setCompletedStageCount(nextCount);
+    setRunningStageIndex(null);
+
+    const nextStage = PIPELINE_STAGES[nextCount];
+    if (nextStage) {
+      setWorkflowMessage(`Feature extraction complete. Proceed to ${nextStage.label}?`);
+    }
+  }, [dspStream.completePayload]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (dspStream.error) {
+      setError(`DSP stream error: ${dspStream.error}`);
+      setRunningStageIndex(null);
+      setWorkflowMessage('DSP analysis failed. Check that Stage 1 stems exist and retry.');
+    }
+  }, [dspStream.error]);
 
   const handleStartNewProcess = async (filePath: string) => {
     if (!filePath.trim()) {
@@ -174,6 +258,15 @@ function App() {
     setPipelineErrors([]);
     setRunningStageIndex(stageIndex);
     setProgress({ stage: stage.id, progress: 0, message: `Running ${stage.label}...` });
+
+    // DSP is handled entirely by the Rust stream — no Python invocation.
+    if (stageIndex === DSP_STAGE_INDEX) {
+      if (!inputPath || !workspaceDirectory) return;
+      const [dialoguePath, backgroundPath] = deriveStemPaths(inputPath, workspaceDirectory);
+      setProgress({ stage: 'DSP', progress: 0, message: 'Starting live DSP analysis...' });
+      dspStream.startStream(dialoguePath, backgroundPath);
+      return; // Completion handled by the useEffect watching dspStream.completePayload
+    }
 
     try {
       await invoke<string>('run_pipeline_stage', {
@@ -277,52 +370,98 @@ function App() {
             Fast Mode
           </label>
 
-          <div className="space-y-3">
-            {PIPELINE_STAGES.map((stage, i) => {
-              const isComplete = i < completedStageCount;
-              const isRunning = i === runningStageIndex;
-              const isReady = i === completedStageCount && runningStageIndex === null;
-
-              return (
-                <div
-                  key={stage.id}
-                  className={clsx(
-                    'flex items-center gap-3 transition-opacity duration-300',
-                    !isComplete && !isRunning && !isReady && 'opacity-35'
-                  )}
-                >
-                  <div
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{
-                      backgroundColor:
-                        isComplete || isRunning || isReady
-                          ? 'var(--color-accent)'
-                          : 'var(--color-panel-border)',
-                    }}
-                  />
-                  <span className={clsx('text-sm transition-colors', (isRunning || isReady) ? 'text-text-main font-medium' : 'text-text-muted')}>
-                    {stage.label}
+          {runningStageIndex === DSP_STAGE_INDEX ? (
+            /* Live metering view — replaces the stage list while DSP streams */
+            <div className="space-y-4 animate-in fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">
+                  Live Metering
+                </span>
+                {dspStream.currentFrame && (
+                  <span className="text-[10px] font-mono text-text-muted tabular-nums">
+                    frame {dspStream.currentFrame.frame_index.toLocaleString()}
+                    &nbsp;·&nbsp;
+                    {dspStream.currentFrame.timestamp_secs.toFixed(1)}s
                   </span>
-                  {isComplete ? (
-                    <button
-                      type="button"
-                      onClick={() => handleRerunStage(i)}
-                      disabled={runningStageIndex !== null}
-                      className="ml-auto text-[10px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40"
-                      title={`Re-run ${stage.label}`}
-                    >
-                      Re-run
-                    </button>
-                  ) : (
-                    <span className="ml-auto text-[10px] font-mono text-text-muted">
-                      {isRunning ? 'Running' : isReady ? 'Ready' : 'Locked'}
-                    </span>
-                  )}
-                  {isRunning && <Loader2 size={12} className="animate-spin text-accent" />}
+                )}
+              </div>
+
+              {dspStream.currentFrame ? (
+                <div className="flex gap-6">
+                  <Vectorscope
+                    lissajousPoints={dspStream.currentFrame.lissajous_points}
+                    size={200}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <LiveMeters
+                      frame={dspStream.currentFrame}
+                      lra={dspStream.completePayload?.dialogue_loudness_range_lu}
+                    />
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Loader2 size={14} className="animate-spin text-accent" />
+                  <span>Opening audio stems…</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => dspStream.stopStream()}
+                className="text-[10px] font-mono text-text-muted hover:text-accent transition-colors"
+              >
+                Stop stream
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {PIPELINE_STAGES.map((stage, i) => {
+                const isComplete = i < completedStageCount;
+                const isRunning = i === runningStageIndex;
+                const isReady = i === completedStageCount && runningStageIndex === null;
+
+                return (
+                  <div
+                    key={stage.id}
+                    className={clsx(
+                      'flex items-center gap-3 transition-opacity duration-300',
+                      !isComplete && !isRunning && !isReady && 'opacity-35'
+                    )}
+                  >
+                    <div
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{
+                        backgroundColor:
+                          isComplete || isRunning || isReady
+                            ? 'var(--color-accent)'
+                            : 'var(--color-panel-border)',
+                      }}
+                    />
+                    <span className={clsx('text-sm transition-colors', (isRunning || isReady) ? 'text-text-main font-medium' : 'text-text-muted')}>
+                      {stage.label}
+                    </span>
+                    {isComplete ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRerunStage(i)}
+                        disabled={runningStageIndex !== null}
+                        className="ml-auto text-[10px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40"
+                        title={`Re-run ${stage.label}`}
+                      >
+                        Re-run
+                      </button>
+                    ) : (
+                      <span className="ml-auto text-[10px] font-mono text-text-muted">
+                        {isRunning ? 'Running' : isReady ? 'Ready' : 'Locked'}
+                      </span>
+                    )}
+                    {isRunning && <Loader2 size={12} className="animate-spin text-accent" />}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="space-y-3">
             <button
