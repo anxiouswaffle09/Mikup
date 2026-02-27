@@ -60,3 +60,32 @@ class TestDetectDevices:
         assert ct2_device == "cpu"     # CTranslate2 has no MPS backend
         assert ct2_compute == "int8"
         assert torch_device == "mps"   # pyannote uses MPS via PyTorch
+
+
+# ── speaker assignment ────────────────────────────────────────────────────────
+
+class TestAssignSpeaker:
+    def test_single_speaker_full_overlap(self):
+        d = _make_diarization([(0.0, 5.0, "SPEAKER_00")])
+        assert MikupTranscriber._assign_speaker(1.0, 3.0, d) == "SPEAKER_00"
+
+    def test_no_overlap_returns_unknown(self):
+        d = _make_diarization([(10.0, 20.0, "SPEAKER_00")])
+        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "UNKNOWN"
+
+    def test_picks_majority_speaker(self):
+        # SPEAKER_00: 2s overlap, SPEAKER_01: 0.5s overlap
+        d = _make_diarization([
+            (0.0, 2.0, "SPEAKER_00"),
+            (2.0, 2.5, "SPEAKER_01"),
+        ])
+        assert MikupTranscriber._assign_speaker(0.0, 2.5, d) == "SPEAKER_00"
+
+    def test_empty_diarization_returns_unknown(self):
+        d = _make_diarization([])
+        assert MikupTranscriber._assign_speaker(0.0, 1.0, d) == "UNKNOWN"
+
+    def test_partial_overlap_counted(self):
+        # segment 1.0–3.0, speaker turn 2.0–5.0 → 1s overlap
+        d = _make_diarization([(2.0, 5.0, "SPEAKER_01")])
+        assert MikupTranscriber._assign_speaker(1.0, 3.0, d) == "SPEAKER_01"
