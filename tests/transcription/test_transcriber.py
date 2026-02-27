@@ -89,3 +89,62 @@ class TestAssignSpeaker:
         # segment 1.0–3.0, speaker turn 2.0–5.0 → 1s overlap
         d = _make_diarization([(2.0, 5.0, "SPEAKER_01")])
         assert MikupTranscriber._assign_speaker(1.0, 3.0, d) == "SPEAKER_01"
+
+
+# ── transcribe() ──────────────────────────────────────────────────────────────
+
+class TestTranscribe:
+    def _transcriber(self):
+        with patch("src.transcription.transcriber._detect_devices",
+                   return_value=("cpu", "int8", "cpu")):
+            return MikupTranscriber()
+
+    def _mock_model(self, segments):
+        m = MagicMock()
+        m.transcribe.return_value = (iter(segments), MagicMock())
+        return m
+
+    def test_segments_and_word_segments_populated(self):
+        t = self._transcriber()
+        words = [_make_fw_word("Hello", 0.0, 0.4), _make_fw_word("world", 0.5, 0.9)]
+        seg = _make_fw_segment(0.0, 1.0, " Hello world", words=words)
+
+        with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
+            result = t.transcribe("fake.wav")
+
+        assert len(result["segments"]) == 1
+        assert result["segments"][0] == {
+            "start": 0.0, "end": 1.0, "text": "Hello world", "speaker": "UNKNOWN"
+        }
+        assert result["word_segments"] == [
+            {"word": "Hello", "start": 0.0, "end": 0.4},
+            {"word": "world", "start": 0.5, "end": 0.9},
+        ]
+
+    def test_empty_audio_returns_empty_lists(self):
+        t = self._transcriber()
+        with patch("faster_whisper.WhisperModel", return_value=self._mock_model([])):
+            result = t.transcribe("fake.wav")
+        assert result == {"segments": [], "word_segments": []}
+
+    def test_segment_without_words_still_included(self):
+        t = self._transcriber()
+        seg = _make_fw_segment(0.0, 1.0, "No words", words=None)
+        with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
+            result = t.transcribe("fake.wav")
+        assert len(result["segments"]) == 1
+        assert result["word_segments"] == []
+
+    def test_speaker_defaults_to_unknown(self):
+        t = self._transcriber()
+        seg = _make_fw_segment(1.0, 2.0, "test")
+        with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
+            result = t.transcribe("fake.wav")
+        assert result["segments"][0]["speaker"] == "UNKNOWN"
+
+    def test_text_is_stripped(self):
+        t = self._transcriber()
+        seg = _make_fw_segment(0.0, 1.0, "  padded  ")
+        with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
+            result = t.transcribe("fake.wav")
+        assert result["segments"][0]["text"] == "padded"
