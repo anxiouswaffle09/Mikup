@@ -175,7 +175,9 @@ function App() {
         force,
       });
 
-      const nextCompletedCount = Math.max(completedStageCount, stageIndex + 1);
+      const nextCompletedCount = force
+        ? stageIndex + 1
+        : Math.max(completedStageCount, stageIndex + 1);
       setCompletedStageCount(nextCompletedCount);
       setRunningStageIndex(null);
 
@@ -194,9 +196,11 @@ function App() {
       const promptMessage = buildProceedPrompt(stage.label, nextStage);
       setWorkflowMessage(promptMessage);
 
-      const shouldProceed = window.confirm(promptMessage);
-      if (shouldProceed) {
-        await runStage(nextCompletedCount);
+      if (!force) {
+        const shouldProceed = window.confirm(promptMessage);
+        if (shouldProceed) {
+          await runStage(nextCompletedCount);
+        }
       }
     } catch (err: unknown) {
       setRunningStageIndex(null);
