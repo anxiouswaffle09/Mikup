@@ -71,7 +71,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
 
   if (!payload.metrics?.lufs_graph) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-panel-border rounded-3xl bg-background/50">
+      <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-panel-border bg-background/50">
         <Activity size={48} className="text-text-muted/20 mb-4" />
         <p className="text-text-muted font-medium italic">LUFS Graph data not available for this session.</p>
       </div>
@@ -82,7 +82,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload }) => {
     <div className="space-y-6 animate-in fade-in duration-700">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-accent/10 text-accent">
+          <div className="p-2.5 bg-accent/10 text-accent">
             <Activity size={20} />
           </div>
           <div>
@@ -274,7 +274,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
 const TooltipRow = ({ label, value, color }: { label: string; value: number; color: string }) => (
   <div className="flex items-center justify-between gap-8">
     <div className="flex items-center gap-2.5">
-      <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: color }} />
+      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
       <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{label}</span>
     </div>
     <span className="text-sm font-black text-text-main tracking-tighter">{value.toFixed(1)} <span className="text-[9px] font-medium text-text-muted">dB</span></span>
@@ -283,7 +283,7 @@ const TooltipRow = ({ label, value, color }: { label: string; value: number; col
 
 const FlagLabel = ({ label }: { label: string }) => (
   <g transform="translate(0, -10)">
-    <rect x="-45" y="-22" width="90" height="22" rx="6" fill="oklch(0.7 0.12 300)" className="shadow-lg" />
+    <rect x="-45" y="-22" width="90" height="22" rx="6" fill="oklch(0.7 0.12 300)" />
     <text x="0" y="-7" textAnchor="middle" fill="white" fontSize="9" fontWeight="900" letterSpacing="0.05em">
       {label.toUpperCase()}
     </text>

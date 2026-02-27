@@ -145,7 +145,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
                     width: `${Math.max(marker.widthPercent, 0.5)}%`
                   }}
                 >
-                  <div className="absolute -top-8 left-0 px-2 py-1 bg-white border border-panel-border rounded-lg shadow-lg scale-90 origin-left opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="absolute -top-8 left-0 px-2 py-1 bg-background border border-panel-border scale-90 origin-left opacity-0 group-hover:opacity-100 transition-all">
                     <span className="text-[10px] text-accent font-bold whitespace-nowrap">
                       {marker.durationMs}ms gap
                     </span>
@@ -169,7 +169,7 @@ export function WaveformVisualizer({ pacing, duration = 10, audioSources }: Wave
           <button 
             onClick={togglePlay}
             disabled={!isReady}
-            className="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center hover:bg-accent/90 transition-all active:scale-90 disabled:opacity-20 shadow-lg shadow-accent/20"
+            className="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center hover:bg-accent/90 transition-all active:scale-90 disabled:opacity-20"
           >
             {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
           </button>
