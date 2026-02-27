@@ -48,6 +48,47 @@ export interface DiagnosticMetrics {
   stereo_balance: number;
 }
 
+/**
+ * Emitted by the `dsp-frame` Tauri event at up to 60 FPS during stream_audio_metrics.
+ * Matches the DspFramePayload struct in ui/src-tauri/src/lib.rs exactly.
+ */
+export interface DspFramePayload {
+  frame_index: number;
+  timestamp_secs: number;
+  // Loudness — dialogue stem
+  dialogue_momentary_lufs: number;
+  dialogue_short_term_lufs: number;
+  dialogue_true_peak_dbtp: number;
+  dialogue_crest_factor: number;
+  // Loudness — background stem
+  background_momentary_lufs: number;
+  background_short_term_lufs: number;
+  background_true_peak_dbtp: number;
+  background_crest_factor: number;
+  // Spatial
+  phase_correlation: number;
+  lissajous_points: [number, number][]; // [x, y] pairs, max 128 per frame
+  // Spectral
+  dialogue_centroid_hz: number;
+  background_centroid_hz: number;
+  speech_pocket_masked: boolean;
+  dialogue_speech_energy: number;
+  background_speech_energy: number;
+  snr_db: number;
+}
+
+/**
+ * Emitted by the `dsp-complete` Tauri event once at natural EOF.
+ * Matches the DspCompletePayload struct in ui/src-tauri/src/lib.rs exactly.
+ */
+export interface DspCompletePayload {
+  total_frames: number;
+  dialogue_integrated_lufs: number;
+  dialogue_loudness_range_lu: number;
+  background_integrated_lufs: number;
+  background_loudness_range_lu: number;
+}
+
 export interface MikupPayload {
   metadata?: {
     source_file: string;
