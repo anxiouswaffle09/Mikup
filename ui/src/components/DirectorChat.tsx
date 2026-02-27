@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, User, Sparkles } from 'lucide-react';
+import { Send } from 'lucide-react';
 import type { DirectorChatMessage, MikupPayload } from '../types';
 
 function getInitialMessages(payload: MikupPayload | null): DirectorChatMessage[] {
@@ -44,18 +44,14 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
     <div className="flex flex-col h-full overflow-hidden">
       <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-6 pr-4 pb-4 scroll-smooth no-scrollbar">
         {messages.map((m, i) => (
-          <div key={i} className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-              m.role === 'user' 
-                ? 'bg-accent/10 text-accent' 
-                : 'bg-background border border-panel-border text-text-muted'
-            }`}>
-              {m.role === 'user' ? <User size={18} /> : <Sparkles size={18} />}
-            </div>
-            <div className={`max-w-[80%] p-4 rounded-2xl text-[13px] leading-relaxed ${
-              m.role === 'user' 
-                ? 'bg-accent text-white rounded-tr-none shadow-lg shadow-accent/10' 
-                : 'bg-background text-text-main border border-panel-border rounded-tl-none'
+          <div key={i} className={`flex flex-col gap-0.5 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+            <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">
+              {m.role === 'user' ? 'You' : 'Director'}
+            </span>
+            <div className={`max-w-[85%] px-3 py-2 text-[13px] leading-relaxed border ${
+              m.role === 'user'
+                ? 'bg-accent/5 border-accent/20 text-text-main'
+                : 'bg-transparent border-panel-border text-text-main'
             }`}>
               {m.text}
             </div>
@@ -63,14 +59,12 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
         ))}
 
         {isThinking && (
-          <div className="flex gap-4">
-             <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-background border border-panel-border text-accent animate-pulse">
-              <Sparkles size={18} />
-            </div>
-            <div className="bg-background border border-panel-border p-4 rounded-2xl rounded-tl-none flex gap-1.5 items-center">
-              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce [animation-delay:-0.3s]" />
-              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce [animation-delay:-0.15s]" />
-              <span className="w-1.5 h-1.5 bg-accent/30 rounded-full animate-bounce" />
+          <div className="flex flex-col items-start gap-0.5">
+            <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Director</span>
+            <div className="border border-panel-border px-3 py-2 flex gap-1.5 items-center">
+              <span className="w-1.5 h-1.5 bg-accent/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 bg-accent/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 bg-accent/40 rounded-full animate-bounce" />
             </div>
           </div>
         )}
@@ -80,7 +74,7 @@ export function DirectorChat({ payload }: { payload: MikupPayload | null }) {
         <input 
           type="text" 
           placeholder="Ask the Director anything..."
-          className="w-full bg-background border border-panel-border rounded-xl py-3.5 px-5 pr-14 text-sm transition-all focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/5 placeholder:text-text-muted/50"
+          className="w-full bg-transparent border border-panel-border py-2.5 px-4 pr-12 text-sm transition-colors focus:outline-none focus:border-accent placeholder:text-text-muted/40"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
