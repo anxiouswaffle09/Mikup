@@ -148,3 +148,57 @@ class TestTranscribe:
         with patch("faster_whisper.WhisperModel", return_value=self._mock_model([seg])):
             result = t.transcribe("fake.wav")
         assert result["segments"][0]["text"] == "padded"
+
+
+# ── diarize() ─────────────────────────────────────────────────────────────────
+
+class TestDiarize:
+    def _transcriber(self):
+        with patch("src.transcription.transcriber._detect_devices",
+                   return_value=("cpu", "int8", "cpu")):
+            return MikupTranscriber()
+
+    def _base_result(self):
+        return {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "Hello", "speaker": "UNKNOWN"},
+                {"start": 3.0, "end": 5.0, "text": "World", "speaker": "UNKNOWN"},
+            ],
+            "word_segments": [],
+        }
+
+    def test_no_token_returns_result_unchanged(self):
+        t = self._transcriber()
+        result = self._base_result()
+        out = t.diarize("fake.wav", result, hf_token=None)
+        assert all(s["speaker"] == "UNKNOWN" for s in out["segments"])
+
+    def test_assigns_speaker_labels(self):
+        t = self._transcriber()
+        result = self._base_result()
+        diarization = _make_diarization([
+            (0.0, 2.5, "SPEAKER_00"),
+            (2.5, 6.0, "SPEAKER_01"),
+        ])
+        mock_pipeline = MagicMock(return_value=diarization)
+        with patch("pyannote.audio.Pipeline.from_pretrained", return_value=mock_pipeline):
+            out = t.diarize("fake.wav", result, hf_token="fake_token")
+        assert out["segments"][0]["speaker"] == "SPEAKER_00"
+        assert out["segments"][1]["speaker"] == "SPEAKER_01"
+
+    def test_pipeline_failure_returns_result_unchanged(self):
+        t = self._transcriber()
+        result = self._base_result()
+        with patch("pyannote.audio.Pipeline.from_pretrained",
+                   side_effect=RuntimeError("auth failed")):
+            out = t.diarize("fake.wav", result, hf_token="bad_token")
+        assert all(s["speaker"] == "UNKNOWN" for s in out["segments"])
+
+    def test_empty_segments_no_crash(self):
+        t = self._transcriber()
+        result = {"segments": [], "word_segments": []}
+        diarization = _make_diarization([])
+        mock_pipeline = MagicMock(return_value=diarization)
+        with patch("pyannote.audio.Pipeline.from_pretrained", return_value=mock_pipeline):
+            out = t.diarize("fake.wav", result, hf_token="tok")
+        assert out["segments"] == []
