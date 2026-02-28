@@ -17,6 +17,8 @@ import {
   type MikupPayload,
   type PipelineStageDefinition,
   type DspCompletePayload,
+  type AppConfig,
+  type WorkspaceSetupResult,
 } from './types';
 import { clsx } from 'clsx';
 
@@ -106,6 +108,8 @@ function App() {
   const [fastMode, setFastMode] = useState(false);
   const [isPreparingWorkflow, setIsPreparingWorkflow] = useState(false);
   const [loudnessTargetId, setLoudnessTargetId] = useState<LoudnessTargetId>('streaming');
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [showFirstRunModal, setShowFirstRunModal] = useState(false);
 
   const loudnessTarget = LOUDNESS_TARGETS[loudnessTargetId];
 
@@ -130,6 +134,25 @@ function App() {
       unlisten.then((f) => f());
     };
   }, []);
+
+  // Seek the audio player when the AI Director calls seek_audio.
+  useEffect(() => {
+    const unlisten = listen<{ tool: string; time_secs?: number }>('agent-action', (event) => {
+      if (event.payload.tool === 'seek_audio' && typeof event.payload.time_secs === 'number') {
+        const [dialoguePath, backgroundPath] = resolvePlaybackStemPaths(
+          payload,
+          inputPath,
+          workspaceDirectory,
+        );
+        if (dialoguePath) {
+          dspStream.startStream(dialoguePath, backgroundPath, event.payload.time_secs);
+        }
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [payload, inputPath, workspaceDirectory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const complete: DspCompletePayload | null = dspStream.completePayload;
@@ -184,6 +207,22 @@ function App() {
       setWorkflowMessage('DSP analysis failed. Check that Stage 1 stems exist and retry.');
     }
   }, [dspStream.error]);
+
+  // Load app config on mount; gate on first-run modal if no default projects dir is set.
+  useEffect(() => {
+    invoke<AppConfig>('get_app_config')
+      .then((cfg) => {
+        if (!cfg.default_projects_dir) {
+          setShowFirstRunModal(true);
+        } else {
+          setConfig(cfg);
+        }
+      })
+      .catch(() => {
+        // Config unreadable — show first-run modal as safe fallback.
+        setShowFirstRunModal(true);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStartNewProcess = async (filePath: string) => {
     if (!filePath.trim()) {
@@ -681,6 +720,7 @@ function App() {
               <AIBridge
                 key={`${payload?.metadata?.source_file ?? 'none'}:${payload?.ai_report ?? 'none'}`}
                 payload={payload}
+                workspaceDir={workspaceDirectory}
               />
             </div>
           </div>
