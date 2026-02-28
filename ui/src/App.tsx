@@ -40,50 +40,36 @@ const PIPELINE_STAGES: PipelineStageDefinition[] = [
   { id: 'SEPARATION', label: 'Surgical Separation' },
   { id: 'TRANSCRIPTION', label: 'Transcription & Diarization' },
   { id: 'DSP', label: 'Feature Extraction (LUFS)' },
-  { id: 'SEMANTICS', label: 'Semantic Understanding' },
-  { id: 'DIRECTOR', label: 'AI Director Synthesis' },
 ];
 
 const DSP_STAGE_INDEX = PIPELINE_STAGES.findIndex((s) => s.id === 'DSP');
 
-/**
- * Derive dialogue and background WAV stem paths from the source file and workspace.
- * Convention: Stage 1 (Separation) places stems as `{baseName}_Vocals.wav` and
- * `{baseName}_Instrumental.wav` in the workspace directory.
- *
- * NOTE: If Stage 1 produces differently named files (verify by inspecting the
- * workspace after a real Stage 1 run), update the suffixes here.
- */
-function deriveStemPaths(inputPath: string, workspaceDir: string): [string, string] {
-  const filename = inputPath.replace(/^.*[\\/]/, '');
-  const baseName = filename.replace(/\.[^/.]+$/, '');
-  return [
-    `${workspaceDir}/${baseName}_Vocals.wav`,
-    `${workspaceDir}/${baseName}_Instrumental.wav`,
-  ];
-}
-
-/**
- * Resolve dialogue + background stem paths for live DSP streaming in the analysis view.
- * Prefers the processing-session paths if available, then falls back to payload artifacts.
- */
 function resolvePlaybackStemPaths(
   payload: MikupPayload | null,
   inputPath: string | null,
-  workspaceDir: string | null,
+  workspaceDirectory: string | null,
 ): [string, string] {
-  if (inputPath && workspaceDir) {
-    return deriveStemPaths(inputPath, workspaceDir);
-  }
-  // Derive from payload artifact metadata
-  if (payload?.metadata?.source_file && payload?.artifacts?.output_dir) {
-    return deriveStemPaths(payload.metadata.source_file, payload.artifacts.output_dir);
-  }
-  // Last resort: pick first two stem paths from artifacts
   const stems = payload?.artifacts?.stem_paths ?? [];
-  const dialogue = stems.find((p) => /vocals|dialogue/i.test(p)) ?? stems[0] ?? '';
-  const background = stems.find((p) => /instrumental|background/i.test(p)) ?? stems[1] ?? '';
-  return [dialogue, background];
+
+  // Prefer canonical stem names from the payload artifacts.
+  const payloadDX = stems.find((p) => /_DX\./i.test(p));
+  const payloadMusic = stems.find((p) => /_Music\./i.test(p));
+
+  if (payloadDX && payloadMusic) {
+    return [payloadDX, payloadMusic];
+  }
+
+  // Fallback: derive paths from workspace + input filename.
+  if (inputPath && workspaceDirectory) {
+    const filename = inputPath.replace(/^.*[\\/]/, '');
+    const baseName = filename.replace(/\.[^/.]+$/, '');
+    return [
+      `${workspaceDirectory}/stems/${baseName}_DX.wav`,
+      `${workspaceDirectory}/stems/${baseName}_Music.wav`,
+    ];
+  }
+
+  return [stems[0] ?? '', stems[1] ?? ''];
 }
 
 function buildProceedPrompt(completedStageLabel: string, nextStage: PipelineStageDefinition): string {
@@ -189,6 +175,19 @@ function App() {
       });
     }
 
+    // Persist LUFS/LRA to disk so Python Stage 5 can read them.
+    if (workspaceDirectory) {
+      invoke<void>('write_dsp_metrics', {
+        outputDirectory: workspaceDirectory,
+        dialogueIntegratedLufs: complete.dialogue_integrated_lufs,
+        dialogueLoudnessRangeLu: complete.dialogue_loudness_range_lu,
+        backgroundIntegratedLufs: complete.background_integrated_lufs,
+        backgroundLoudnessRangeLu: complete.background_loudness_range_lu,
+      }).catch(() => {
+        // Non-fatal — AI Director will skip LUFS context if file is missing.
+      });
+    }
+
     // Advance the pipeline.
     const nextCount = Math.max(completedStageCount, DSP_STAGE_INDEX + 1);
     setCompletedStageCount(nextCount);
@@ -197,6 +196,44 @@ function App() {
     const nextStage = PIPELINE_STAGES[nextCount];
     if (nextStage) {
       setWorkflowMessage(`Feature extraction complete. Proceed to ${nextStage.label}?`);
+    } else {
+      // DSP was the final stage — load the full payload from disk, merge LUFS, and enter analysis.
+      setWorkflowMessage('All stages complete. Loading analysis...');
+      if (workspaceDirectory) {
+        invoke<string>('read_output_payload', { outputDirectory: workspaceDirectory })
+          .then((result) => {
+            const parsed = parseMikupPayload(JSON.parse(result));
+            setPayload({
+              ...parsed,
+              metrics: {
+                pacing_mikups: parsed?.metrics?.pacing_mikups ?? [],
+                spatial_metrics: parsed?.metrics?.spatial_metrics ?? { total_duration: 0 },
+                impact_metrics: parsed?.metrics?.impact_metrics ?? {},
+                ...parsed?.metrics,
+                lufs_graph: {
+                  ...(parsed?.metrics?.lufs_graph ?? {}),
+                  dialogue_raw: {
+                    integrated: complete.dialogue_integrated_lufs,
+                    momentary: parsed?.metrics?.lufs_graph?.dialogue_raw?.momentary ?? [],
+                    short_term: parsed?.metrics?.lufs_graph?.dialogue_raw?.short_term ?? [],
+                  },
+                  background_raw: {
+                    integrated: complete.background_integrated_lufs,
+                    momentary: parsed?.metrics?.lufs_graph?.background_raw?.momentary ?? [],
+                    short_term: parsed?.metrics?.lufs_graph?.background_raw?.short_term ?? [],
+                  },
+                },
+              },
+            });
+            setView('analysis');
+          })
+          .catch(() => {
+            // Payload not on disk — transition anyway with whatever is in memory.
+            setView('analysis');
+          });
+      } else {
+        setView('analysis');
+      }
     }
   }, [dspStream.completePayload]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -222,7 +259,7 @@ function App() {
         // Config unreadable — show first-run modal as safe fallback.
         setShowFirstRunModal(true);
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFirstRunSave = async () => {
     setError(null);
@@ -351,9 +388,23 @@ function App() {
     // DSP is handled entirely by the Rust stream — no Python invocation.
     if (stageIndex === DSP_STAGE_INDEX) {
       if (!inputPath || !workspaceDirectory) return;
-      const [dialoguePath, backgroundPath] = deriveStemPaths(inputPath, workspaceDirectory);
-      setProgress({ stage: 'DSP', progress: 0, message: 'Starting live DSP analysis...' });
-      dspStream.startStream(dialoguePath, backgroundPath);
+      
+      try {
+        const stems = await invoke<Record<string, string | null>>('get_stems', { outputDirectory: workspaceDirectory });
+        const dialoguePath = stems['dialogue_raw'];
+        const backgroundPath = stems['background_raw'];
+        
+        if (!dialoguePath || !backgroundPath) {
+            throw new Error("Stems not found in stems.json. Stage 1 may have failed.");
+        }
+        
+        setProgress({ stage: 'DSP', progress: 0, message: 'Starting live DSP analysis...' });
+        dspStream.startStream(dialoguePath, backgroundPath);
+      } catch (err: unknown) {
+          setError(err instanceof Error ? err.message : String(err));
+          setRunningStageIndex(null);
+          setWorkflowMessage('DSP analysis failed. Check that Stage 1 stems exist and retry.');
+      }
       return; // Completion handled by the useEffect watching dspStream.completePayload
     }
 
@@ -512,12 +563,14 @@ function App() {
               </div>
 
               {dspStream.currentFrame ? (
-                <div className="flex gap-6">
-                  <Vectorscope
-                    lissajousPoints={dspStream.currentFrame.lissajous_points}
-                    size={200}
-                  />
-                  <div className="flex-1 min-w-0">
+                <div className="flex gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="shrink-0 border border-panel-border rounded overflow-hidden">
+                    <Vectorscope
+                      lissajousPoints={dspStream.currentFrame.lissajous_points}
+                      size={200}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0 py-1">
                     <LiveMeters
                       frame={dspStream.currentFrame}
                       lra={dspStream.completePayload?.dialogue_loudness_range_lu}
@@ -525,19 +578,21 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-sm text-text-muted">
-                  <Loader2 size={14} className="animate-spin text-accent" />
-                  <span>Opening audio stems…</span>
+                <div className="h-[200px] flex flex-col items-center justify-center gap-3 border border-panel-border border-dashed rounded text-text-muted">
+                  <Loader2 size={24} className="animate-spin text-accent/60" />
+                  <span className="text-[11px] font-medium tracking-tight">Opening audio stems & initializing DSP...</span>
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => { dspStream.stopStream(); setRunningStageIndex(null); }}
-                className="text-[10px] font-mono text-text-muted hover:text-accent transition-colors"
-              >
-                Stop stream
-              </button>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { dspStream.stopStream(); setRunningStageIndex(null); }}
+                  className="text-[10px] font-mono font-bold uppercase tracking-widest text-text-muted hover:text-accent transition-colors py-1 px-2 -mr-2"
+                >
+                  [ Cancel Stream ]
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
@@ -649,7 +704,9 @@ function App() {
               {payload?.metadata?.source_file.split(/[\\/]/).pop()}
             </span>
             <span className="text-[11px] font-mono text-text-muted ml-4">
-              {new Date(payload?.metadata?.timestamp || '').toLocaleDateString()}
+              {payload?.metadata?.timestamp
+                ? new Date(payload.metadata.timestamp).toLocaleDateString()
+                : '—'}
               &nbsp;·&nbsp;
               v{payload?.metadata?.pipeline_version}
             </span>
