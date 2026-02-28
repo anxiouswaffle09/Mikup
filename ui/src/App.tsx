@@ -242,6 +242,22 @@ function App() {
     }
   };
 
+  const handleChangeDefaultFolder = async () => {
+    const selectedDir = await open({
+      multiple: false,
+      directory: true,
+      title: 'Change default Mikup projects folder',
+    });
+    if (typeof selectedDir !== 'string') return;
+
+    try {
+      const saved = await invoke<AppConfig>('set_default_projects_dir', { path: selectedDir });
+      setConfig(saved);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleStartNewProcess = async (filePath: string, overrideDir?: string) => {
     if (!filePath.trim()) {
       setError('Selected audio file path is invalid.');
@@ -440,6 +456,8 @@ function App() {
           onSelectProject={handleSelectProject}
           onStartNewProcess={handleStartNewProcess}
           isProcessing={isPreparingWorkflow}
+          config={config}
+          onChangeDefaultFolder={handleChangeDefaultFolder}
         />
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
