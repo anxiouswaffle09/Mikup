@@ -8,6 +8,7 @@ import { MetricsPanel } from './components/MetricsPanel';
 import { AIBridge } from './components/AIBridge';
 import { TranscriptScrubber } from './components/TranscriptScrubber';
 import { LandingHub } from './components/LandingHub';
+import { MikupConsole } from './components/MikupConsole';
 import { StatsBar, LiveMeters } from './components/DiagnosticMeters';
 import { Vectorscope } from './components/Vectorscope';
 import { useDspStream } from './hooks/useDspStream';
@@ -596,50 +597,45 @@ function App() {
             </div>
           ) : (
             <div className="space-y-3">
-              {PIPELINE_STAGES.map((stage, i) => {
-                const isComplete = i < completedStageCount;
-                const isRunning = i === runningStageIndex;
-                const isReady = i === completedStageCount && runningStageIndex === null;
-
-                return (
-                  <div
-                    key={stage.id}
-                    className={clsx(
-                      'flex items-center gap-3 transition-opacity duration-300',
-                      !isComplete && !isRunning && !isReady && 'opacity-35'
-                    )}
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{
-                        backgroundColor:
-                          isComplete || isRunning || isReady
-                            ? 'var(--color-accent)'
-                            : 'var(--color-panel-border)',
-                      }}
-                    />
-                    <span className={clsx('text-sm transition-colors', (isRunning || isReady) ? 'text-text-main font-medium' : 'text-text-muted')}>
-                      {stage.label}
-                    </span>
-                    {isComplete ? (
-                      <button
-                        type="button"
-                        onClick={() => handleRerunStage(i)}
-                        disabled={runningStageIndex !== null}
-                        className="ml-auto text-[10px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40"
-                        title={`Re-run ${stage.label}`}
-                      >
-                        Re-run
-                      </button>
-                    ) : (
-                      <span className="ml-auto text-[10px] font-mono text-text-muted">
-                        {isRunning ? 'Running' : isReady ? 'Ready' : 'Locked'}
+              {/* Stage progress dots */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {PIPELINE_STAGES.map((stage, i) => {
+                  const isComplete = i < completedStageCount;
+                  const isRunning = i === runningStageIndex;
+                  const isReady = i === completedStageCount && runningStageIndex === null;
+                  return (
+                    <div key={stage.id} className="flex items-center gap-1.5">
+                      <div
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{
+                          backgroundColor:
+                            isComplete || isRunning || isReady
+                              ? 'var(--color-accent)'
+                              : 'var(--color-panel-border)',
+                        }}
+                      />
+                      <span className={`text-[10px] font-mono ${isRunning || isReady ? 'text-text-main' : 'text-text-muted opacity-50'}`}>
+                        {stage.label}
                       </span>
-                    )}
-                    {isRunning && <Loader2 size={12} className="animate-spin text-accent" />}
-                  </div>
-                );
-              })}
+                      {isComplete && (
+                        <button
+                          type="button"
+                          onClick={() => handleRerunStage(i)}
+                          disabled={runningStageIndex !== null}
+                          className="text-[9px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40 ml-1"
+                        >
+                          re-run
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Cinematic console */}
+              <div className="h-52 border border-panel-border overflow-hidden rounded">
+                <MikupConsole />
+              </div>
             </div>
           )}
 
