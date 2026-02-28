@@ -48,6 +48,15 @@ export interface DiagnosticMetrics {
   stereo_balance: number;
 }
 
+export type DiagnosticEventSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface DiagnosticEvent {
+  timestamp_secs: number;
+  duration_secs: number;
+  event_type: string;
+  severity: DiagnosticEventSeverity;
+}
+
 /**
  * Emitted by the `dsp-frame` Tauri event at up to 60 FPS during stream_audio_metrics.
  * Matches the DspFramePayload struct in ui/src-tauri/src/lib.rs exactly.
@@ -113,6 +122,7 @@ export interface MikupPayload {
     };
     lufs_graph?: Record<string, LufsSeries>;
     diagnostic_meters?: DiagnosticMetrics;
+    diagnostic_events?: DiagnosticEvent[];
   };
   semantics?: {
     background_tags: SemanticTag[];
@@ -127,6 +137,15 @@ export interface HistoryEntry {
   date: string;
   duration: number;
   payload: MikupPayload;
+}
+
+export interface AppConfig {
+  default_projects_dir: string;
+}
+
+export interface WorkspaceSetupResult {
+  workspace_dir: string;
+  copied_input_path: string;
 }
 
 type PayloadRecord = Record<string, unknown>;
@@ -313,6 +332,19 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
         stereo_correlation: asNumber(raw.metrics.diagnostic_meters.stereo_correlation) ?? 1.0,
         stereo_balance: asNumber(raw.metrics.diagnostic_meters.stereo_balance) ?? 0,
       };
+    }
+
+    if (Array.isArray(raw.metrics.diagnostic_events)) {
+      payload.metrics.diagnostic_events = raw.metrics.diagnostic_events
+        .filter(isRecord)
+        .map((e) => ({
+          timestamp_secs: asNumber(e.timestamp_secs) ?? 0,
+          duration_secs: asNumber(e.duration_secs) ?? 0,
+          event_type: asString(e.event_type) ?? '',
+          severity: (['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(asString(e.severity) ?? '')
+            ? asString(e.severity)
+            : 'LOW') as DiagnosticEventSeverity,
+        }));
     }
   }
 
