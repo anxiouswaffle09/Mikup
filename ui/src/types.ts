@@ -235,14 +235,11 @@ function deriveStemPathsFromSource(sourceFile: string): string[] {
   const baseName = filename.replace(/\.[^/.]+$/, '');
   if (!baseName) return [];
   return [
-    `data/processed/${baseName}_Vocals.wav`,
-    `data/processed/${baseName}_Background.wav`,
-    `data/processed/${baseName}_Music.wav`,
-    `data/processed/${baseName}_Foley.wav`,
-    `data/processed/${baseName}_SFX.wav`,
-    `data/processed/${baseName}_Ambience.wav`,
-    `data/processed/${baseName}_Reverb.wav`,
-    `data/processed/${baseName}_Dry_Vocals.wav`,
+    `${baseName}_DX.wav`,
+    `${baseName}_Music.wav`,
+    `${baseName}_Foley.wav`,
+    `${baseName}_SFX.wav`,
+    `${baseName}_Ambience.wav`,
   ];
 }
 
@@ -404,12 +401,20 @@ export function resolveStemAudioSources(payload: MikupPayload | null): string[] 
   }
 
   if (stemPaths.size === 0 && payload.metadata?.source_file) {
+    const stemsDir = outputDir ? `${outputDir}/stems` : undefined;
     for (const path of deriveStemPathsFromSource(payload.metadata.source_file)) {
-      stemPaths.add(resolveToAbsolute(path, outputDir));
+      stemPaths.add(resolveToAbsolute(path, stemsDir));
     }
   }
 
-  return Array.from(stemPaths);
+  // DX stem is primary — sort it first so WaveformVisualizer loads it as the default waveform.
+  return Array.from(stemPaths).sort((a, b) => {
+    const aIsDX = /_DX\./i.test(a);
+    const bIsDX = /_DX\./i.test(b);
+    if (aIsDX && !bIsDX) return -1;
+    if (!aIsDX && bIsDX) return 1;
+    return 0;
+  });
 }
 
 export function parseHistoryEntry(raw: unknown): HistoryEntry | null {
