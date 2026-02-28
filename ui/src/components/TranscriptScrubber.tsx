@@ -87,7 +87,7 @@ export function TranscriptScrubber({
                         role="button"
                         tabIndex={0}
                         onClick={() => onSeek(word.start)}
-                        onKeyDown={(e) => e.key === 'Enter' && onSeek(word.start)}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onSeek(word.start)}
                         className={clsx(
                           'cursor-pointer rounded-sm px-0.5 transition-colors duration-75',
                           isActiveWord
@@ -108,7 +108,7 @@ export function TranscriptScrubber({
                 role="button"
                 tabIndex={0}
                 onClick={() => onSeek(seg.start)}
-                onKeyDown={(e) => e.key === 'Enter' && onSeek(seg.start)}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onSeek(seg.start)}
                 className={clsx(
                   'font-serif text-sm leading-relaxed text-text-main cursor-pointer rounded-sm px-0.5',
                   'hover:bg-accent/10 hover:text-accent transition-colors',
