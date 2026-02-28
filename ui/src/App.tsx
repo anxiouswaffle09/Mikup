@@ -242,39 +242,38 @@ function App() {
     }
   };
 
-  const handleStartNewProcess = async (filePath: string) => {
+  const handleStartNewProcess = async (filePath: string, overrideDir?: string) => {
     if (!filePath.trim()) {
       setError('Selected audio file path is invalid.');
       return;
     }
+    if (!config) {
+      setError('App config not loaded. Restart the application.');
+      return;
+    }
+
+    const baseDir = overrideDir ?? config.default_projects_dir;
 
     setIsPreparingWorkflow(true);
-    setError(null);
-    setPipelineErrors([]);
 
     try {
-      const selectedDirectory = await open({
-        multiple: false,
-        directory: true,
-        title: 'Choose output workspace folder',
+      setError(null);
+      setPipelineErrors([]);
+      const workspace = await invoke<WorkspaceSetupResult>('setup_project_workspace', {
+        inputPath: filePath,
+        baseDirectory: baseDir,
       });
 
-      if (typeof selectedDirectory !== 'string') {
-        setError('No output folder selected. Choose a folder to continue.');
-        return;
-      }
-
-      setInputPath(filePath);
-      setWorkspaceDirectory(selectedDirectory);
+      setInputPath(workspace.copied_input_path);
+      setWorkspaceDirectory(workspace.workspace_dir);
       setRunningStageIndex(null);
 
       let resumeCount = 0;
       try {
         resumeCount = await invoke<number>('get_pipeline_state', {
-          outputDirectory: selectedDirectory,
+          outputDirectory: workspace.workspace_dir,
         });
       } catch {
-        // non-fatal: treat as fresh start
         resumeCount = 0;
       }
 
@@ -289,19 +288,18 @@ function App() {
       } else if (resumeCount >= PIPELINE_STAGES.length) {
         try {
           const result = await invoke<string>('read_output_payload', {
-            outputDirectory: selectedDirectory,
+            outputDirectory: workspace.workspace_dir,
           });
           const parsed = parseMikupPayload(JSON.parse(result));
           setPayload(parsed);
           setView('analysis');
           return;
         } catch {
-          // payload not readable yet — fall through to processing view
           setWorkflowMessage('All stages previously completed. Re-run any stage or load results.');
           setProgress({ stage: 'COMPLETE', progress: 100, message: 'Previously completed.' });
         }
       } else {
-        setWorkflowMessage('Workspace selected. Run Stage 1: Surgical Separation.');
+        setWorkflowMessage('Workspace ready. Run Stage 1: Surgical Separation.');
         setProgress({ stage: 'INIT', progress: 0, message: 'Ready to run stage 1.' });
       }
 
