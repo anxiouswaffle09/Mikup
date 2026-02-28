@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use chrono::Local;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -71,6 +72,25 @@ struct DspCompletePayload {
     background_loudness_range_lu: f32,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct AppConfig {
+    default_projects_dir: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            default_projects_dir: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct WorkspaceSetupResult {
+    workspace_dir: String,
+    copied_input_path: String,
+}
+
 fn contains_unsafe_shell_tokens(value: &str) -> bool {
     value.contains('`') || value.contains('\n') || value.contains('\r')
 }
@@ -138,6 +158,9 @@ fn resolve_output_paths(
 ) -> Result<(PathBuf, String, PathBuf, String), String> {
     ensure_safe_argument("Output directory", output_directory)?;
     let output_directory_path = PathBuf::from(output_directory);
+    if !output_directory_path.is_absolute() {
+        return Err("Output directory must be an absolute path".to_string());
+    }
     let output_directory_arg = output_directory_path.to_string_lossy().into_owned();
     ensure_safe_argument("Output directory", &output_directory_arg)?;
 
@@ -151,6 +174,15 @@ fn resolve_output_paths(
         output_path,
         output_path_arg,
     ))
+}
+
+fn resolve_data_artifact_path(output_directory: &str, file_name: &str) -> Result<PathBuf, String> {
+    ensure_safe_argument("Output directory", output_directory)?;
+    Ok(PathBuf::from(output_directory).join("data").join(file_name))
+}
+
+fn app_config_path(project_root: &Path) -> PathBuf {
+    project_root.join("data").join("config.json")
 }
 
 fn build_base_pipeline_args(
@@ -257,6 +289,100 @@ async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String>
 }
 
 #[tauri::command]
+async fn get_app_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
+    let project_root =
+        find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
+    let config_path = app_config_path(&project_root);
+
+    let content = match tokio::fs::read_to_string(config_path).await {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(AppConfig::default()),
+        Err(e) => return Err(format!("Failed to read app config: {e}")),
+    };
+
+    serde_json::from_str::<AppConfig>(&content).map_err(|e| format!("Invalid app config JSON: {e}"))
+}
+
+#[tauri::command]
+async fn set_default_projects_dir(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<AppConfig, String> {
+    ensure_safe_argument("Default projects directory", &path)?;
+    let project_root =
+        find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
+
+    let config_path = app_config_path(&project_root);
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Invalid app config path".to_string())?;
+    tokio::fs::create_dir_all(config_dir)
+        .await
+        .map_err(|e| format!("Failed to create config directory: {e}"))?;
+
+    let normalized_path = PathBuf::from(path).to_string_lossy().into_owned();
+    let config = AppConfig {
+        default_projects_dir: normalized_path,
+    };
+    let serialized =
+        serde_json::to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {e}"))?;
+    tokio::fs::write(config_path, serialized)
+        .await
+        .map_err(|e| format!("Failed to write app config: {e}"))?;
+
+    Ok(config)
+}
+
+#[tauri::command]
+async fn setup_project_workspace(
+    input_path: String,
+    base_directory: String,
+) -> Result<WorkspaceSetupResult, String> {
+    ensure_safe_argument("Input path", &input_path)?;
+    ensure_safe_argument("Base directory", &base_directory)?;
+
+    let base_dir_path = PathBuf::from(&base_directory);
+    if !base_dir_path.is_absolute() {
+        return Err("Base directory must be an absolute path".to_string());
+    }
+
+    let input_file = PathBuf::from(&input_path);
+    if !input_file.is_file() {
+        return Err(format!("Input file not found: {input_path}"));
+    }
+
+    let file_stem = input_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "Failed to extract file stem from input path".to_string())?;
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let workspace_name = format!("{file_stem}_{timestamp}");
+    let workspace_dir = PathBuf::from(base_directory).join(workspace_name);
+    let data_dir = workspace_dir.join("data");
+    let stems_dir = workspace_dir.join("stems");
+
+    tokio::fs::create_dir_all(&data_dir)
+        .await
+        .map_err(|e| format!("Failed to create workspace data directory: {e}"))?;
+    tokio::fs::create_dir_all(&stems_dir)
+        .await
+        .map_err(|e| format!("Failed to create workspace stems directory: {e}"))?;
+
+    let input_file_name = input_file
+        .file_name()
+        .ok_or_else(|| "Failed to extract input filename".to_string())?;
+    let copied_input_path = workspace_dir.join(input_file_name);
+    tokio::fs::copy(&input_file, &copied_input_path)
+        .await
+        .map_err(|e| format!("Failed to copy source audio into workspace: {e}"))?;
+
+    Ok(WorkspaceSetupResult {
+        workspace_dir: workspace_dir.to_string_lossy().into_owned(),
+        copied_input_path: copied_input_path.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
 async fn process_audio(
     app: tauri::AppHandle,
     input_path: String,
@@ -343,10 +469,23 @@ async fn read_output_payload(output_directory: String) -> Result<String, String>
 }
 
 #[tauri::command]
-async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
-    ensure_safe_argument("Output directory", &output_directory)?;
+async fn get_stems(output_directory: String) -> Result<serde_json::Value, String> {
+    let stems_path = resolve_data_artifact_path(&output_directory, "stems.json")?;
 
-    let state_path = PathBuf::from(&output_directory).join("stage_state.json");
+    if !stems_path.exists() {
+        return Err(format!("stems.json not found at {}", stems_path.display()));
+    }
+
+    let content = tokio::fs::read_to_string(&stems_path)
+        .await
+        .map_err(|e| format!("Failed to read stems.json: {e}"))?;
+
+    serde_json::from_str(&content).map_err(|e| format!("Invalid JSON in stems.json: {e}"))
+}
+
+#[tauri::command]
+async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
+    let state_path = resolve_data_artifact_path(&output_directory, "stage_state.json")?;
 
     let content = match tokio::fs::read_to_string(&state_path).await {
         Ok(c) => c,
@@ -388,14 +527,46 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
     Ok(count)
 }
 
+/// Persist the integrated LUFS and LRA produced by `stream_audio_metrics` to disk.
+/// Written to `{output_directory}/data/dsp_metrics.json` so the Python backend can
+/// read it during Stage 5 (AI Director report generation).
+#[tauri::command]
+async fn write_dsp_metrics(
+    output_directory: String,
+    dialogue_integrated_lufs: f32,
+    dialogue_loudness_range_lu: f32,
+    background_integrated_lufs: f32,
+    background_loudness_range_lu: f32,
+) -> Result<(), String> {
+    let metrics_path = resolve_data_artifact_path(&output_directory, "dsp_metrics.json")?;
+
+    let metrics = serde_json::json!({
+        "dialogue_integrated_lufs": dialogue_integrated_lufs,
+        "dialogue_loudness_range_lu": dialogue_loudness_range_lu,
+        "background_integrated_lufs": background_integrated_lufs,
+        "background_loudness_range_lu": background_loudness_range_lu,
+    });
+
+    let serialized = serde_json::to_string_pretty(&metrics).map_err(|e| e.to_string())?;
+
+    // Ensure the data directory exists (workspace setup normally creates it, but be safe).
+    if let Some(parent) = metrics_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create data directory: {e}"))?;
+    }
+
+    tokio::fs::write(&metrics_path, serialized)
+        .await
+        .map_err(|e| format!("Failed to write dsp_metrics.json: {e}"))
+}
+
 /// Marks the DSP stage as complete in `stage_state.json`.
 /// Called by the frontend after the Rust `stream_audio_metrics` stream ends naturally.
 /// This allows `get_pipeline_state` to correctly report 3 completed stages on resume.
 #[tauri::command]
 async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
-    ensure_safe_argument("Output directory", &output_directory)?;
-
-    let state_path = PathBuf::from(&output_directory).join("stage_state.json");
+    let state_path = resolve_data_artifact_path(&output_directory, "stage_state.json")?;
 
     let mut state: serde_json::Value = match tokio::fs::read_to_string(&state_path).await {
         Ok(content) => serde_json::from_str(&content)
@@ -440,9 +611,13 @@ async fn stream_audio_metrics(
     cancel_flag: tauri::State<'_, Arc<AtomicBool>>,
     dialogue_path: String,
     background_path: String,
+    start_time: f64,
 ) -> Result<(), String> {
     ensure_safe_argument("Dialogue path", &dialogue_path)?;
     ensure_safe_argument("Background path", &background_path)?;
+    if !start_time.is_finite() || start_time < 0.0 {
+        return Err("start_time must be a finite value >= 0".to_string());
+    }
 
     // Reset cancellation so any lingering previous stream sees `true` → stops, and
     // our new stream starts clean with `false`.
@@ -453,6 +628,9 @@ async fn stream_audio_metrics(
         let mut decoder =
             MikupAudioDecoder::new(&dialogue_path, &background_path, DSP_SAMPLE_RATE, DSP_FRAME_SIZE)
                 .map_err(|e| e.to_string())?;
+        decoder
+            .seek(start_time as f32)
+            .map_err(|e| format!("Failed to seek decoder: {e}"))?;
 
         let sample_rate = decoder.target_sample_rate();
         let frame_size = decoder.frame_size();
@@ -565,6 +743,147 @@ async fn stream_audio_metrics(
     .map_err(|e| e.to_string())?
 }
 
+/// Emitted once per tool call the AI Director makes during a turn.
+#[derive(Clone, serde::Serialize)]
+struct AgentActionPayload {
+    tool: String,
+    time_secs: Option<f64>,
+}
+
+/// Send a single message to the AI Director Python sidecar and return its reply.
+///
+/// The Python process (`src/llm/interactive.py`) communicates over stdin/stdout
+/// using newline-delimited JSON:
+///   Rust  → Python stdin:  `{"text": "<user message>"}\n`
+///   Python → Rust stdout:  `{"type": "ready"}\n`           (once, on startup)
+///                          `{"tool": "<name>", ...}\n`      (zero or more tool calls)
+///                          `{"type": "response", "text": "..."}\n`
+///
+/// Each tool call is forwarded to the frontend as an `agent-action` Tauri event.
+///
+/// # Security
+/// `workspace_dir` must be an absolute path. The value is passed verbatim as the
+/// `WORKSPACE_DIR` environment variable so Python's `_is_path_safe` can correctly
+/// sandbox file access to the project workspace.
+#[tauri::command]
+async fn send_agent_message(
+    app: tauri::AppHandle,
+    text: String,
+    workspace_dir: String,
+) -> Result<String, String> {
+    ensure_safe_argument("Text", &text)?;
+    ensure_safe_argument("Workspace directory", &workspace_dir)?;
+
+    let workspace_path = PathBuf::from(&workspace_dir);
+    if !workspace_path.is_absolute() {
+        return Err("Path Denied: workspace_dir must be an absolute path".to_string());
+    }
+    if !workspace_path.is_dir() {
+        return Err(format!("Workspace directory not found: {workspace_dir}"));
+    }
+
+    let project_root = find_project_root(&app)
+        .ok_or_else(|| "Unable to resolve project root".to_string())?;
+    let python_path = resolve_python_path(&project_root);
+
+    let (mut rx, mut child) = app
+        .shell()
+        .command(&python_path)
+        .current_dir(&project_root)
+        .args(["-m", "src.llm.interactive"])
+        .env("WORKSPACE_DIR", &workspace_dir)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn AI Director: {e}"))?;
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+    let mut buf = String::new();
+    let mut ready = false;
+    let mut result: Result<String, String> =
+        Err("AI Director did not return a response".to_string());
+
+    'outer: loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            result = Err("AI Director timed out".to_string());
+            break;
+        }
+
+        let maybe_event = match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(ev) => ev,
+            Err(_) => {
+                result = Err("AI Director timed out".to_string());
+                break;
+            }
+        };
+
+        match maybe_event {
+            Some(CommandEvent::Stdout(chunk)) => {
+                buf.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(pos) = buf.find('\n') {
+                    let line: String = buf.drain(..=pos).collect();
+                    let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                        let msg_type = json_val
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("");
+                        if msg_type == "ready" && !ready {
+                            ready = true;
+                            let msg =
+                                serde_json::json!({"text": text}).to_string() + "\n";
+                            if let Err(e) = child.write(msg.as_bytes()) {
+                                result = Err(format!(
+                                    "Failed to send message to AI Director: {e}"
+                                ));
+                                break 'outer;
+                            }
+                        } else if msg_type == "response" && ready {
+                            let response_text = json_val
+                                .get("text")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            result = Ok(response_text);
+                            break 'outer;
+                        } else if let Some(tool_name) =
+                            json_val.get("tool").and_then(|t| t.as_str())
+                        {
+                            let time_secs =
+                                json_val.get("time_secs").and_then(|t| t.as_f64());
+                            let _ = app.emit(
+                                "agent-action",
+                                AgentActionPayload {
+                                    tool: tool_name.to_string(),
+                                    time_secs,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+            Some(CommandEvent::Stderr(_)) => {
+                // Python logging to stderr — ignored by design.
+            }
+            Some(CommandEvent::Terminated(status)) => {
+                if result.is_err() && status.code != Some(0) {
+                    result = Err(format!(
+                        "AI Director exited unexpectedly (code {:?})",
+                        status.code
+                    ));
+                }
+                break;
+            }
+            Some(_) | None => break,
+        }
+    }
+
+    let _ = child.kill();
+    result
+}
+
 #[cfg(test)]
 mod lib_tests {
     #[test]
@@ -617,11 +936,17 @@ pub fn run() {
             process_audio,
             run_pipeline_stage,
             read_output_payload,
+            get_stems,
             get_history,
+            get_app_config,
+            set_default_projects_dir,
+            setup_project_workspace,
             get_pipeline_state,
+            write_dsp_metrics,
             stream_audio_metrics,
             stop_dsp_stream,
             mark_dsp_complete,
+            send_agent_message,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
