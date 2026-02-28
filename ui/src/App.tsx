@@ -224,6 +224,24 @@ function App() {
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleFirstRunSave = async () => {
+    setError(null);
+    const selectedDir = await open({
+      multiple: false,
+      directory: true,
+      title: 'Choose your default Mikup projects folder',
+    });
+    if (typeof selectedDir !== 'string') return;
+
+    try {
+      const saved = await invoke<AppConfig>('set_default_projects_dir', { path: selectedDir });
+      setConfig(saved);
+      setShowFirstRunModal(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleStartNewProcess = async (filePath: string) => {
     if (!filePath.trim()) {
       setError('Selected audio file path is invalid.');
@@ -382,6 +400,40 @@ function App() {
     setPayload(projectPayload);
     setView('analysis');
   };
+
+  // Show nothing until config is resolved to avoid a flash of landing page.
+  if (!config && !showFirstRunModal) {
+    return null;
+  }
+
+  if (showFirstRunModal) {
+    return (
+      <div className="fixed inset-0 bg-background flex items-center justify-center z-50">
+        <div className="border border-panel-border p-8 max-w-md w-full mx-4 space-y-6 animate-in fade-in duration-300">
+          <div>
+            <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted mb-2">
+              Initial Setup
+            </p>
+            <h2 className="text-xl font-semibold text-text-main">Welcome to Mikup</h2>
+          </div>
+          <p className="text-sm text-text-muted font-mono leading-relaxed">
+            Choose a folder where Mikup will create project workspaces. Each audio file you
+            analyse will get its own timestamped subfolder inside this directory.
+          </p>
+          {error && (
+            <p className="text-[11px] font-mono text-red-400">{error}</p>
+          )}
+          <button
+            type="button"
+            onClick={handleFirstRunSave}
+            className="w-full border border-accent text-accent px-4 py-3 text-sm font-medium hover:bg-accent/5 transition-colors"
+          >
+            Choose Folder…
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (view === 'landing') {
     return (
