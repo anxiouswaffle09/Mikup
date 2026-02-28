@@ -25,6 +25,8 @@ export const LandingHub: React.FC<LandingHubProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dropError, setDropError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [manualOverrideDir, setManualOverrideDir] = useState<string | null>(null);
 
   const loadHistory = async () => {
     try {
@@ -35,6 +37,17 @@ export const LandingHub: React.FC<LandingHubProps> = ({
       setHistory(parsed);
     } catch (err) {
       console.error('Failed to load history:', err);
+    }
+  };
+
+  const handlePickManualFolder = async () => {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+      title: 'Choose output folder for this run',
+    });
+    if (typeof selected === 'string') {
+      setManualOverrideDir(selected);
     }
   };
 
@@ -68,7 +81,7 @@ export const LandingHub: React.FC<LandingHubProps> = ({
     });
 
     if (typeof selectedPath === 'string') {
-      onStartNewProcess(selectedPath);
+      onStartNewProcess(selectedPath, manualOverrideDir ?? undefined);
     }
   };
 
@@ -87,7 +100,7 @@ export const LandingHub: React.FC<LandingHubProps> = ({
       return;
     }
 
-    onStartNewProcess(audioFilePath);
+    onStartNewProcess(audioFilePath, manualOverrideDir ?? undefined);
   };
 
   const filteredHistory = history.filter(item =>
@@ -141,6 +154,48 @@ export const LandingHub: React.FC<LandingHubProps> = ({
         {dropError && (
           <p className="mt-2 text-[11px] text-red-400 font-mono">{dropError}</p>
         )}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdvanced((v) => !v);
+              if (showAdvanced) setManualOverrideDir(null);
+            }}
+            className="flex items-center gap-1.5 text-[10px] font-mono text-text-muted hover:text-accent transition-colors select-none"
+          >
+            <span
+              className="transition-transform duration-150"
+              style={{ display: 'inline-block', transform: showAdvanced ? 'rotate(90deg)' : 'none' }}
+            >
+              ▸
+            </span>
+            Advanced: Manual Folder
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-2 flex items-center gap-3 pl-4">
+              <button
+                type="button"
+                onClick={handlePickManualFolder}
+                className="text-[11px] font-mono border border-panel-border px-2 py-1 text-text-muted hover:border-accent hover:text-accent transition-colors"
+              >
+                Choose Folder…
+              </button>
+              {manualOverrideDir ? (
+                <span
+                  className="text-[11px] font-mono text-text-muted truncate flex-1"
+                  title={manualOverrideDir}
+                >
+                  {manualOverrideDir}
+                </span>
+              ) : (
+                <span className="text-[11px] font-mono text-text-muted italic">
+                  No folder selected — default will be used
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="border-t border-panel-border pt-6 mt-8">
