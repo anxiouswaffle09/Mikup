@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { DiagnosticMetrics } from '../types';
 import type { DspFramePayload } from '../types';
 
@@ -226,9 +226,25 @@ const LiveStatCell: React.FC<LiveStatCellProps> = ({
   const precision = typeof decimals === 'number' ? decimals : 2;
   const inDanger = dangerAbove !== undefined && value > dangerAbove;
 
+  // Peak hold: update during render when value exceeds previous peak.
+  // This is the React-approved "adjusting state when a prop changes" pattern —
+  // React re-renders immediately with the new peak, skipping a wasted frame.
+  const [peak, setPeak] = useState(value);
+  if (value > peak) {
+    setPeak(value);
+  }
+  const peakPct = Math.max(0, Math.min(1, (peak - min) / (max - min)));
+
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">{label}</span>
+      <div className="flex justify-between items-baseline">
+        <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">{label}</span>
+        {peak !== value && (
+          <span className="text-[8px] font-mono text-text-muted/60 tabular-nums">
+            PK {peak.toFixed(precision)}
+          </span>
+        )}
+      </div>
       <span
         className="font-mono text-xl font-semibold tabular-nums leading-none transition-colors duration-150"
         style={{ color: inDanger ? 'oklch(0.65 0.2 25)' : 'var(--color-text-main)' }}
@@ -244,6 +260,11 @@ const LiveStatCell: React.FC<LiveStatCellProps> = ({
             style={{ left: `${pos * 100}%` }}
           />
         ))}
+        {/* Peak indicator */}
+        <div 
+          className="absolute top-[-1px] h-[3px] w-[1px] bg-text-muted/40 transition-all duration-300"
+          style={{ left: `${peakPct * 100}%` }}
+        />
         <div
           className="absolute top-0 left-0 h-px transition-all duration-150"
           style={{
