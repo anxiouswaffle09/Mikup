@@ -3,19 +3,23 @@ import { FileAudio, ChevronRight, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { parseHistoryEntry } from '../types';
-import type { HistoryEntry, MikupPayload } from '../types';
+import type { AppConfig, HistoryEntry, MikupPayload } from '../types';
 import { clsx } from 'clsx';
 
 interface LandingHubProps {
   onSelectProject: (payload: MikupPayload) => void;
-  onStartNewProcess: (filePath: string) => void;
+  onStartNewProcess: (filePath: string, overrideDir?: string) => void;
   isProcessing: boolean;
+  config: AppConfig | null;
+  onChangeDefaultFolder: () => void;
 }
 
 export const LandingHub: React.FC<LandingHubProps> = ({
   onSelectProject,
   onStartNewProcess,
   isProcessing,
+  config,
+  onChangeDefaultFolder,
 }) => {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -96,6 +100,22 @@ export const LandingHub: React.FC<LandingHubProps> = ({
         <h1 className="text-xl font-semibold tracking-tight text-text-main">Mikup</h1>
         <span className="text-[11px] font-mono text-text-muted">v0.1.0-alpha</span>
       </header>
+
+      {config?.default_projects_dir && (
+        <div className="flex items-center gap-3 mb-6 font-mono text-[11px] text-text-muted">
+          <span className="uppercase tracking-widest font-bold">Default workspace</span>
+          <span className="flex-1 truncate" title={config.default_projects_dir}>
+            {config.default_projects_dir}
+          </span>
+          <button
+            type="button"
+            onClick={onChangeDefaultFolder}
+            className="shrink-0 text-[10px] text-accent hover:underline"
+          >
+            Change
+          </button>
+        </div>
+      )}
 
       <div className="border-t border-panel-border pt-6 mb-2">
         <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted mb-3">
