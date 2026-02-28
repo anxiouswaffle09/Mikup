@@ -6,6 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { WaveformVisualizer } from './components/WaveformVisualizer';
 import { MetricsPanel } from './components/MetricsPanel';
 import { AIBridge } from './components/AIBridge';
+import { TranscriptScrubber } from './components/TranscriptScrubber';
 import { LandingHub } from './components/LandingHub';
 import { StatsBar, LiveMeters } from './components/DiagnosticMeters';
 import { Vectorscope } from './components/Vectorscope';
@@ -58,6 +59,29 @@ function deriveStemPaths(inputPath: string, workspaceDir: string): [string, stri
     `${workspaceDir}/${baseName}_Vocals.wav`,
     `${workspaceDir}/${baseName}_Instrumental.wav`,
   ];
+}
+
+/**
+ * Resolve dialogue + background stem paths for live DSP streaming in the analysis view.
+ * Prefers the processing-session paths if available, then falls back to payload artifacts.
+ */
+function resolvePlaybackStemPaths(
+  payload: MikupPayload | null,
+  inputPath: string | null,
+  workspaceDir: string | null,
+): [string, string] {
+  if (inputPath && workspaceDir) {
+    return deriveStemPaths(inputPath, workspaceDir);
+  }
+  // Derive from payload artifact metadata
+  if (payload?.metadata?.source_file && payload?.artifacts?.output_dir) {
+    return deriveStemPaths(payload.metadata.source_file, payload.artifacts.output_dir);
+  }
+  // Last resort: pick first two stem paths from artifacts
+  const stems = payload?.artifacts?.stem_paths ?? [];
+  const dialogue = stems.find((p) => /vocals|dialogue/i.test(p)) ?? stems[0] ?? '';
+  const background = stems.find((p) => /instrumental|background/i.test(p)) ?? stems[1] ?? '';
+  return [dialogue, background];
 }
 
 function buildProceedPrompt(completedStageLabel: string, nextStage: PipelineStageDefinition): string {
@@ -552,6 +576,16 @@ function App() {
                 duration={payload?.metrics?.spatial_metrics?.total_duration}
                 audioSources={resolveStemAudioSources(payload)}
                 outputDir={payload?.artifacts?.output_dir}
+                diagnosticEvents={payload?.metrics?.diagnostic_events}
+                onPlay={(time) => {
+                  const [dialoguePath, backgroundPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+                  if (dialoguePath) dspStream.startStream(dialoguePath, backgroundPath, time);
+                }}
+                onPause={() => dspStream.stopStream()}
+                onSeek={(time) => {
+                  const [dialoguePath, backgroundPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+                  if (dialoguePath) dspStream.startStream(dialoguePath, backgroundPath, time);
+                }}
               />
             </div>
           </section>
@@ -583,15 +617,72 @@ function App() {
           </section>
         </div>
 
-        <aside className="lg:col-span-4 flex flex-col px-6 py-5">
-          <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted mb-4">
-            AI Bridge
-          </span>
-          <div className="flex-1 flex flex-col min-h-0">
-            <AIBridge
-              key={`${payload?.metadata?.source_file ?? 'none'}:${payload?.ai_report ?? 'none'}`}
-              payload={payload}
-            />
+        <aside className="lg:col-span-4 flex flex-col px-6 py-5 gap-6 min-h-0">
+          {/* Live DSP meters — visible whenever a DSP stream is active */}
+          {dspStream.currentFrame && (
+            <div className="space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Live Meters</span>
+                <span className="text-[10px] font-mono text-text-muted tabular-nums">
+                  {dspStream.currentFrame.timestamp_secs.toFixed(1)}s
+                </span>
+              </div>
+              <div className="flex gap-4">
+                <Vectorscope
+                  lissajousPoints={dspStream.currentFrame.lissajous_points}
+                  size={140}
+                />
+                <div className="flex-1 min-w-0">
+                  <LiveMeters
+                    frame={dspStream.currentFrame}
+                    lra={dspStream.completePayload?.dialogue_loudness_range_lu}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Transcript Scrubber */}
+          {payload?.transcription && payload.transcription.segments.length > 0 && (
+            <div className="flex flex-col min-h-0" style={{ maxHeight: '340px' }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">
+                  Transcript
+                </span>
+                {dspStream.currentFrame && (
+                  <span className="text-[10px] font-mono text-text-muted tabular-nums">
+                    {dspStream.currentFrame.timestamp_secs.toFixed(1)}s
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden border border-panel-border p-3">
+                <TranscriptScrubber
+                  segments={payload.transcription.segments}
+                  wordSegments={payload.transcription.word_segments}
+                  currentTime={dspStream.currentFrame?.timestamp_secs ?? 0}
+                  onSeek={(time) => {
+                    const [dialoguePath, backgroundPath] = resolvePlaybackStemPaths(
+                      payload,
+                      inputPath,
+                      workspaceDirectory,
+                    );
+                    if (dialoguePath) dspStream.startStream(dialoguePath, backgroundPath, time);
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col flex-1 min-h-0">
+            <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted mb-4">
+              AI Bridge
+            </span>
+            <div className="flex-1 flex flex-col min-h-0">
+              <AIBridge
+                key={`${payload?.metadata?.source_file ?? 'none'}:${payload?.ai_report ?? 'none'}`}
+                payload={payload}
+              />
+            </div>
           </div>
         </aside>
       </div>
