@@ -138,13 +138,13 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
 
         <div className="flex flex-wrap gap-2">
           <StreamToggle
-            label="Dialogue"
+            label="DX"
             color="oklch(0.7 0.12 260)"
             isActive={activeStreams.has('diagST')}
             onClick={() => toggleStream('diagST')}
           />
           <StreamToggle
-            label="Background"
+            label="Music"
             color="oklch(0.7 0.12 150)"
             isActive={activeStreams.has('bgST')}
             onClick={() => toggleStream('bgST')}
@@ -360,8 +360,8 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
       <div className="bg-background border border-panel-border p-3 space-y-2">
         <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] border-b border-panel-border pb-2">{data.timeStr}</div>
         <div className="space-y-2">
-          <TooltipRow label="Dialogue" value={data.diagST} color="oklch(0.7 0.12 260)" />
-          <TooltipRow label="Background" value={data.bgST} color="oklch(0.7 0.12 150)" />
+          <TooltipRow label="DX" value={data.diagST} color="oklch(0.7 0.12 260)" />
+          <TooltipRow label="Music" value={data.bgST} color="oklch(0.7 0.12 150)" />
         </div>
       </div>
     );
