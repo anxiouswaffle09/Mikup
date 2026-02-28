@@ -644,7 +644,7 @@ function App() {
 
           {/* Transcript Scrubber */}
           {payload?.transcription && payload.transcription.segments.length > 0 && (
-            <div className="flex flex-col min-h-0" style={{ maxHeight: '340px' }}>
+            <div className="flex flex-col min-h-0 max-h-[340px]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">
                   Transcript
