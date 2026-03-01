@@ -1,3 +1,4 @@
+import os
 import torch
 import librosa
 import logging
@@ -5,6 +6,11 @@ from transformers import AutoProcessor, ClapModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_MODELS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "models",
+)
 
 class MikupSemanticTagger:
     """
@@ -20,13 +26,15 @@ class MikupSemanticTagger:
             self.device = device
         self.model_dtype = torch.float16 if self.device in {"cuda", "mps"} else torch.float32
 
+        clap_cache = os.path.join(_MODELS_DIR, "clap")
         logger.info(f"Loading CLAP model {model_id} on {self.device}...")
         self.model = ClapModel.from_pretrained(
             model_id,
             torch_dtype=self.model_dtype,
+            cache_dir=clap_cache,
         ).to(self.device)
         self.model.eval()
-        self.processor = AutoProcessor.from_pretrained(model_id)
+        self.processor = AutoProcessor.from_pretrained(model_id, cache_dir=clap_cache)
         
         # Default candidate labels for audio drama scenes
         self.default_labels = [

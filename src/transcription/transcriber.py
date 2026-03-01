@@ -481,6 +481,7 @@ class MikupTranscriber:
             pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-3.1",
                 use_auth_token=hf_token,
+                cache_dir=os.path.join(_MODELS_DIR, "pyannote"),
             )
             pipeline.to(torch.device(self.torch_device))
             self._coerce_diarization_pipeline_dtype(pipeline, torch)

@@ -61,10 +61,20 @@ def download_pyannote():
         print("  HF_TOKEN not set in .env - skipping pyannote.")
         return
     from huggingface_hub import snapshot_download
+    pyannote_dir = os.path.join(MODELS_DIR, "pyannote")
     for repo_id in ["pyannote/segmentation-3.0", "pyannote/speaker-diarization-3.1"]:
-        print(f"  Downloading {repo_id} to HF cache...")
-        snapshot_download(repo_id=repo_id, token=HF_TOKEN)
-        print("  Done.")
+        print(f"  Downloading {repo_id}...")
+        snapshot_download(repo_id=repo_id, token=HF_TOKEN, cache_dir=pyannote_dir)
+        print(f"  Done -> models/pyannote/")
+
+
+def download_clap():
+    from huggingface_hub import snapshot_download
+    clap_dir = os.path.join(MODELS_DIR, "clap")
+    repo_id = "laion/clap-htsat-fused"
+    print(f"  Downloading {repo_id} (~900 MB)...")
+    snapshot_download(repo_id=repo_id, cache_dir=clap_dir)
+    print(f"  Done -> models/clap/")
 
 
 def download_separation_models():
@@ -107,12 +117,14 @@ def download_cdx23_models():
 
 if __name__ == "__main__":
     print("Downloading Mikup models...\n")
-    print("[1/4] Stage 1 separation models (MBR + BS-Roformer) -> models/separation/")
+    print("[1/6] Stage 1 separation models (MBR + BS-Roformer) -> models/separation/")
     download_separation_models()
-    print("\n[2/4] CDX23 cinematic demixing models -> models/cdx23/")
+    print("\n[2/6] CDX23 cinematic demixing models -> models/cdx23/")
     download_cdx23_models()
-    print("\n[3/4] faster-whisper (Systran/faster-whisper-small) -> models/whisper-small/")
+    print("\n[3/6] faster-whisper (Systran/faster-whisper-small) -> models/whisper-small/")
     download_whisper()
-    print("\n[4/4] pyannote diarization")
+    print("\n[4/6] pyannote diarization -> models/pyannote/")
     download_pyannote()
+    print("\n[5/6] CLAP semantic tagger (laion/clap-htsat-fused) -> models/clap/")
+    download_clap()
     print("\nAll done.")
