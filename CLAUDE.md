@@ -150,4 +150,4 @@ The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loa
 - **Stage 4 sampling**: CLAP only loads a 5-second window from the middle of the audio file (not the full file) to keep memory low.
 - **Stage 5 (AI Director)** is not yet implemented in Python. The system prompt lives in `src/llm/director_prompt.md`. The UI's `DirectorChat.tsx` has a stub where the real API call should go.
 - **Python path**: `src/main.py` uses package-style imports (`from src.ingestion.separator import ...`), so it must be run from the repo root, not from inside `src/`.
-- **macOS device handling**: MBR and BS-Roformer (ONNX via audio-separator) use `CoreMLExecutionProvider` automatically. CDX23 (Demucs `.th`) runs CPU-only on Apple Silicon — MPS is explicitly excluded due to unreliable Demucs MPS support. CLAP uses MPS if available.
+- **macOS device handling**: MBR and BS-Roformer (ONNX via audio-separator) use `CoreMLExecutionProvider` automatically. CDX23 (Demucs `.th`) uses MPS on Apple Silicon — demucs≥4.0 (Sep 2023 PyPI) supports MPS natively, routing complex-number ops to CPU internally (~8x faster than full CPU on M2). CLAP uses MPS if available.

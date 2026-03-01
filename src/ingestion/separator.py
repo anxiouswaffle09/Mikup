@@ -277,7 +277,9 @@ class MikupSeparator:
         logger.info("Pass 2: CDX23 instrumental split...")
         models_dir = self._cdx23_models_dir()
         model_ids = self.CDX23_MODEL_IDS_FAST if fast_mode else self.CDX23_MODEL_IDS_HQ
-        device = self.device if self.device != "mps" else "cpu"
+        # demucs>=4.0 (Sep 2023 PyPI) supports MPS natively — complex ops fall back
+        # to CPU internally, all other ops use Metal. No need to override to CPU.
+        device = self.device
 
         models = []
         for model_id in model_ids:
