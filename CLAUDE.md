@@ -16,10 +16,31 @@ The project has two layers:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+
+# Choose the requirements file for your platform:
+# macOS (Apple Silicon / Intel):
+pip install -r requirements-mac.txt
+# Linux/Windows (NVIDIA GPU/CUDA):
+pip install -r requirements-cuda.txt
+
 # FFmpeg must be installed separately (e.g. `brew install ffmpeg`)
 # Copy .env.example to .env and fill in API keys
+
+# Pre-download all models into the project models/ directory:
+python scripts/download_models.py
 ```
+
+### Model Storage (`models/`)
+All models are stored locally in the project. The directory is gitignored.
+```
+models/
+  separation/   ← MBR vocals_mel_band_roformer.ckpt + BS-Roformer (audio-separator)
+  cdx23/        ← CDX23 ensemble .th files (demucs, downloaded by download_models.py)
+  whisper-small/← Systran/faster-whisper-small
+  pyannote/     ← pyannote/speaker-diarization-3.1 (requires HF_TOKEN)
+  clap/         ← laion/clap-htsat-fused
+```
+Override the CDX23 path via `MIKUP_CDX23_MODELS_DIR` env var if needed.
 
 ### Running the Pipeline
 ```bash
@@ -129,3 +150,4 @@ The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loa
 - **Stage 4 sampling**: CLAP only loads a 5-second window from the middle of the audio file (not the full file) to keep memory low.
 - **Stage 5 (AI Director)** is not yet implemented in Python. The system prompt lives in `src/llm/director_prompt.md`. The UI's `DirectorChat.tsx` has a stub where the real API call should go.
 - **Python path**: `src/main.py` uses package-style imports (`from src.ingestion.separator import ...`), so it must be run from the repo root, not from inside `src/`.
+- **macOS device handling**: MBR and BS-Roformer (ONNX via audio-separator) use `CoreMLExecutionProvider` automatically. CDX23 (Demucs `.th`) runs CPU-only on Apple Silicon — MPS is explicitly excluded due to unreliable Demucs MPS support. CLAP uses MPS if available.
