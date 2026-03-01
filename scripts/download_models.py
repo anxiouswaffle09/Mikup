@@ -2,10 +2,10 @@
 """Download required models before first pipeline run.
 
 Includes:
-- Stage 1: vocals_mel_band_roformer.ckpt (MBR vocal separator)
-- Stage 1: model_bs_roformer_ep_317_sdr_12.9755.ckpt (optional DX refinement)
-- CDX23 models are auto-downloaded to ~/.cache/mikup/cdx23/ on first run.
-- Whisper small (local path loading)
+- Stage 1: vocals_mel_band_roformer.ckpt (MBR vocal separator) → models/separation/
+- Stage 1: model_bs_roformer_ep_317_sdr_12.9755.ckpt (optional DX refinement) → models/separation/
+- CDX23 cinematic demixing models → models/cdx23/
+- Whisper small → models/whisper-small/
 - pyannote diarization dependencies
 
 Usage:
@@ -33,6 +33,16 @@ PASS2B_MODEL_CANDIDATES = (
     "BS-Roformer-Viperx-1297.ckpt",
 )
 
+CDX23_MODEL_IDS = [
+    "97d170e1-a778de4a.th",
+    "97d170e1-dbb4db15.th",
+    "97d170e1-e41a5468.th",
+]
+CDX23_DOWNLOAD_BASE = (
+    "https://github.com/ZFTurbo/MVSEP-CDX23-Cinematic-Sound-Demixing"
+    "/releases/download/v.1.0.0/"
+)
+
 
 def download_whisper():
     dest = os.path.join(MODELS_DIR, "whisper-small")
@@ -58,33 +68,51 @@ def download_pyannote():
 
 
 def download_separation_models():
-    print("  Preloading separation models via audio-separator cache...")
+    print("  Preloading separation models via audio-separator...")
     try:
         from audio_separator.separator import Separator
     except Exception as exc:
         print(f"  audio-separator unavailable ({exc}); skipping.")
         return
 
-    cache_dir = os.path.join(MODELS_DIR, "separation")
-    os.makedirs(cache_dir, exist_ok=True)
-    separator = Separator(output_dir=cache_dir)
+    model_dir = os.path.join(MODELS_DIR, "separation")
+    os.makedirs(model_dir, exist_ok=True)
+    separator = Separator(model_file_dir=model_dir)
 
     for model_name in (PASS1_MODEL,) + PASS2B_MODEL_CANDIDATES:
         try:
             separator.load_model(model_name)
-            print(f"  Cached: {model_name}")
+            print(f"  Cached: {model_name} -> models/separation/")
         except Exception as exc:
             print(f"  Could not preload {model_name}: {exc}")
 
-    print("  Note: CDX23 models auto-download to ~/.cache/mikup/cdx23/ on first run.")
+
+def download_cdx23_models():
+    import urllib.request
+    cdx23_dir = os.path.join(MODELS_DIR, "cdx23")
+    os.makedirs(cdx23_dir, exist_ok=True)
+    for model_id in CDX23_MODEL_IDS:
+        dest = os.path.join(cdx23_dir, model_id)
+        if os.path.exists(dest):
+            print(f"  {model_id}: already present, skipping.")
+            continue
+        url = CDX23_DOWNLOAD_BASE + model_id
+        print(f"  Downloading {model_id}...")
+        try:
+            urllib.request.urlretrieve(url, dest)
+            print(f"  Done -> models/cdx23/{model_id}")
+        except Exception as exc:
+            print(f"  Failed to download {model_id}: {exc}")
 
 
 if __name__ == "__main__":
     print("Downloading Mikup models...\n")
-    print("[1/3] Stage 1 separation models (MBR + BS-Roformer)")
+    print("[1/4] Stage 1 separation models (MBR + BS-Roformer) -> models/separation/")
     download_separation_models()
-    print("\n[2/3] faster-whisper (Systran/faster-whisper-small)")
+    print("\n[2/4] CDX23 cinematic demixing models -> models/cdx23/")
+    download_cdx23_models()
+    print("\n[3/4] faster-whisper (Systran/faster-whisper-small) -> models/whisper-small/")
     download_whisper()
-    print("\n[3/3] pyannote diarization")
+    print("\n[4/4] pyannote diarization")
     download_pyannote()
-    print("\nAll done. CDX23 models download automatically on first pipeline run.")
+    print("\nAll done.")

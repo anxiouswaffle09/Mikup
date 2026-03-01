@@ -14,6 +14,9 @@ from audio_separator.separator import Separator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Repo root: src/ingestion/separator.py → ../../
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 class MikupSeparator:
     """
@@ -53,8 +56,13 @@ class MikupSeparator:
 
     def _build_separator(self):
         """Instantiate audio-separator with platform-aware provider/device hints."""
+        model_file_dir = os.path.join(_REPO_ROOT, "models", "separation")
+        os.makedirs(model_file_dir, exist_ok=True)
         try:
-            separator = Separator(output_dir=self.output_dir)
+            separator = Separator(
+                output_dir=self.output_dir,
+                model_file_dir=model_file_dir,
+            )
 
             available_providers = ort.get_available_providers()
             logger.info("Available ONNX Runtime providers: %s", available_providers)
@@ -87,7 +95,7 @@ class MikupSeparator:
                 "Failed to initialize Separator with custom provider options: %s. Falling back to defaults.",
                 exc,
             )
-            return Separator()
+            return Separator(model_file_dir=model_file_dir)
 
     @staticmethod
     def _tokens_from_path(file_path):
@@ -245,8 +253,8 @@ class MikupSeparator:
                 logger.warning("Failed to remove intermediate artifact %s: %s", candidate, exc)
 
     def _cdx23_models_dir(self):
-        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or os.path.expanduser(
-            "~/.cache/mikup/cdx23"
+        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or os.path.join(
+            _REPO_ROOT, "models", "cdx23"
         )
         os.makedirs(base, exist_ok=True)
         return base
