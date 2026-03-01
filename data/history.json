@@ -1,5 +1,869 @@
 [
   {
+    "id": "56364b09-3eda-42e6-ae31-aed9be49fd3a",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.459243",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.457151",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp6zkl3xaf/workspace",
+        "stage_state": "/tmp/tmp6zkl3xaf/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp6zkl3xaf/workspace/data/stems.json",
+        "transcription": "/tmp/tmp6zkl3xaf/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp6zkl3xaf/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp6zkl3xaf/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "aa913a8d-17fe-4925-bfa1-ce1bc8ecc72d",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.438832",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.436745",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp6zkl3xaf/workspace",
+        "stage_state": "/tmp/tmp6zkl3xaf/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp6zkl3xaf/workspace/data/stems.json",
+        "transcription": "/tmp/tmp6zkl3xaf/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp6zkl3xaf/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp6zkl3xaf/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "8ac1d19a-dec4-431e-b2ce-6c03d03b9009",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.419749",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.417702",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp6zkl3xaf/workspace",
+        "stage_state": "/tmp/tmp6zkl3xaf/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp6zkl3xaf/workspace/data/stems.json",
+        "transcription": "/tmp/tmp6zkl3xaf/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp6zkl3xaf/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp6zkl3xaf/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "e25d5109-4b72-4d0e-b091-78fc4172a744",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.400592",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.398381",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp6zkl3xaf/workspace",
+        "stage_state": "/tmp/tmp6zkl3xaf/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp6zkl3xaf/workspace/data/stems.json",
+        "transcription": "/tmp/tmp6zkl3xaf/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp6zkl3xaf/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp6zkl3xaf/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "a49bd9fb-aed9-4665-a31b-8e89a01f41db",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.380118",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.377980",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp6zkl3xaf/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp6zkl3xaf/workspace",
+        "stage_state": "/tmp/tmp6zkl3xaf/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp6zkl3xaf/workspace/data/stems.json",
+        "transcription": "/tmp/tmp6zkl3xaf/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp6zkl3xaf/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp6zkl3xaf/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "657cd746-1af8-49af-bee9-92c77a442984",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.357179",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.355084",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp0g_0c4q5/workspace",
+        "stage_state": "/tmp/tmp0g_0c4q5/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp0g_0c4q5/workspace/data/stems.json",
+        "transcription": "/tmp/tmp0g_0c4q5/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp0g_0c4q5/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp0g_0c4q5/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "676dc25e-dfa5-452d-bdc1-e96b4b07e32a",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.336702",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.334473",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp0g_0c4q5/workspace",
+        "stage_state": "/tmp/tmp0g_0c4q5/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp0g_0c4q5/workspace/data/stems.json",
+        "transcription": "/tmp/tmp0g_0c4q5/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp0g_0c4q5/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp0g_0c4q5/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "de754129-4193-4e4c-892e-95412e5c3557",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:31.314311",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:31.311424",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp0g_0c4q5/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp0g_0c4q5/workspace",
+        "stage_state": "/tmp/tmp0g_0c4q5/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp0g_0c4q5/workspace/data/stems.json",
+        "transcription": "/tmp/tmp0g_0c4q5/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp0g_0c4q5/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp0g_0c4q5/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "6d8b57ea-58a9-4fff-8543-659d182edef3",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:22.028629",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:22.026696",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpphab4zzn/workspace",
+        "stage_state": "/tmp/tmpphab4zzn/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpphab4zzn/workspace/data/stems.json",
+        "transcription": "/tmp/tmpphab4zzn/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpphab4zzn/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpphab4zzn/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "7517d532-77b9-4f56-afc8-6cd8e970e4a6",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:22.005260",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:22.003350",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpphab4zzn/workspace",
+        "stage_state": "/tmp/tmpphab4zzn/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpphab4zzn/workspace/data/stems.json",
+        "transcription": "/tmp/tmpphab4zzn/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpphab4zzn/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpphab4zzn/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "d20d3b62-f446-46da-afdb-7a5341185956",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.982434",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.980674",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpphab4zzn/workspace",
+        "stage_state": "/tmp/tmpphab4zzn/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpphab4zzn/workspace/data/stems.json",
+        "transcription": "/tmp/tmpphab4zzn/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpphab4zzn/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpphab4zzn/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "79e34f3a-465d-4d8e-8d29-888fef452eb5",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.958034",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.956208",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpphab4zzn/workspace",
+        "stage_state": "/tmp/tmpphab4zzn/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpphab4zzn/workspace/data/stems.json",
+        "transcription": "/tmp/tmpphab4zzn/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpphab4zzn/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpphab4zzn/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "141e2df8-eb6d-4c13-9178-9076165a1385",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.936553",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.934764",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpphab4zzn/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpphab4zzn/workspace",
+        "stage_state": "/tmp/tmpphab4zzn/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpphab4zzn/workspace/data/stems.json",
+        "transcription": "/tmp/tmpphab4zzn/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpphab4zzn/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpphab4zzn/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "5bf45ff9-15a4-4450-9e9f-30fc2934d9e5",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.911373",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.909419",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpmi0n0i_2/workspace",
+        "stage_state": "/tmp/tmpmi0n0i_2/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpmi0n0i_2/workspace/data/stems.json",
+        "transcription": "/tmp/tmpmi0n0i_2/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpmi0n0i_2/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpmi0n0i_2/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "26b0ff08-6298-455d-aafc-80f934559e4c",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.888087",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.886187",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpmi0n0i_2/workspace",
+        "stage_state": "/tmp/tmpmi0n0i_2/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpmi0n0i_2/workspace/data/stems.json",
+        "transcription": "/tmp/tmpmi0n0i_2/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpmi0n0i_2/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpmi0n0i_2/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "80cdbe57-5c01-4526-b8f3-58474a98e304",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:29:21.861391",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:29:21.858161",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpmi0n0i_2/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpmi0n0i_2/workspace",
+        "stage_state": "/tmp/tmpmi0n0i_2/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpmi0n0i_2/workspace/data/stems.json",
+        "transcription": "/tmp/tmpmi0n0i_2/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpmi0n0i_2/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpmi0n0i_2/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "ae60f8ac-f86b-4399-90e4-cf454a731514",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.966270",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.964660",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp5uous6j3/workspace",
+        "stage_state": "/tmp/tmp5uous6j3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp5uous6j3/workspace/data/stems.json",
+        "transcription": "/tmp/tmp5uous6j3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp5uous6j3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp5uous6j3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "1bc5a5bb-e525-4d3a-94d0-09da8d60b374",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.947604",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.945921",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp5uous6j3/workspace",
+        "stage_state": "/tmp/tmp5uous6j3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp5uous6j3/workspace/data/stems.json",
+        "transcription": "/tmp/tmp5uous6j3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp5uous6j3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp5uous6j3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "db2a69ff-6f44-4957-87ad-ce76cc430576",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.925839",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.924227",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp5uous6j3/workspace",
+        "stage_state": "/tmp/tmp5uous6j3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp5uous6j3/workspace/data/stems.json",
+        "transcription": "/tmp/tmp5uous6j3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp5uous6j3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp5uous6j3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "28fa4aab-5a70-4422-b5d2-5b3706b7f93a",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.904199",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.902403",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp5uous6j3/workspace",
+        "stage_state": "/tmp/tmp5uous6j3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp5uous6j3/workspace/data/stems.json",
+        "transcription": "/tmp/tmp5uous6j3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp5uous6j3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp5uous6j3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "f29bd7e4-1910-4fb6-abfb-af04ae4c0880",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.884737",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.882993",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmp5uous6j3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmp5uous6j3/workspace",
+        "stage_state": "/tmp/tmp5uous6j3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmp5uous6j3/workspace/data/stems.json",
+        "transcription": "/tmp/tmp5uous6j3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmp5uous6j3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmp5uous6j3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "9bfdcb20-8fde-460e-bfeb-b7be036e9d76",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.859292",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.857617",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpy15pp2o3/workspace",
+        "stage_state": "/tmp/tmpy15pp2o3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpy15pp2o3/workspace/data/stems.json",
+        "transcription": "/tmp/tmpy15pp2o3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpy15pp2o3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpy15pp2o3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "5138476d-f2b3-4a89-a13b-c9babf60427f",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.839532",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.836705",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpy15pp2o3/workspace",
+        "stage_state": "/tmp/tmpy15pp2o3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpy15pp2o3/workspace/data/stems.json",
+        "transcription": "/tmp/tmpy15pp2o3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpy15pp2o3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpy15pp2o3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
+    "id": "fa34bc26-4ef2-4dff-b269-71b7e7789442",
+    "filename": "dummy.wav",
+    "date": "2026-03-01T15:13:21.811416",
+    "duration": 0,
+    "payload": {
+      "is_complete": false,
+      "metadata": {
+        "source_file": "/home/wendy/Projects/Mikup/.worktrees/hybrid-sep/dummy.wav",
+        "pipeline_version": "0.2.0-beta",
+        "timestamp": "2026-03-01T15:13:21.807841",
+        "is_complete": false
+      },
+      "transcription": {
+        "segments": []
+      },
+      "metrics": {},
+      "semantics": {
+        "background_tags": []
+      },
+      "artifacts": {
+        "stem_paths": [
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Music.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_Effects.wav",
+          "../../../../../../tmp/tmpy15pp2o3/workspace/dummy_DX_Residual.wav"
+        ],
+        "output_dir": "/tmp/tmpy15pp2o3/workspace",
+        "stage_state": "/tmp/tmpy15pp2o3/workspace/data/stage_state.json",
+        "stems": "/tmp/tmpy15pp2o3/workspace/data/stems.json",
+        "transcription": "/tmp/tmpy15pp2o3/workspace/data/transcription.json",
+        "semantics": "/tmp/tmpy15pp2o3/workspace/data/semantics.json",
+        "dsp_metrics": "/tmp/tmpy15pp2o3/workspace/data/dsp_metrics.json"
+      }
+    }
+  },
+  {
     "id": "e73c6954-5096-44d0-ae20-c6c80c667db9",
     "filename": "cts1_ep01_master.wav",
     "date": "2026-02-27T18:21:16.844180",
