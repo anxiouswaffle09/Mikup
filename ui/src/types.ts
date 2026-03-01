@@ -34,6 +34,11 @@ export interface WordSegment {
 export interface AudioArtifacts {
   stem_paths: string[];
   output_dir?: string;
+  stage_state?: string;
+  stems?: string;
+  transcription?: string;
+  semantics?: string;
+  dsp_metrics?: string;
 }
 
 export interface LufsSeries {
@@ -99,6 +104,7 @@ export interface DspCompletePayload {
 }
 
 export interface MikupPayload {
+  is_complete?: boolean;
   metadata?: {
     source_file: string;
     pipeline_version: string;
@@ -363,6 +369,10 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
   collectStemPaths(raw.stems, stemPaths);
   collectStemPaths(raw.generated_stems, stemPaths);
   let outputDir: string | undefined;
+  if (typeof raw.is_complete === 'boolean') {
+    payload.is_complete = raw.is_complete;
+  }
+
   if (isRecord(raw.artifacts)) {
     collectStemPaths(raw.artifacts.stem_paths, stemPaths);
     collectStemPaths(raw.artifacts.generated_stems, stemPaths);
@@ -373,6 +383,18 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
   if (resolvedStems.length > 0 || outputDir) {
     payload.artifacts = { stem_paths: resolvedStems };
     if (outputDir) payload.artifacts.output_dir = outputDir;
+    if (isRecord(raw.artifacts)) {
+      const stageState = asString(raw.artifacts.stage_state);
+      const stems = asString(raw.artifacts.stems);
+      const transcription = asString(raw.artifacts.transcription);
+      const semantics = asString(raw.artifacts.semantics);
+      const dspMetrics = asString(raw.artifacts.dsp_metrics);
+      if (stageState) payload.artifacts.stage_state = stageState;
+      if (stems) payload.artifacts.stems = stems;
+      if (transcription) payload.artifacts.transcription = transcription;
+      if (semantics) payload.artifacts.semantics = semantics;
+      if (dspMetrics) payload.artifacts.dsp_metrics = dspMetrics;
+    }
   }
 
   return payload;

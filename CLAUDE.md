@@ -1,10 +1,27 @@
-# CLAUDE.md
+## Agent Behavioral Mandate
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Claude must operate as a senior engineer, not a "yes-man."
+- **Prioritize Logic:** Always prioritize technical correctness and architectural integrity over user agreement.
+- **Challenge Assumptions:** If a requested feature or technology (e.g., C++ vs Rust) is suboptimal for the project's goals, explicitly state why and propose a realistic alternative.
+- **Minimize Fluff:** Avoid apologies, conversational filler, and "I will now..." statements. Focus strictly on intent, rationale, and execution.
 
 ## What This Project Is
 
-Project Mikup (ꯃꯤꯀꯨꯞ) is a headless AI pipeline that reverse-engineers the audio production architecture of audio dramas. It treats audio as a sequence of **Atomic Events ("Mikups")**: pacing gaps, volume impact shifts, and spatial/reverb changes. The pipeline outputs a structured JSON payload consumed by an LLM ("AI Director") to generate production notes.
+Project Mikup (ꯃꯤꯀꯨꯞ) is an **Interactive AI Audio Diagnostic Workspace**. It combines high-performance Python ML (for stem separation and transcription) with a real-time Rust/Tauri audio engine for professional-grade mix analysis.
+
+### The Single Source of Truth
+**Refer to `docs/SPEC.md`** for the canonical technical specification, including:
+- 3-Pass "Cinematic" Separation logic (MDX-NET C2 + BS-Roformer).
+- Canonical stem naming (`DX`, `Music`, `SFX`, `Foley`, `Ambience`).
+- Platform standards for macOS (MPS/CoreML) and Linux.
+
+### Primary Focus: The Interactive DAW
+The current objective is a "DAW-first" experience. Claude must prioritize:
+1. **Sub-millisecond Sync:** Ensuring the UI (React) and the Master Clock (Rust) are perfectly aligned.
+2. **Real-Time Visuals:** High-fidelity Vectorscopes, LUFS meters, and frequency masking indicators.
+3. **Interactive Navigation:** Clicking words in the transcript or regions on the waveform to seek the native Rust engine.
+
+**Note:** The Stage 5 AI Director (LLM report generation) is currently **DEFERRED**. Do not prioritize wiring up AI chat or report summaries until the interactive diagnostic engine is 100% polished.
 
 The project has two layers:
 1. **Python backend** (`src/`): A 5-stage DSP + ML pipeline that processes raw audio into a `mikup_payload.json`.
@@ -16,7 +33,14 @@ The project has two layers:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+
+# Choose the requirements file for your platform:
+# macOS (Apple Silicon):
+pip install -r requirements-mac.txt
+
+# Linux/Windows (NVIDIA GPU/CUDA):
+pip install -r requirements-cuda.txt
+
 # FFmpeg must be installed separately (e.g. `brew install ffmpeg`)
 # Copy .env.example to .env and fill in API keys
 ```
@@ -62,10 +86,13 @@ npm run dev
 npm run lint
 
 # Full Tauri desktop app (dev mode — requires Rust toolchain + Cargo)
-cargo tauri dev
+npm run tauri dev
+
+# WSL2-specific Tauri dev (forces software rendering to fix display issues)
+npm run tauri:wsl
 
 # Build distributable desktop app
-cargo tauri build
+npm run tauri build
 ```
 
 The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loads the payload from `public/mikup_payload.json` (served statically by Vite). The real pipeline is triggered from the UI via the Tauri `process_audio` command defined in `ui/src-tauri/src/lib.rs`.
@@ -76,27 +103,28 @@ The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loa
 
 | Stage | File | Class | Key Libraries |
 |---|---|---|---|
-| 1: Stem Separation | `src/ingestion/separator.py` | `MikupSeparator` | `audio-separator` (UVR5/htdemucs_ft) |
-| 2: Transcription + Diarization | `src/transcription/transcriber.py` | `MikupTranscriber` | `whisperx`, `pyannote.audio` |
+| 1: Stem Separation | `src/ingestion/separator.py` | `MikupSeparator` | `audio-separator` (MDX-NET C2 + BS-Roformer) |
+| 2: Transcription + Diarization | `src/transcription/transcriber.py` | `MikupTranscriber` | `whisper`, `pyannote.audio` |
 | 3: DSP Feature Extraction | `src/dsp/processor.py` | `MikupDSPProcessor` | `librosa` |
 | 4: Semantic Tagging | `src/semantics/tagger.py` | `MikupSemanticTagger` | CLAP (`laion/clap-htsat-fused`) via `transformers` |
-| 5: AI Director | prompt: `src/llm/director_prompt.md` | — | Gemini / Claude / OpenAI (not yet wired in Python; currently stubbed in UI) |
+| 5: AI Director | prompt: `src/llm/director_prompt.md` | — | Gemini 2.0 Flash |
 
 ### Stem Dictionary
-`MikupSeparator.run_surgical_pipeline()` returns a dict that flows through all stages:
+Refer to `docs/SPEC.md` for the 3-pass separation logic. `MikupSeparator.run_surgical_pipeline()` returns a dict using canonical names:
 ```python
 {
-    "dialogue_raw":   "data/processed/..._Vocals.wav",       # Pass 1 output
-    "background_raw": "data/processed/..._Instrumental.wav", # Pass 1 output
-    "dialogue_dry":   "data/processed/..._No_Reverb.wav",    # Pass 2 output
-    "reverb_tail":    "data/processed/..._Reverb.wav"        # Pass 2 output
+    "dx":         "stems/..._DX.wav",       # Dialogue (Dry)
+    "music":      "stems/..._Music.wav",    # Score
+    "sfx":        "stems/..._SFX.wav",      # Hard FX
+    "foley":      "stems/..._Foley.wav",    # Movement
+    "ambience":   "stems/..._Ambience.wav", # Background
 }
 ```
 
 ### Final Payload Schema (`data/output/mikup_payload.json`)
 ```json
 {
-  "metadata": { "source_file": "...", "pipeline_version": "0.1.0-alpha" },
+  "metadata": { "source_file": "...", "pipeline_version": "0.2.0-beta" },
   "transcription": {
     "segments": [{ "start": 0.0, "end": 0.0, "text": "...", "speaker": "SPEAKER_01" }],
     "word_segments": [{ "word": "...", "start": 0.0, "end": 0.0 }]
@@ -120,12 +148,12 @@ The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loa
 - `IngestionHeader.tsx` — triggers pipeline via Tauri invoke, shows status indicators
 - `WaveformVisualizer.tsx` — renders transcript segments and pacing Mikups on a timeline
 - `MetricsPanel.tsx` — displays spatial and impact metrics from the payload
-- `DirectorChat.tsx` — AI Director chat UI (LLM API call is a TODO; currently stubs a response)
+- `DirectorChat.tsx` — AI Director chat UI (interactive tool-calling enabled)
 
 ## Key Architecture Notes
 
 - **VRAM management**: `flush_vram()` in `main.py` runs `gc.collect()` + `torch.cuda.empty_cache()` between stages to avoid OOM on GPU. Each stage's model is explicitly `del`-ed after use.
 - **Mock mode**: Pass `--mock` to skip Stages 1 and 2 entirely and use pre-built WAVs from `data/processed/`. Use `python tests/mock_generator.py` to regenerate those files.
 - **Stage 4 sampling**: CLAP only loads a 5-second window from the middle of the audio file (not the full file) to keep memory low.
-- **Stage 5 (AI Director)** is not yet implemented in Python. The system prompt lives in `src/llm/director_prompt.md`. The UI's `DirectorChat.tsx` has a stub where the real API call should go.
+- **Stage 5 (AI Director)** is interactive. The system prompt lives in `src/llm/director_prompt.md`.
 - **Python path**: `src/main.py` uses package-style imports (`from src.ingestion.separator import ...`), so it must be run from the repo root, not from inside `src/`.

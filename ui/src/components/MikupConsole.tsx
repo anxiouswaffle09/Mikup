@@ -30,6 +30,8 @@ const STAGE_STYLES: Record<string, StageStyle> = {
   COMPLETE:   { color: 'text-emerald-400', emoji: '✓',  label: 'DONE'   },
 };
 
+const MAX_ENTRIES = 500;
+
 function resolveStageStyle(stage: string): StageStyle {
   const key = stage.toUpperCase().trim();
   return (
@@ -59,16 +61,19 @@ export function MikupConsole() {
       (event) => {
         const { stage, progress, message } = event.payload;
         if (!message.trim()) return;
-        setEntries((prev) => [
-          ...prev,
-          {
-            id: ++counterRef.current,
-            stage,
-            message,
-            progress,
-            timestamp: formatTimestamp(),
-          },
-        ]);
+        setEntries((prev) => {
+          const next = [
+            ...prev,
+            {
+              id: ++counterRef.current,
+              stage,
+              message,
+              progress,
+              timestamp: formatTimestamp(),
+            },
+          ];
+          return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
+        });
       },
     );
     return () => {

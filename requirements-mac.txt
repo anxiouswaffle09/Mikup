@@ -1,0 +1,3 @@
+-r requirements.txt
+# Standard ONNX for macOS (supports CoreML)
+onnxruntime

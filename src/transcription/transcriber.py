@@ -83,6 +83,56 @@ class MikupTranscriber:
 
         return transcription_result
 
+    @staticmethod
+    def _build_pacing_mikups(transcription_result, min_gap_seconds=0.1):
+        """Create pacing events for silence gaps between adjacent transcript segments."""
+        if not isinstance(transcription_result, dict):
+            return []
+
+        segments = transcription_result.get("segments", [])
+        if not isinstance(segments, list):
+            return []
+
+        normalized_segments = []
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            start = MikupTranscriber._safe_float(segment.get("start"), None)
+            end = MikupTranscriber._safe_float(segment.get("end"), None)
+            if start is None or end is None:
+                continue
+            if end < start:
+                continue
+            normalized_segments.append((start, end, segment))
+
+        if len(normalized_segments) < 2:
+            return []
+
+        normalized_segments.sort(key=lambda item: item[0])
+        pacing_mikups = []
+        for previous, current in zip(normalized_segments, normalized_segments[1:]):
+            previous_end = previous[1]
+            current_start = current[0]
+            gap_seconds = current_start - previous_end
+            if gap_seconds <= min_gap_seconds:
+                continue
+
+            previous_speaker = str(previous[2].get("speaker") or "Dialogue").strip() or "Dialogue"
+            current_speaker = str(current[2].get("speaker") or "Dialogue").strip() or "Dialogue"
+            pacing_mikups.append({
+                "timestamp": previous_end,
+                "duration_ms": int(round(gap_seconds * 1000.0)),
+                "context": f"Between [{previous_speaker}] and [{current_speaker}]",
+            })
+
+        return pacing_mikups
+
+    def _attach_pacing_mikups(self, transcription_result):
+        if not isinstance(transcription_result, dict):
+            return transcription_result
+        transcription_result["pacing_mikups"] = self._build_pacing_mikups(transcription_result)
+        return transcription_result
+
     def _mlx_model_ref(self):
         local_path = os.path.join(_MODELS_DIR, f"whisper-{self.model_size}-mlx")
         if os.path.isdir(local_path):
@@ -174,7 +224,7 @@ class MikupTranscriber:
                 continue
 
             start = self._safe_float(segment.get("start"), 0.0) + time_offset
-            end = self._safe_float(segment.get("end"), start - time_offset) + time_offset
+            end = self._safe_float(segment.get("end"), (start - time_offset) + 0.5) + time_offset
             text = str(segment.get("text") or "").strip()
 
             segments.append({
@@ -411,7 +461,7 @@ class MikupTranscriber:
                 logger.info("VAD detected %d speech segment(s).", len(speech_intervals))
                 if not speech_intervals:
                     logger.info("VAD detected no speech; returning empty transcription.")
-                    return {"segments": [], "word_segments": []}
+                    return {"segments": [], "word_segments": [], "pacing_mikups": []}
         else:
             logger.warning(
                 "Audio path %s does not exist at VAD pre-pass time; using direct transcription path.",
@@ -426,7 +476,8 @@ class MikupTranscriber:
                     speech_audio=speech_audio,
                     speech_sr=speech_sr,
                 )
-                return self._apply_fallback_speakers(result)
+                result = self._apply_fallback_speakers(result)
+                return self._attach_pacing_mikups(result)
             except Exception as exc:
                 logger.warning(
                     "mlx-whisper path failed (%s: %s). Falling back to faster-whisper.",
@@ -440,7 +491,8 @@ class MikupTranscriber:
             speech_audio=speech_audio,
             speech_sr=speech_sr,
         )
-        return self._apply_fallback_speakers(result)
+        result = self._apply_fallback_speakers(result)
+        return self._attach_pacing_mikups(result)
 
     def _coerce_diarization_pipeline_dtype(self, pipeline, torch_module):
         if self.torch_device != "mps":
@@ -469,7 +521,8 @@ class MikupTranscriber:
         """
         if not hf_token:
             logger.warning("HF_TOKEN not provided. Skipping diarization.")
-            return self._apply_fallback_speakers(transcription_result)
+            transcription_result = self._apply_fallback_speakers(transcription_result)
+            return self._attach_pacing_mikups(transcription_result)
 
         try:
             from pyannote.audio import Pipeline
@@ -501,7 +554,8 @@ class MikupTranscriber:
                 type(exc).__name__, exc,
             )
 
-        return self._apply_fallback_speakers(transcription_result)
+        transcription_result = self._apply_fallback_speakers(transcription_result)
+        return self._attach_pacing_mikups(transcription_result)
 
     def save_results(self, result, output_path):
         with open(output_path, "w", encoding="utf-8") as f:

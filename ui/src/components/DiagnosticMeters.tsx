@@ -56,8 +56,8 @@ export const StatsBar: React.FC<StatsBarProps> = ({ metrics, eventCount, integra
         unit="LUFS"
         min={-48}
         max={0}
-        interpret={integratedLufs !== null ? '' : 'N/A'}
-        hideBar={integratedLufs === null}
+        interpret={integratedLufs !== null && integratedLufs !== undefined ? '' : 'N/A'}
+        hideBar={integratedLufs === null || integratedLufs === undefined}
         decimals={2}
       />
     </div>
@@ -148,24 +148,11 @@ interface LiveMetersProps {
 export const LiveMeters: React.FC<LiveMetersProps> = ({ frame, lra }) => {
   return (
     <div className="space-y-4">
-      <LiveStatCell
-        label="SNR"
-        value={frame.snr_db}
-        unit="dB"
-        min={-20}
-        max={60}
-        targets={[15]}
-        targetLabel="Target > 15 dB"
-      />
-      <LiveStatCell
-        label="Phase Correlation"
-        value={frame.phase_correlation}
-        unit=""
-        min={-1}
-        max={1}
-        targets={[0.5]}
-        targetLabel="Target > 0.5"
-      />
+      <div className="flex flex-col gap-1">
+        <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">SNR</span>
+        <SemiCircleGauge value={frame.snr_db} min={0} max={40} />
+      </div>
+      <StereoHeatbar value={frame.phase_correlation} isPhaseIssue={frame.phase_correlation < 0} label="Phase" />
       <LiveStatCell
         label="True Peak"
         value={frame.dialogue_true_peak_dbtp}
@@ -176,14 +163,13 @@ export const LiveMeters: React.FC<LiveMetersProps> = ({ frame, lra }) => {
         targetLabel="Ceiling −1 dBTP"
         dangerAbove={-1}
       />
-      <LiveStatCell
-        label="Centroid"
-        value={frame.dialogue_centroid_hz}
-        unit="Hz"
-        min={0}
-        max={8000}
-        decimals={0}
-      />
+      <div className="flex flex-col gap-1">
+        <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Centroid</span>
+        <span className="font-mono text-xl font-semibold text-text-main tabular-nums leading-none">
+          {frame.dialogue_centroid_hz.toFixed(0)}<span className="text-xs font-normal text-text-muted ml-1">Hz</span>
+        </span>
+        <CentroidNeedle value={frame.dialogue_centroid_hz} />
+      </div>
       <div className="flex flex-col gap-1">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">LRA</span>
         <span className="font-mono text-xl font-semibold text-text-main tabular-nums leading-none">
@@ -208,7 +194,7 @@ interface LiveStatCellProps {
   dangerAbove?: number; // if value exceeds this, bar turns red
 }
 
-const LiveStatCell: React.FC<LiveStatCellProps> = ({
+export const LiveStatCell: React.FC<LiveStatCellProps> = ({
   label,
   value,
   unit,
@@ -261,7 +247,7 @@ const LiveStatCell: React.FC<LiveStatCellProps> = ({
           />
         ))}
         {/* Peak indicator */}
-        <div 
+        <div
           className="absolute top-[-1px] h-[3px] w-[1px] bg-text-muted/40 transition-all duration-300"
           style={{ left: `${peakPct * 100}%` }}
         />
@@ -277,6 +263,271 @@ const LiveStatCell: React.FC<LiveStatCellProps> = ({
         <span className="text-[9px] text-text-muted/80 font-medium">{targetLabel}</span>
       )}
     </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// SemiCircleGauge — SNR gauge rendered as an animated SVG arc + needle
+// ---------------------------------------------------------------------------
+
+interface SemiCircleGaugeProps {
+  value: number;   // current value in dB
+  min?: number;    // default 0
+  max?: number;    // default 40
+}
+
+const SemiCircleGauge: React.FC<SemiCircleGaugeProps> = ({ value, min = 0, max = 40 }) => {
+  const cx = 60;
+  const cy = 60;
+  const r = 50;
+
+  // Arc helper: returns SVG path `d` for an arc from angleDeg1 to angleDeg2
+  // Angles: 0° = right, 90° = down. We sweep the top half (180° left → 0° right).
+  // The full arc goes from 180° to 0° (left to right across the top).
+  // We parameterise in terms of fraction of the 180° arc.
+  function arcPath(fracStart: number, fracEnd: number): string {
+    // fracStart/fracEnd in [0, 1] mapping 0→left (180°) to 1→right (0°)
+    const degStart = 180 - fracStart * 180;
+    const degEnd = 180 - fracEnd * 180;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(toRad(degStart));
+    const y1 = cy - r * Math.sin(toRad(degStart));
+    const x2 = cx + r * Math.cos(toRad(degEnd));
+    const y2 = cy - r * Math.sin(toRad(degEnd));
+    // large-arc-flag: 0 because each segment is < 180°
+    return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+  }
+
+  // Zone fractions over the 0–40 dB range
+  // Red:    0–5 dB  → 0.000 – 0.125
+  // Yellow: 5–15 dB → 0.125 – 0.375
+  // Green:  15–40 dB → 0.375 – 1.000
+  const redStart   = 0;
+  const redEnd     = (5  - min) / (max - min);
+  const yellowEnd  = (15 - min) / (max - min);
+  const greenEnd   = 1;
+
+  // Needle angle: 180° (pointing left) at min, 0° (pointing right) at max
+  const clampedValue = Math.max(min, Math.min(max, value));
+  const needleFrac = (clampedValue - min) / (max - min);
+  // Angle in standard math coords (0° = right): 180° – needleFrac*180°
+  const needleDeg = 180 - needleFrac * 180;
+  const needleRad = (needleDeg * Math.PI) / 180;
+  const needleLength = 44;
+  const nx = cx + needleLength * Math.cos(needleRad);
+  const ny = cy - needleLength * Math.sin(needleRad);
+
+  return (
+    <svg width={120} height={65} viewBox="0 0 120 65" aria-label={`SNR ${value.toFixed(1)} dB`}>
+      {/* Track arcs */}
+      <path
+        d={arcPath(redStart, redEnd)}
+        fill="none"
+        stroke="oklch(0.55 0.22 25)"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />
+      <path
+        d={arcPath(redEnd, yellowEnd)}
+        fill="none"
+        stroke="oklch(0.75 0.18 85)"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />
+      <path
+        d={arcPath(yellowEnd, greenEnd)}
+        fill="none"
+        stroke="oklch(0.65 0.2 145)"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />
+      {/* Needle */}
+      <line
+        x1={cx}
+        y1={cy}
+        x2={nx}
+        y2={ny}
+        stroke="var(--color-text-main)"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        style={{ transition: 'x2 0.2s ease, y2 0.2s ease' }}
+      />
+      {/* Pivot dot */}
+      <circle cx={cx} cy={cy} r={2.5} fill="var(--color-text-main)" />
+      {/* Value label */}
+      <text
+        x={cx}
+        y={62}
+        textAnchor="middle"
+        fontSize={8}
+        fill="var(--color-text-muted)"
+        fontFamily="monospace"
+      >
+        {value.toFixed(1)} dB
+      </text>
+    </svg>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// StereoHeatbar — phase correlation / stereo balance bar with triangle indicator
+// ---------------------------------------------------------------------------
+
+interface StereoHeatbarProps {
+  value: number;        // -1.0 to +1.0
+  isPhaseIssue?: boolean; // true when value < 0
+  label: string;
+}
+
+const StereoHeatbar: React.FC<StereoHeatbarProps> = ({ value, isPhaseIssue, label }) => {
+  const WIDTH = 160;
+  const BAR_HEIGHT = 8;
+  const INDICATOR_H = 12;
+  const clampedValue = Math.max(-1, Math.min(1, value));
+  const xPos = ((clampedValue + 1) / 2) * WIDTH; // 0..WIDTH
+
+  // Choose indicator fill based on health
+  const indicatorFill = isPhaseIssue
+    ? 'oklch(0.55 0.22 25)'
+    : clampedValue > 0.5
+    ? 'oklch(0.65 0.2 145)'
+    : 'oklch(0.75 0.18 85)';
+
+  // Triangle indicator: points downward at xPos
+  const triTop = 0;
+  const triBottom = INDICATOR_H;
+  const triHalf = 5;
+  const trianglePoints = `${xPos},${triBottom} ${xPos - triHalf},${triTop} ${xPos + triHalf},${triTop}`;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">{label}</span>
+      <svg
+        width={WIDTH}
+        height={38}
+        viewBox={`0 0 ${WIDTH} 38`}
+        aria-label={`${label} ${value.toFixed(2)}`}
+      >
+        {/* Triangle indicator — sits above bar */}
+        <polygon
+          points={trianglePoints}
+          fill={indicatorFill}
+          style={{ transition: 'points 0.15s ease' }}
+        />
+        {/* Background bar */}
+        <rect
+          x={0}
+          y={INDICATOR_H + 2}
+          width={WIDTH}
+          height={BAR_HEIGHT}
+          rx={2}
+          fill={isPhaseIssue ? 'oklch(0.65 0.2 25 / 0.3)' : 'var(--color-panel-border)'}
+          style={{ transition: 'fill 0.15s ease' }}
+        />
+        {/* Mono center dashed line */}
+        <line
+          x1={WIDTH / 2}
+          y1={INDICATOR_H + 2}
+          x2={WIDTH / 2}
+          y2={INDICATOR_H + 2 + BAR_HEIGHT}
+          stroke="var(--color-text-muted)"
+          strokeWidth={1}
+          strokeDasharray="2 2"
+        />
+        {/* Scale labels */}
+        <text x={1} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace">-1</text>
+        <text x={WIDTH / 2} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="middle">0</text>
+        <text x={WIDTH - 1} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="end">+1</text>
+      </svg>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// CentroidNeedle — log-scale spectral centroid indicator bar
+// ---------------------------------------------------------------------------
+
+interface CentroidNeedleProps {
+  value: number;  // Hz, 20–20000
+}
+
+const CentroidNeedle: React.FC<CentroidNeedleProps> = ({ value }) => {
+  const WIDTH = 160;
+  const BAR_HEIGHT = 8;
+  const INDICATOR_H = 12;
+
+  const LOG_MIN = Math.log10(20);
+  const LOG_MAX = Math.log10(20000);
+  const clampedValue = Math.max(20, Math.min(20000, value));
+  const pos = (Math.log10(clampedValue) - LOG_MIN) / (LOG_MAX - LOG_MIN); // 0..1
+  const xPos = pos * WIDTH;
+
+  // Tick positions (log-scale)
+  const ticks: { hz: number; label: string }[] = [
+    { hz: 100,   label: '100' },
+    { hz: 1000,  label: '1k' },
+    { hz: 10000, label: '10k' },
+  ];
+
+  const tickX = (hz: number) =>
+    ((Math.log10(hz) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * WIDTH;
+
+  // Triangle indicator pointing downward
+  const triHalf = 5;
+  const triTop = 0;
+  const triBottom = INDICATOR_H;
+  const trianglePoints = `${xPos},${triBottom} ${xPos - triHalf},${triTop} ${xPos + triHalf},${triTop}`;
+
+  return (
+    <svg
+      width={WIDTH}
+      height={38}
+      viewBox={`0 0 ${WIDTH} 38`}
+      aria-label={`Centroid ${value.toFixed(0)} Hz`}
+    >
+      {/* Triangle indicator */}
+      <polygon
+        points={trianglePoints}
+        fill="var(--color-accent)"
+        style={{ transition: 'points 0.15s ease' }}
+      />
+      {/* Background bar */}
+      <rect
+        x={0}
+        y={INDICATOR_H + 2}
+        width={WIDTH}
+        height={BAR_HEIGHT}
+        rx={2}
+        fill="var(--color-panel-border)"
+      />
+      {/* Tick marks */}
+      {ticks.map(({ hz, label }) => {
+        const tx = tickX(hz);
+        return (
+          <g key={hz}>
+            <line
+              x1={tx}
+              y1={INDICATOR_H + 2}
+              x2={tx}
+              y2={INDICATOR_H + 2 + BAR_HEIGHT}
+              stroke="var(--color-text-muted)"
+              strokeWidth={0.75}
+              opacity={0.5}
+            />
+            <text
+              x={tx}
+              y={36}
+              fontSize={7}
+              fill="var(--color-text-muted)"
+              fontFamily="monospace"
+              textAnchor="middle"
+            >
+              {label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 };
 

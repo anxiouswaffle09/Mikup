@@ -10,6 +10,18 @@ The `google-generativeai` package is now deprecated. The project should migrate 
 - **Gemini 2.0 Flash:** The recommended model for low-latency audio analysis tasks.
 - **Multimodal Uploads:** Use `client.files.upload` for long audio files (>10MB) before inference to ensure stability and token efficiency.
 - **System Instructions:** Define the "AI Director" persona strictly in the `system_instruction` parameter of the `generate_content` call.
+- **Path Sandboxing:** All tool-calling agents (e.g., `MikupDirector`) MUST implement path sandboxing via `os.path.commonpath` to restrict file access strictly to the `workspace_dir`.
+
+## Security & Path Sandboxing (Mandatory)
+All LLM-driven tool execution that interacts with the filesystem must be sandboxed to prevent path traversal and data exfiltration.
+
+1.  **Workspace Boundary:** Define a `workspace_dir` at initialization.
+2.  **Validation Helper:** Implement `_is_path_safe(path)` using:
+    ```python
+    abs_path = os.path.abspath(path)
+    return os.path.commonpath([self.workspace_dir, abs_path]) == self.workspace_dir
+    ```
+3.  **Strict Gating:** All file-related tool calls (e.g., `listen_to_audio_slice`) must validate both requested paths and payload-derived paths against this helper before execution.
 
 ### Snippet:
 ```python

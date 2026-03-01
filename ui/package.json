@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "tauri": "tauri",
+    "tauri:wsl": "WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 tauri dev",
     "preview": "vite preview"
   },
   "dependencies": {

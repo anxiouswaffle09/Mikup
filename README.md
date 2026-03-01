@@ -34,10 +34,9 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
    python3 -m venv .venv
    source .venv/bin/activate
    ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+3. Install dependencies for your platform:
+   - **macOS (Apple Silicon):** `pip install -r requirements-mac.txt`
+   - **Linux/Windows (NVIDIA GPU/CUDA):** `pip install -r requirements-cuda.txt`
 4. (Optional, for full Stage 2 transcription) install `whisperx` in a compatible environment.
 5. Copy `.env.example` to `.env` and add your API keys.
 

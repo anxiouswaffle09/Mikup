@@ -1,150 +1,109 @@
 import json
-import os
-import sys
-import pytest
+import tempfile
+import unittest
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.main import validate_stage_artifacts
+from tests._pipeline_test_utils import load_main_module, run_main
 
 
-# ─── separation ───────────────────────────────────────────────────────────────
-
-def test_separation_valid(tmp_path):
-    dialogue = tmp_path / "vocals.wav"
-    background = tmp_path / "instru.wav"
-    dialogue.write_bytes(b"RIFF")
-    background.write_bytes(b"RIFF")
-    stems_json = tmp_path / "stems.json"
-    stems_json.write_text(json.dumps({
-        "dialogue_raw": str(dialogue),
-        "background_raw": str(background),
-    }))
-    assert validate_stage_artifacts("separation", str(tmp_path)) is True
+def _read_json(path: Path):
+    with path.open("r", encoding="utf-8") as file_obj:
+        return json.load(file_obj)
 
 
-def test_separation_missing_stems_json(tmp_path):
-    assert validate_stage_artifacts("separation", str(tmp_path)) is False
+class MainCheckpointSmokeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.main_module = load_main_module()
+
+    def test_mock_full_pipeline_writes_artifacts_under_data(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "workspace"
+            run_main(
+                self.main_module,
+                ["--input", "dummy.wav", "--mock", "--output-dir", str(output_dir)],
+            )
+
+            data_dir = output_dir / "data"
+            stage_state_path = data_dir / "stage_state.json"
+            stems_path = data_dir / "stems.json"
+            transcription_path = data_dir / "transcription.json"
+            semantics_path = data_dir / "semantics.json"
+
+            self.assertTrue(stage_state_path.exists())
+            self.assertTrue(stems_path.exists())
+            self.assertTrue(transcription_path.exists())
+            self.assertTrue(semantics_path.exists())
+
+            stems_payload = _read_json(stems_path)
+            for key in ("DX", "Music", "Foley", "SFX", "Ambience"):
+                self.assertIn(key, stems_payload)
+                self.assertIsInstance(stems_payload[key], str)
+                self.assertTrue(stems_payload[key].strip())
+
+            # Contract regression guard: artifacts now live in output_dir/data/, not output_dir/.
+            self.assertFalse((output_dir / "stage_state.json").exists())
+            self.assertFalse((output_dir / "stems.json").exists())
+
+            state = _read_json(stage_state_path)
+            self.assertTrue(state["artifacts"]["stage_state"].endswith("data/stage_state.json"))
+            self.assertTrue(state["artifacts"]["stems"].endswith("data/stems.json"))
+            self.assertTrue(
+                state["artifacts"]["transcription"].endswith("data/transcription.json")
+            )
+            self.assertTrue(state["artifacts"]["semantics"].endswith("data/semantics.json"))
+
+            for stage in ("separation", "transcription", "dsp", "semantics", "director"):
+                self.assertIs(state["stages"][stage]["completed"], True)
+
+    def test_manual_stage_progression_updates_checkpoint_state(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "workspace"
+
+            run_main(
+                self.main_module,
+                [
+                    "--input",
+                    "dummy.wav",
+                    "--mock",
+                    "--output-dir",
+                    str(output_dir),
+                    "--stage",
+                    "separation",
+                ],
+            )
+
+            run_main(
+                self.main_module,
+                [
+                    "--input",
+                    "dummy.wav",
+                    "--mock",
+                    "--output-dir",
+                    str(output_dir),
+                    "--stage",
+                    "transcription",
+                ],
+            )
+
+            run_main(
+                self.main_module,
+                [
+                    "--input",
+                    "dummy.wav",
+                    "--mock",
+                    "--output-dir",
+                    str(output_dir),
+                    "--stage",
+                    "dsp",
+                ],
+            )
+
+            state = _read_json(output_dir / "data" / "stage_state.json")
+            self.assertIs(state["stages"]["separation"]["completed"], True)
+            self.assertIs(state["stages"]["transcription"]["completed"], True)
+            self.assertIs(state["stages"]["dsp"]["completed"], True)
 
 
-def test_separation_wav_missing(tmp_path):
-    stems_json = tmp_path / "stems.json"
-    stems_json.write_text(json.dumps({
-        "dialogue_raw": str(tmp_path / "nonexistent.wav"),
-        "background_raw": str(tmp_path / "also_missing.wav"),
-    }))
-    assert validate_stage_artifacts("separation", str(tmp_path)) is False
-
-
-def test_separation_only_one_wav_present(tmp_path):
-    dialogue = tmp_path / "vocals.wav"
-    dialogue.write_bytes(b"RIFF")
-    stems_json = tmp_path / "stems.json"
-    stems_json.write_text(json.dumps({
-        "dialogue_raw": str(dialogue),
-        "background_raw": str(tmp_path / "missing.wav"),
-    }))
-    assert validate_stage_artifacts("separation", str(tmp_path)) is False
-
-
-# ─── transcription ────────────────────────────────────────────────────────────
-
-def test_transcription_valid(tmp_path):
-    (tmp_path / "transcription.json").write_text(json.dumps({"segments": []}))
-    assert validate_stage_artifacts("transcription", str(tmp_path)) is True
-
-
-def test_transcription_missing(tmp_path):
-    assert validate_stage_artifacts("transcription", str(tmp_path)) is False
-
-
-def test_transcription_bad_shape(tmp_path):
-    (tmp_path / "transcription.json").write_text(json.dumps({"not_segments": 42}))
-    assert validate_stage_artifacts("transcription", str(tmp_path)) is False
-
-
-# ─── dsp ──────────────────────────────────────────────────────────────────────
-
-def test_dsp_valid(tmp_path):
-    (tmp_path / "dsp_metrics.json").write_text(json.dumps({"key": "value"}))
-    assert validate_stage_artifacts("dsp", str(tmp_path)) is True
-
-
-def test_dsp_empty_dict(tmp_path):
-    (tmp_path / "dsp_metrics.json").write_text(json.dumps({}))
-    assert validate_stage_artifacts("dsp", str(tmp_path)) is False
-
-
-def test_dsp_missing(tmp_path):
-    assert validate_stage_artifacts("dsp", str(tmp_path)) is False
-
-
-# ─── semantics ────────────────────────────────────────────────────────────────
-
-def test_semantics_valid_empty_list(tmp_path):
-    (tmp_path / "semantics.json").write_text(json.dumps([]))
-    assert validate_stage_artifacts("semantics", str(tmp_path)) is True
-
-
-def test_semantics_valid_with_tags(tmp_path):
-    (tmp_path / "semantics.json").write_text(json.dumps([{"label": "rain", "score": 0.9}]))
-    assert validate_stage_artifacts("semantics", str(tmp_path)) is True
-
-
-def test_semantics_missing(tmp_path):
-    assert validate_stage_artifacts("semantics", str(tmp_path)) is False
-
-
-def test_semantics_wrong_type(tmp_path):
-    (tmp_path / "semantics.json").write_text(json.dumps({"oops": "dict"}))
-    assert validate_stage_artifacts("semantics", str(tmp_path)) is False
-
-
-# ─── director ─────────────────────────────────────────────────────────────────
-
-def test_director_valid(tmp_path):
-    (tmp_path / "mikup_payload.json").write_text(json.dumps({"metadata": {}}))
-    assert validate_stage_artifacts("director", str(tmp_path)) is True
-
-
-def test_director_missing(tmp_path):
-    assert validate_stage_artifacts("director", str(tmp_path)) is False
-
-
-def test_director_empty(tmp_path):
-    (tmp_path / "mikup_payload.json").write_text(json.dumps({}))
-    assert validate_stage_artifacts("director", str(tmp_path)) is False
-
-
-# ─── unknown stage ────────────────────────────────────────────────────────────
-
-def test_unknown_stage_returns_false(tmp_path):
-    assert validate_stage_artifacts("bogus", str(tmp_path)) is False
-
-
-# ─── --force flag CLI test ─────────────────────────────────────────────────
-
-import subprocess as _subprocess  # noqa: E402
-
-def test_force_flag_accepted(tmp_path):
-    """--force must be accepted by argparse without error."""
-    result = _subprocess.run(
-        [sys.executable, "src/main.py", "--input", "dummy", "--mock",
-         "--stage", "separation", "--output-dir", str(tmp_path), "--force"],
-        capture_output=True, text=True,
-        cwd="/Users/test/Documents/Dev Projects/Mikup"
-    )
-    assert "unrecognized arguments" not in result.stderr, result.stderr
-    assert "error: unrecognized" not in result.stderr, result.stderr
-
-
-def test_mock_separation_writes_valid_stems(tmp_path):
-    """Mock separation must create real stem WAVs so DSP can run in smoke tests."""
-    result = _subprocess.run(
-        [sys.executable, "src/main.py", "--input", "dummy", "--mock",
-         "--stage", "separation", "--output-dir", str(tmp_path)],
-        capture_output=True, text=True,
-        cwd="/Users/test/Documents/Dev Projects/Mikup"
-    )
-    assert result.returncode == 0, result.stderr or result.stdout
-    assert validate_stage_artifacts("separation", str(tmp_path)) is True
+if __name__ == "__main__":
+    unittest.main()

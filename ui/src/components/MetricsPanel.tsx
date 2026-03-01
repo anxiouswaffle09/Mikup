@@ -7,6 +7,8 @@ import type { MikupPayload } from '../types';
 import { Activity } from 'lucide-react';
 import { clsx } from 'clsx';
 
+const LUFS_POINTS_PER_SECOND = 2; // must match OfflineLoudnessScanner points_per_second in Rust
+
 interface MetricsPanelProps {
   payload: MikupPayload;
   loudnessTarget: {
@@ -22,6 +24,9 @@ interface GraphDataPoint {
   diagST: number;
   bgM: number;
   bgST: number;
+  sfxST: number;
+  foleyST: number;
+  ambienceST: number;
 }
 
 interface BrushRange {
@@ -35,7 +40,7 @@ function formatTime(seconds: number): string {
 }
 
 export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTarget }) => {
-  const [activeStreams, setActiveStreams] = useState<Set<string>>(new Set(['diagST', 'bgST']));
+  const [activeStreams, setActiveStreams] = useState<Set<string>>(new Set(['diagST', 'bgST', 'sfxST', 'foleyST', 'ambienceST']));
   const [flags, setFlags] = useState<{ time: number; label: string }[]>([]);
   const [brushRange, setBrushRange] = useState<BrushRange>({
     startIndex: 0,
@@ -46,15 +51,24 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
     const lufs = payload.metrics?.lufs_graph;
     if (!lufs) return [];
 
-    const diag = lufs.dialogue_raw;
-    const bg = lufs.background_raw;
-    if (!diag && !bg) return [];
+    const diag = lufs.DX || lufs.dialogue_raw;
+    const bg = lufs.Music || lufs.background_raw;
+    const sfx = lufs.SFX;
+    const foley = lufs.Foley;
+    const ambience = lufs.Ambience;
+    if (!diag && !bg && !sfx && !foley && !ambience) return [];
 
-    const maxLen = Math.max(diag?.momentary.length ?? 0, bg?.momentary.length ?? 0);
+    const maxLen = Math.max(
+      diag?.momentary?.length ?? 0,
+      bg?.momentary?.length ?? 0,
+      sfx?.momentary?.length ?? 0,
+      foley?.momentary?.length ?? 0,
+      ambience?.momentary?.length ?? 0,
+    );
     const data: GraphDataPoint[] = [];
 
     for (let i = 0; i < maxLen; i++) {
-      const time = i / 2.0;
+      const time = i / LUFS_POINTS_PER_SECOND;
       data.push({
         time,
         timeStr: formatTime(time),
@@ -62,6 +76,9 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
         diagST: diag?.short_term[i] ?? -70,
         bgM: bg?.momentary[i] ?? -70,
         bgST: bg?.short_term[i] ?? -70,
+        sfxST: sfx?.short_term[i] ?? -70,
+        foleyST: foley?.short_term[i] ?? -70,
+        ambienceST: ambience?.short_term[i] ?? -70,
       });
     }
     return data;
@@ -150,6 +167,24 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
             onClick={() => toggleStream('bgST')}
           />
           <StreamToggle
+            label="SFX"
+            color="oklch(0.7 0.12 30)"
+            isActive={activeStreams.has('sfxST')}
+            onClick={() => toggleStream('sfxST')}
+          />
+          <StreamToggle
+            label="Foley"
+            color="oklch(0.7 0.12 320)"
+            isActive={activeStreams.has('foleyST')}
+            onClick={() => toggleStream('foleyST')}
+          />
+          <StreamToggle
+            label="Ambience"
+            color="oklch(0.7 0.12 200)"
+            isActive={activeStreams.has('ambienceST')}
+            onClick={() => toggleStream('ambienceST')}
+          />
+          <StreamToggle
             label="Momentary"
             color="oklch(0.7 0.12 300)"
             isActive={activeStreams.has('diagM') || activeStreams.has('bgM')}
@@ -190,7 +225,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
         </div>
       </div>
 
-      <div className="h-[400px] relative overflow-hidden">
+      <div className="h-[400px] relative">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={graphData}
@@ -205,6 +240,18 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
               <linearGradient id="colorBg" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0.15} />
                 <stop offset="95%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorSfx" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.7 0.12 30)" stopOpacity={0.12} />
+                <stop offset="95%" stopColor="oklch(0.7 0.12 30)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorFoley" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.7 0.12 320)" stopOpacity={0.12} />
+                <stop offset="95%" stopColor="oklch(0.7 0.12 320)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorAmbience" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.7 0.12 200)" stopOpacity={0.12} />
+                <stop offset="95%" stopColor="oklch(0.7 0.12 200)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(0.9 0.01 250)" />
@@ -248,6 +295,40 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#colorBg)"
+                animationDuration={1500}
+              />
+            )}
+
+            {activeStreams.has('sfxST') && graphData.some((d) => d.sfxST > -70) && (
+              <Area
+                type="monotone"
+                dataKey="sfxST"
+                stroke="oklch(0.7 0.12 30)"
+                strokeWidth={1.5}
+                fillOpacity={1}
+                fill="url(#colorSfx)"
+                animationDuration={1500}
+              />
+            )}
+            {activeStreams.has('foleyST') && graphData.some((d) => d.foleyST > -70) && (
+              <Area
+                type="monotone"
+                dataKey="foleyST"
+                stroke="oklch(0.7 0.12 320)"
+                strokeWidth={1.5}
+                fillOpacity={1}
+                fill="url(#colorFoley)"
+                animationDuration={1500}
+              />
+            )}
+            {activeStreams.has('ambienceST') && graphData.some((d) => d.ambienceST > -70) && (
+              <Area
+                type="monotone"
+                dataKey="ambienceST"
+                stroke="oklch(0.7 0.12 200)"
+                strokeWidth={1.5}
+                fillOpacity={1}
+                fill="url(#colorAmbience)"
                 animationDuration={1500}
               />
             )}
@@ -306,23 +387,26 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
             />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
 
-        <div className="absolute bottom-10 right-2 flex items-center gap-5 bg-background/90 px-4 py-2 border border-panel-border">
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Integrated</span>
-            <span className="text-xl font-black text-text-main tracking-tighter">
-              {typeof payload.metrics?.lufs_graph?.dialogue_raw?.integrated === 'number'
-                ? payload.metrics.lufs_graph.dialogue_raw.integrated.toFixed(2)
-                : '--'} <span className="text-xs font-medium text-text-muted">LUFS</span>
-            </span>
-          </div>
-          <div className="w-px h-8 bg-panel-border/60" />
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Peak S.Term</span>
-            <span className="text-xl font-black text-text-main tracking-tighter">
-              {graphData.length > 0 ? Math.max(...graphData.map((d) => d.diagST)).toFixed(2) : '--'} <span className="text-xs font-medium text-text-muted">LUFS</span>
-            </span>
-          </div>
+      <div className="flex items-center gap-8 border border-panel-border px-4 py-2.5">
+        <div className="flex flex-col">
+          <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Integrated</span>
+          <span className="text-xl font-black text-text-main tracking-tighter">
+            {(() => {
+              const diag = payload.metrics?.lufs_graph?.DX || payload.metrics?.lufs_graph?.dialogue_raw;
+              return typeof diag?.integrated === 'number' ? diag.integrated.toFixed(2) : '--';
+            })()} <span className="text-xs font-medium text-text-muted">LUFS</span>
+          </span>
+        </div>
+        <div className="w-px h-8 bg-panel-border/60" />
+        <div className="flex flex-col">
+          <span className="text-[9px] uppercase tracking-widest font-black text-text-muted mb-0.5">Peak S.Term</span>
+          <span className="text-xl font-black text-text-main tracking-tighter">
+            {graphData.length > 0
+              ? graphData.reduce((max, d) => Math.max(max, d.diagST), -70).toFixed(2)
+              : '--'} <span className="text-xs font-medium text-text-muted">LUFS</span>
+          </span>
         </div>
       </div>
 
@@ -362,6 +446,9 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
         <div className="space-y-2">
           <TooltipRow label="DX" value={data.diagST} color="oklch(0.7 0.12 260)" />
           <TooltipRow label="Music" value={data.bgST} color="oklch(0.7 0.12 150)" />
+          {data.sfxST > -70 && <TooltipRow label="SFX" value={data.sfxST} color="oklch(0.7 0.12 30)" />}
+          {data.foleyST > -70 && <TooltipRow label="Foley" value={data.foleyST} color="oklch(0.7 0.12 320)" />}
+          {data.ambienceST > -70 && <TooltipRow label="Ambience" value={data.ambienceST} color="oklch(0.7 0.12 200)" />}
         </div>
       </div>
     );

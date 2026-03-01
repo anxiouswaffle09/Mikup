@@ -1,0 +1,3 @@
+-r requirements.txt
+# GPU-accelerated ONNX for Linux/Windows (CUDA)
+onnxruntime-gpu

@@ -44,3 +44,8 @@ body {
   background-color: transparent;
   border: none;
 }
+
+@keyframes flare-fade {
+  0%   { opacity: 0.9; }
+  100% { opacity: 0; }
+}

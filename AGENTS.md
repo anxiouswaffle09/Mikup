@@ -1,21 +1,23 @@
-# Repository Guidelines
+## Agent Behavioral Protocol
+- **Objective Feedback:** Agents are expected to be critical and realistic. Do not agree with the user for the sake of politeness.
+- **Technical Integrity:** If a proposed change or architectural shift is likely to cause regressions, performance issues, or increased technical debt, the agent must voice these concerns clearly.
+- **The Single Source of Truth:** All agents (Gemini, Claude, Codex) must strictly adhere to the technical specifications defined in **`docs/SPEC.md`**.
+- **No Sycophancy:** Avoid "Great idea!" or "I'd be happy to." Focus on the "why" and "how" of the technical implementation.
 
-## Project Structure & Module Organization
+## Project Structure
 Project Mikup has two code layers:
-- `src/`: Python audio pipeline stages (`ingestion/`, `transcription/`, `dsp/`, `semantics/`, `llm/`) orchestrated by `src/main.py`.
+- `src/`: Python audio pipeline stages orchestrated by `src/main.py`.
 - `ui/`: React + TypeScript + Vite frontend with Tauri Rust bridge in `ui/src-tauri/`.
 
-Data and artifacts live in `data/`:
-- `data/raw/` input audio
-- `data/processed/` intermediate stems/transcription
-- `data/output/` final payloads (for example `mikup_payload.json`)
-
-Tests/utilities currently live in `tests/` (not a full test suite yet).
+Refer to `docs/SPEC.md` for details on:
+- 3-Pass Separation (Stage 1).
+- Canonical stem naming (`DX`, `Music`, `SFX`, `Foley`, `Ambience`).
+- Platform standards (macOS/WSL2).
 
 ## Build, Test, and Development Commands
 Run from repo root unless noted:
 - `python3 -m venv .venv && source .venv/bin/activate`
-- `pip install -r requirements.txt`: install backend dependencies.
+- `pip install -r requirements-mac.txt` (macOS) or `pip install -r requirements-cuda.txt` (Linux/CUDA): install backend dependencies.
 - `python src/main.py --input "path/to/audio.wav"`: run full backend pipeline.
 - `python tests/mock_generator.py`: generate mock stems/transcription.
 - `python src/main.py --input dummy --mock`: smoke-test pipeline without heavy ML stages.
@@ -23,6 +25,8 @@ Run from repo root unless noted:
 Frontend (`cd ui`):
 - `npm install`
 - `npm run dev`: Vite dev server.
+- `npm run tauri dev`: Start the native Tauri app.
+- `npm run tauri:wsl`: Start the native Tauri app in WSL2 (fixes graphics issues).
 - `npm run build`: TypeScript + production build.
 - `npm run lint`: ESLint checks.
 

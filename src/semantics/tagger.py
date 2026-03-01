@@ -61,6 +61,10 @@ class MikupSemanticTagger:
         start_sec = max(0, (full_duration / 2) - 2.5) if full_duration > 7 else 0
         duration_to_load = min(5.0, full_duration)
 
+        if duration_to_load < 0.5:
+            logger.warning("Audio too short for semantic analysis (%.2fs), skipping.", duration_to_load)
+            return []
+
         # Load and resample ONLY the 5-second window to 48kHz (CLAP standard)
         y, _ = librosa.load(audio_path, sr=48000, offset=start_sec, duration=duration_to_load)
         
@@ -99,13 +103,14 @@ class MikupSemanticTagger:
         return results[:3] # Return top 3 tags
 
 if __name__ == "__main__":
-    # Test with mock data
-    tagger = MikupSemanticTagger()
-    # Using a mock path from earlier
-    mock_bg = "data/processed/test_Instrumental.wav"
+    import sys
     import os
-    if os.path.exists(mock_bg):
-        tags = tagger.tag_audio(mock_bg)
-        print("Top Semantic Tags:")
+
+    if len(sys.argv) > 1:
+        tagger = MikupSemanticTagger()
+        tags = tagger.tag_audio(sys.argv[1])
+        print(f"Top Semantic Tags for {sys.argv[1]}:")
         for tag in tags:
             print(f"- {tag['label']}: {tag['score']:.2%}")
+    else:
+        print("Usage: python src/semantics/tagger.py <path_to_audio.wav>")

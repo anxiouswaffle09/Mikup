@@ -26,12 +26,20 @@ export function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
 
     rafRef.current = requestAnimationFrame(() => {
+      if (!lissajousPoints || lissajousPoints.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgb(10, 10, 10)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
       const cx = size / 2;
       const cy = size / 2;
       const radius = cx * 0.88;
 
-      // Background
-      ctx.fillStyle = BACKGROUND;
+      // Persistence effect (motion blur): Draw semi-transparent background
+      // instead of clearing entirely to let old frames fade.
+      ctx.fillStyle = "rgba(10, 10, 10, 0.25)";
       ctx.fillRect(0, 0, size, size);
 
       // Outer guide circle
@@ -52,7 +60,7 @@ export function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
       ctx.stroke();
 
       // Lissajous points
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 8;
       ctx.shadowColor = NEON_GREEN;
       ctx.fillStyle = NEON_GREEN;
 
@@ -61,7 +69,7 @@ export function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
         const px = cx + x * radius;
         const py = cy - y * radius; // flip Y: canvas y grows downward
         ctx.beginPath();
-        ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+        ctx.arc(px, py, 1.2, 0, Math.PI * 2);
         ctx.fill();
       }
 
