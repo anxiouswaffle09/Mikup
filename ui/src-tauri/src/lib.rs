@@ -1,17 +1,19 @@
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use chrono::Local;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
 use crate::dsp::loudness::LoudnessAnalyzer;
+use crate::dsp::player::{interleave_mono, AudioOutputPlayer, MonoResampler};
+use crate::dsp::scanner::{OfflineLoudnessScanner, ScanEvent};
 use crate::dsp::spatial::SpatialAnalyzer;
 use crate::dsp::spectral::SpectralAnalyzer;
-use crate::dsp::MikupAudioDecoder;
+use crate::dsp::{shared_default_stem_states, MikupAudioDecoder, StemState};
 
 pub mod dsp;
 
@@ -324,8 +326,8 @@ async fn set_default_projects_dir(
     let config = AppConfig {
         default_projects_dir: normalized_path,
     };
-    let serialized =
-        serde_json::to_string_pretty(&config).map_err(|e| format!("Failed to serialize config: {e}"))?;
+    let serialized = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {e}"))?;
     tokio::fs::write(config_path, serialized)
         .await
         .map_err(|e| format!("Failed to write app config: {e}"))?;
@@ -561,6 +563,141 @@ async fn write_dsp_metrics(
         .map_err(|e| format!("Failed to write dsp_metrics.json: {e}"))
 }
 
+/// Build a static LUFS map offline using fast Rust decoding + EBU R128, then persist to disk.
+///
+/// The returned JSON is shaped as `{ "lufs_graph": { ... } }` so callers can merge it into
+/// `payload.metrics`. We additionally persist compatibility flat fields in `dsp_metrics.json`
+/// so existing Stage 5 readers can continue reading integrated LUFS values.
+#[tauri::command]
+async fn generate_static_map(
+    app: tauri::AppHandle,
+    output_directory: String,
+    stem_paths: HashMap<String, String>,
+) -> Result<serde_json::Value, String> {
+    ensure_safe_argument("Output directory", &output_directory)?;
+    let output_path = PathBuf::from(&output_directory);
+    if !output_path.is_absolute() {
+        return Err("Output directory must be an absolute path".to_string());
+    }
+
+    for (stem, path) in &stem_paths {
+        ensure_safe_argument(&format!("Stem key ({stem})"), stem)?;
+        ensure_safe_argument(&format!("Stem path ({stem})"), path)?;
+    }
+
+    let app_handle = app.clone();
+    let output_directory_for_write = output_directory.clone();
+    let scan_result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let scanner = OfflineLoudnessScanner::new(2).map_err(|e| e.to_string())?;
+        let resolved = OfflineLoudnessScanner::resolve_required_stems(&stem_paths)
+            .map_err(|e| e.to_string())?;
+
+        let mut completed_stems = 0_u32;
+        let profiles = scanner
+            .scan(resolved, |event| match event {
+                ScanEvent::StemStarted { stem } => {
+                    let _ = app_handle.emit(
+                        "process-status",
+                        ProgressPayload {
+                            stage: "DSP".to_string(),
+                            progress: (completed_stems * 100 / 5).min(99),
+                            message: format!("Turbo Scan: scanning {stem} stem..."),
+                        },
+                    );
+                }
+                ScanEvent::StemProgress {
+                    stem,
+                    seconds_scanned,
+                } => {
+                    let _ = app_handle.emit(
+                        "process-status",
+                        ProgressPayload {
+                            stage: "DSP".to_string(),
+                            progress: (completed_stems * 100 / 5).min(99),
+                            message: format!(
+                                "Turbo Scan: {stem} scanned {:.1}s ({} of 5 complete)...",
+                                seconds_scanned, completed_stems
+                            ),
+                        },
+                    );
+                }
+                ScanEvent::StemFinished { stem } => {
+                    completed_stems += 1;
+                    let _ = app_handle.emit(
+                        "process-status",
+                        ProgressPayload {
+                            stage: "DSP".to_string(),
+                            progress: (completed_stems * 100 / 5).min(100),
+                            message: format!(
+                                "Turbo Scan: completed {stem} ({completed_stems} of 5)."
+                            ),
+                        },
+                    );
+                }
+            })
+            .map_err(|e| e.to_string())?;
+
+        let dx = profiles
+            .get("DX")
+            .ok_or_else(|| "Scanner did not produce DX profile".to_string())?;
+        let music = profiles
+            .get("Music")
+            .ok_or_else(|| "Scanner did not produce Music profile".to_string())?;
+        let effects = profiles
+            .get("Effects")
+            .ok_or_else(|| "Scanner did not produce Effects profile".to_string())?;
+
+        let lufs_graph = serde_json::json!({
+            "DX": dx,
+            "Music": music,
+            "Effects": effects,
+            // Backward-compatible aliases consumed by current UI panels.
+            "dialogue_raw": dx,
+            "background_raw": music,
+        });
+
+        let persisted_metrics = serde_json::json!({
+            "lufs_graph": lufs_graph,
+            "dialogue_integrated_lufs": dx.integrated,
+            "dialogue_loudness_range_lu": dx.loudness_range_lu,
+            "background_integrated_lufs": music.integrated,
+            "background_loudness_range_lu": music.loudness_range_lu,
+        });
+
+        let metrics_path = PathBuf::from(output_directory_for_write)
+            .join("data")
+            .join("dsp_metrics.json");
+        if let Some(parent) = metrics_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create data directory: {e}"))?;
+        }
+        let serialized =
+            serde_json::to_string_pretty(&persisted_metrics).map_err(|e| e.to_string())?;
+        let tmp_path = metrics_path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, &serialized)
+            .map_err(|e| format!("Failed to write dsp_metrics.json: {e}"))?;
+        std::fs::rename(&tmp_path, &metrics_path)
+            .map_err(|e| format!("Failed to finalize dsp_metrics.json: {e}"))?;
+
+        let _ = app_handle.emit(
+            "process-status",
+            ProgressPayload {
+                stage: "DSP".to_string(),
+                progress: 100,
+                message: "Turbo Scan complete. Static LUFS map generated.".to_string(),
+            },
+        );
+
+        Ok(serde_json::json!({
+            "lufs_graph": persisted_metrics["lufs_graph"].clone(),
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(scan_result)
+}
+
 /// Marks the DSP stage as complete in `stage_state.json`.
 /// Called by the frontend after the Rust `stream_audio_metrics` stream ends naturally.
 /// This allows `get_pipeline_state` to correctly report 3 completed stages on resume.
@@ -569,8 +706,9 @@ async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
     let state_path = resolve_data_artifact_path(&output_directory, "stage_state.json")?;
 
     let mut state: serde_json::Value = match tokio::fs::read_to_string(&state_path).await {
-        Ok(content) => serde_json::from_str(&content)
-            .unwrap_or_else(|_| serde_json::json!({ "stages": {} })),
+        Ok(content) => {
+            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({ "stages": {} }))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             serde_json::json!({ "stages": {} })
         }
@@ -589,14 +727,36 @@ async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
 
 /// Signal a running `stream_audio_metrics` call to stop after the current frame.
 #[tauri::command]
-async fn stop_dsp_stream(
-    cancel_flag: tauri::State<'_, Arc<AtomicBool>>,
-) -> Result<(), String> {
-    cancel_flag.store(true, Ordering::Relaxed);
+async fn stop_dsp_stream(stream_generation: tauri::State<'_, Arc<AtomicU64>>) -> Result<(), String> {
+    // Increment the generation counter — the current blocking task will see its captured
+    // generation no longer matches and will exit on the next loop iteration.
+    stream_generation.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 
-/// Stream DSP metrics from the dialogue and background WAV stems to the frontend.
+#[tauri::command]
+async fn set_stem_state(
+    stem_states: tauri::State<'_, Arc<RwLock<HashMap<String, StemState>>>>,
+    stem_id: String,
+    is_solo: bool,
+    is_muted: bool,
+) -> Result<(), String> {
+    let normalized = stem_id.trim().to_ascii_lowercase();
+    if !matches!(normalized.as_str(), "dx" | "music" | "effects") {
+        return Err(format!(
+            "Invalid stem_id '{stem_id}'. Allowed values: dx, music, effects"
+        ));
+    }
+
+    let mut map = stem_states
+        .write()
+        .map_err(|_| "stem state lock poisoned".to_string())?;
+    map.insert(normalized, StemState { is_solo, is_muted });
+
+    Ok(())
+}
+
+/// Stream DSP metrics from the 3-stem WAV set (DX, Music, Effects) to the frontend.
 ///
 /// Emits:
 /// - `dsp-frame`    — `DspFramePayload` at up to 60 FPS during processing.
@@ -608,26 +768,38 @@ async fn stop_dsp_stream(
 #[tauri::command]
 async fn stream_audio_metrics(
     app: tauri::AppHandle,
-    cancel_flag: tauri::State<'_, Arc<AtomicBool>>,
-    dialogue_path: String,
-    background_path: String,
+    stream_generation: tauri::State<'_, Arc<AtomicU64>>,
+    stem_states: tauri::State<'_, Arc<RwLock<HashMap<String, StemState>>>>,
+    dx_path: String,
+    music_path: String,
+    effects_path: String,
     start_time: f64,
 ) -> Result<(), String> {
-    ensure_safe_argument("Dialogue path", &dialogue_path)?;
-    ensure_safe_argument("Background path", &background_path)?;
+    ensure_safe_argument("DX path", &dx_path)?;
+    ensure_safe_argument("Music path", &music_path)?;
+    ensure_safe_argument("Effects path", &effects_path)?;
     if !start_time.is_finite() || start_time < 0.0 {
         return Err("start_time must be a finite value >= 0".to_string());
     }
 
-    // Reset cancellation so any lingering previous stream sees `true` → stops, and
-    // our new stream starts clean with `false`.
-    cancel_flag.store(false, Ordering::Relaxed);
-    let cancel = Arc::clone(&*cancel_flag);
+    // Each stream gets a unique generation number. The old blocking task holds a clone
+    // of the counter and its own captured generation value. When we increment here the
+    // old task sees a mismatch on the next loop iteration and exits cleanly — no
+    // shared-flag reset race, no need to await the old task's handle.
+    let my_gen = stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let stream_gen_arc = Arc::clone(&*stream_generation);
+    let shared_stem_states = Arc::clone(&*stem_states);
 
     tokio::task::spawn_blocking(move || {
-        let mut decoder =
-            MikupAudioDecoder::new(&dialogue_path, &background_path, DSP_SAMPLE_RATE, DSP_FRAME_SIZE)
-                .map_err(|e| e.to_string())?;
+        let mut decoder = MikupAudioDecoder::new(
+            &dx_path,
+            &music_path,
+            &effects_path,
+            shared_stem_states,
+            DSP_SAMPLE_RATE,
+            DSP_FRAME_SIZE,
+        )
+        .map_err(|e| e.to_string())?;
         decoder
             .seek(start_time as f32)
             .map_err(|e| format!("Failed to seek decoder: {e}"))?;
@@ -639,13 +811,29 @@ async fn stream_audio_metrics(
         let spatial = SpatialAnalyzer::new();
         let mut spectral = SpectralAnalyzer::new(sample_rate, frame_size);
 
+        // Audio output: create a cpal player and a resampler (48kHz → hardware rate).
+        // Failure to open the output device is non-fatal — analysis continues without audio.
+        let audio_player = AudioOutputPlayer::new_default(0.2)
+            .map_err(|e| eprintln!("[mikup] Audio output unavailable: {e}"))
+            .ok();
+        let mut audio_resampler = audio_player.as_ref().and_then(|p| {
+            MonoResampler::new(sample_rate, p.hardware_sample_rate())
+                .map_err(|e| eprintln!("[mikup] Audio resampler init failed: {e}"))
+                .ok()
+        });
+        if let Some(ref p) = audio_player {
+            if let Err(e) = p.start() {
+                eprintln!("[mikup] Audio player start failed: {e}");
+            }
+        }
+
         let mut frame_index: u64 = 0;
         let min_interval = std::time::Duration::from_millis(MIN_EMIT_INTERVAL_MS);
         let mut last_emit: Option<std::time::Instant> = None;
         let mut eof_natural = false;
 
         loop {
-            if cancel.load(Ordering::Relaxed) {
+            if stream_gen_arc.load(Ordering::Relaxed) != my_gen {
                 break;
             }
 
@@ -661,8 +849,7 @@ async fn stream_audio_metrics(
                 }
             };
 
-            let timestamp_secs =
-                frame_index as f32 * frame_size as f32 / sample_rate as f32;
+            let timestamp_secs = frame_index as f32 * frame_size as f32 / sample_rate as f32;
 
             let loudness_metrics = match loudness.process_frame(&frame) {
                 Ok(m) => m,
@@ -674,6 +861,21 @@ async fn stream_audio_metrics(
 
             let spatial_metrics = spatial.process_frame(&frame);
             let spectral_metrics = spectral.process_frame(&frame);
+
+            // Push mixed audio (dialogue + background) to cpal output player.
+            if let (Some(ref player), Some(ref mut resampler)) =
+                (&audio_player, &mut audio_resampler)
+            {
+                let mixed: Vec<f32> = frame
+                    .dialogue_raw
+                    .iter()
+                    .zip(frame.background_raw.iter())
+                    .map(|(d, b)| (d + b).clamp(-1.0, 1.0))
+                    .collect();
+                let resampled = resampler.process(&mixed);
+                let interleaved = interleave_mono(&resampled, player.channels());
+                player.push_interleaved_nonblocking(&interleaved);
+            }
 
             frame_index += 1;
 
@@ -689,8 +891,7 @@ async fn stream_audio_metrics(
             last_emit = Some(now);
 
             // Subsample Lissajous points so each frame emits at most LISSAJOUS_MAX_POINTS.
-            let step =
-                (spatial_metrics.lissajous_points.len() / LISSAJOUS_MAX_POINTS).max(1);
+            let step = (spatial_metrics.lissajous_points.len() / LISSAJOUS_MAX_POINTS).max(1);
             let lissajous_points: Vec<[f32; 2]> = spatial_metrics
                 .lissajous_points
                 .iter()
@@ -720,6 +921,22 @@ async fn stream_audio_metrics(
             };
 
             let _ = app.emit("dsp-frame", payload);
+        }
+
+        if let Some(ref player) = audio_player {
+            player.mark_producer_finished();
+        }
+
+        // Warn if any stems were shorter than others and were padded with silence.
+        if decoder.alignment_mismatch_detected {
+            let _ = app.emit(
+                "process-status",
+                ProgressPayload {
+                    stage: "DSP_WARNING".to_string(),
+                    progress: 0,
+                    message: "Stem length mismatch: one or more stems are shorter than others and were padded with silence. Spatial and ducking analysis may be affected near the tail.".to_string(),
+                },
+            );
         }
 
         // Only emit the completion event when we reached EOF naturally (not cancelled).
@@ -782,8 +999,8 @@ async fn send_agent_message(
         return Err(format!("Workspace directory not found: {workspace_dir}"));
     }
 
-    let project_root = find_project_root(&app)
-        .ok_or_else(|| "Unable to resolve project root".to_string())?;
+    let project_root =
+        find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
     let python_path = resolve_python_path(&project_root);
 
     let (mut rx, mut child) = app
@@ -826,18 +1043,12 @@ async fn send_agent_message(
                         continue;
                     }
                     if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                        let msg_type = json_val
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("");
+                        let msg_type = json_val.get("type").and_then(|t| t.as_str()).unwrap_or("");
                         if msg_type == "ready" && !ready {
                             ready = true;
-                            let msg =
-                                serde_json::json!({"text": text}).to_string() + "\n";
+                            let msg = serde_json::json!({"text": text}).to_string() + "\n";
                             if let Err(e) = child.write(msg.as_bytes()) {
-                                result = Err(format!(
-                                    "Failed to send message to AI Director: {e}"
-                                ));
+                                result = Err(format!("Failed to send message to AI Director: {e}"));
                                 break 'outer;
                             }
                         } else if msg_type == "response" && ready {
@@ -851,8 +1062,7 @@ async fn send_agent_message(
                         } else if let Some(tool_name) =
                             json_val.get("tool").and_then(|t| t.as_str())
                         {
-                            let time_secs =
-                                json_val.get("time_secs").and_then(|t| t.as_f64());
+                            let time_secs = json_val.get("time_secs").and_then(|t| t.as_f64());
                             let _ = app.emit(
                                 "agent-action",
                                 AgentActionPayload {
@@ -889,7 +1099,8 @@ mod lib_tests {
     #[test]
     fn stage_state_json_merge_preserves_existing_stages() {
         // Simulate the read-parse-merge-serialize logic used by mark_dsp_complete
-        let initial_json = r#"{"stages":{"separation":{"completed":true},"transcription":{"completed":true}}}"#;
+        let initial_json =
+            r#"{"stages":{"separation":{"completed":true},"transcription":{"completed":true}}}"#;
 
         let mut state: serde_json::Value = serde_json::from_str(initial_json)
             .unwrap_or_else(|_| serde_json::json!({ "stages": {} }));
@@ -901,13 +1112,24 @@ mod lib_tests {
         // Round-trip: parse the serialized output to verify the full write/read cycle
         let roundtripped: serde_json::Value = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(roundtripped["stages"]["separation"]["completed"].as_bool(), Some(true));
-        assert_eq!(roundtripped["stages"]["transcription"]["completed"].as_bool(), Some(true));
-        assert_eq!(roundtripped["stages"]["dsp"]["completed"].as_bool(), Some(true));
+        assert_eq!(
+            roundtripped["stages"]["separation"]["completed"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            roundtripped["stages"]["transcription"]["completed"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            roundtripped["stages"]["dsp"]["completed"].as_bool(),
+            Some(true)
+        );
 
         // Verify serialization produces valid JSON (not just in-memory state)
-        assert!(serialized.contains(r#""dsp":{"completed":true}"#) ||
-                serialized.contains(r#""dsp": {"completed": true}"#));
+        assert!(
+            serialized.contains(r#""dsp":{"completed":true}"#)
+                || serialized.contains(r#""dsp": {"completed": true}"#)
+        );
     }
 
     #[test]
@@ -929,7 +1151,8 @@ mod lib_tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(Arc::new(AtomicBool::new(false)))
+        .manage(Arc::new(AtomicU64::new(0)))
+        .manage(shared_default_stem_states())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -943,8 +1166,10 @@ pub fn run() {
             setup_project_workspace,
             get_pipeline_state,
             write_dsp_metrics,
+            generate_static_map,
             stream_audio_metrics,
             stop_dsp_stream,
+            set_stem_state,
             mark_dsp_complete,
             send_agent_message,
         ])
