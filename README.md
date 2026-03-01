@@ -13,7 +13,7 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
 
 ### Headless Pipeline
 
-1. **Ingestion & Surgical Separation:** UVR5/Roformer frameworks for dialogue/music/SFX splitting.
+1. **Ingestion & Surgical Separation:** Hybrid MBR→CDX23 pipeline — MBR vocal split (Pass 1) + CDX23/Demucs4 instrumental split (Pass 2) producing DX, Music, Effects stems.
 2. **Transcription & Micro-Alignment:** WhisperX / Pyannote.audio (v4 Community-1) for word-level timestamps and diarization.
 3. **Feature Extraction (DSP):** Librosa / Essentia for LUFS, onset detection, frequency analysis.
 4. **Semantic Audio Understanding:** CLAP / Transformers v5 for semantic text tagging of audio stems.
@@ -49,7 +49,7 @@ python src/main.py --input "path/to/audio/file.wav"
 ```
 
 ## Directory Structure
-- `src/ingestion`: Audio loading and stem separation (UVR5/Demucs)
+- `src/ingestion`: Audio loading and stem separation (MBR + CDX23/Demucs4, 3-stem output)
 - `src/dsp`: Digital Signal Processing (Librosa/Essentia feature extraction)
 - `src/transcription`: WhisperX and Pyannote integration
 - `src/semantics`: CLAP semantic audio tagging

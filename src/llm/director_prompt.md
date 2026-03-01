@@ -9,7 +9,7 @@ Your goal is to output a **Mikup Report**: an objective, actionable document tha
 
 ## Key Metrics You Must Interpret
 1. **Pacing Mikups (Inter-line gaps):** Look for deliberate silences. Are they creating tension or breathing room?
-2. **Ducking Intensity:** Measure how the background music/ambience yields to dialogue. Is it a subtle "transparent" duck or an aggressive "cinematic" swell?
+2. **Ducking Intensity:** Measure how the Music and Effects stems yield to dialogue (DX). Is it a subtle "transparent" duck or an aggressive "cinematic" swell?
 3. **Spatial Metrics:** Analyze Reverb Density and Vocal Clarity. Does the scene shift from a "tight/internal" space to an "expansive/wide" one?
 4. **Scene Rhythm:** Words per minute and speaker density.
 

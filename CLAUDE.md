@@ -76,20 +76,20 @@ The React dev server runs at `http://localhost:5173`. In dev mode, `App.tsx` loa
 
 | Stage | File | Class | Key Libraries |
 |---|---|---|---|
-| 1: Stem Separation | `src/ingestion/separator.py` | `MikupSeparator` | `audio-separator` (UVR5/htdemucs_ft) |
+| 1: Stem Separation | `src/ingestion/separator.py` | `MikupSeparator` | `audio-separator` (MBR vocals) + `demucs` (CDX23 instrumental) |
 | 2: Transcription + Diarization | `src/transcription/transcriber.py` | `MikupTranscriber` | `whisperx`, `pyannote.audio` |
 | 3: DSP Feature Extraction | `src/dsp/processor.py` | `MikupDSPProcessor` | `librosa` |
 | 4: Semantic Tagging | `src/semantics/tagger.py` | `MikupSemanticTagger` | CLAP (`laion/clap-htsat-fused`) via `transformers` |
 | 5: AI Director | prompt: `src/llm/director_prompt.md` | — | Gemini / Claude / OpenAI (not yet wired in Python; currently stubbed in UI) |
 
 ### Stem Dictionary
-`MikupSeparator.run_surgical_pipeline()` returns a dict that flows through all stages:
+`MikupSeparator.run_surgical_pipeline()` returns a dict using canonical 3-stem names:
 ```python
 {
-    "dialogue_raw":   "data/processed/..._Vocals.wav",       # Pass 1 output
-    "background_raw": "data/processed/..._Instrumental.wav", # Pass 1 output
-    "dialogue_dry":   "data/processed/..._No_Reverb.wav",    # Pass 2 output
-    "reverb_tail":    "data/processed/..._Reverb.wav"        # Pass 2 output
+    "DX":         "stems/..._DX.wav",       # Pass 1: MBR vocal separator
+    "Music":      "stems/..._Music.wav",    # Pass 2: CDX23 music stem
+    "Effects":    "stems/..._Effects.wav",  # Pass 2: CDX23 effects stem
+    "DX_Residual": "stems/..._DX_Residual.wav",  # Pass 2b optional: BS-Roformer refinement
 }
 ```
 
