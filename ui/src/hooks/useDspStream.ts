@@ -8,7 +8,7 @@ export interface UseDspStreamReturn {
   completePayload: DspCompletePayload | null;
   isStreaming: boolean;
   error: string | null;
-  startStream: (dialoguePath: string, backgroundPath: string) => void;
+  startStream: (dxPath: string, musicPath: string, effectsPath: string, startTimeSecs?: number) => void;
   stopStream: () => void;
 }
 
@@ -63,13 +63,13 @@ export function useDspStream(): UseDspStreamReturn {
     };
   }, []);
 
-  const startStream = useCallback((dialoguePath: string, backgroundPath: string) => {
+  const startStream = useCallback((dxPath: string, musicPath: string, effectsPath: string, startTimeSecs?: number) => {
     setCurrentFrame(null);
     setCompletePayload(null);
     setError(null);
     setIsStreaming(true);
     // Fire-and-forget: completion/errors come through Tauri events above.
-    invoke<void>('stream_audio_metrics', { dialoguePath, backgroundPath }).catch((err) => {
+    invoke<void>('stream_audio_metrics', { dxPath, musicPath, effectsPath, startTime: startTimeSecs ?? 0 }).catch((err) => {
       setError(err instanceof Error ? err.message : String(err));
       setIsStreaming(false);
     });

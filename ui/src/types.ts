@@ -237,9 +237,7 @@ function deriveStemPathsFromSource(sourceFile: string): string[] {
   return [
     `${baseName}_DX.wav`,
     `${baseName}_Music.wav`,
-    `${baseName}_Foley.wav`,
-    `${baseName}_SFX.wav`,
-    `${baseName}_Ambience.wav`,
+    `${baseName}_Effects.wav`,
   ];
 }
 
