@@ -23,10 +23,8 @@ const STAGE_STYLES: Record<string, StageStyle> = {
   DIALOGUE:   { color: 'text-cyan-400',    emoji: '💎', label: 'DX'     },
   DSP:        { color: 'text-blue-400',    emoji: '📊', label: 'DSP'    },
   TRANSCRIPTION: { color: 'text-green-400', emoji: '📝', label: 'TRANSCRIPTION' },
-  FX:         { color: 'text-amber-400',   emoji: '⚡', label: 'FX'     },
-  SFX:        { color: 'text-amber-400',   emoji: '⚡', label: 'SFX'    },
-  AMBIENCE:   { color: 'text-violet-400',  emoji: '🌊', label: 'AMB'    },
-  FOLEY:      { color: 'text-yellow-300',  emoji: '👣', label: 'FOLEY'  },
+  FX:         { color: 'text-amber-400',   emoji: '⚡', label: 'FX'      },
+  EFFECTS:    { color: 'text-amber-400',   emoji: '⚡', label: 'EFFECTS' },
   COMPLETE:   { color: 'text-emerald-400', emoji: '✓',  label: 'DONE'   },
 };
 
