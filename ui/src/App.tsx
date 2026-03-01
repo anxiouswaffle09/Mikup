@@ -13,7 +13,6 @@ import { StatsBar, LiveMeters } from './components/DiagnosticMeters';
 import { Vectorscope } from './components/Vectorscope';
 import { StemControlStrip } from './components/StemControlStrip';
 import { useDspStream } from './hooks/useDspStream';
-import type { DspStemPaths } from './hooks/useDspStream';
 import {
   parseMikupPayload,
   resolveStemAudioSources,
@@ -53,46 +52,30 @@ function resolvePlaybackStemPaths(
   payload: MikupPayload | null,
   inputPath: string | null,
   workspaceDirectory: string | null,
-): DspStemPaths {
+): [string, string, string] {
   const stems = payload?.artifacts?.stem_paths ?? [];
 
-  // Prefer canonical stem names from the payload artifacts with robust regex
-  const payloadDX = stems.find((p) => /_DX\./i.test(p) || /vocals|dialogue/i.test(p));
-  const payloadMusic = stems.find((p) => /_Music\./i.test(p) || /instrumental|background|music/i.test(p));
-  const payloadFoley = stems.find((p) => /_Foley\./i.test(p));
-  const payloadSfx = stems.find((p) => /_SFX\./i.test(p));
-  const payloadAmbience = stems.find((p) => /_Ambience\./i.test(p));
+  // Prefer canonical stem names from the payload artifacts.
+  const payloadDX = stems.find((p) => /_DX\./i.test(p));
+  const payloadMusic = stems.find((p) => /_Music\./i.test(p));
+  const payloadEffects = stems.find((p) => /_Effects\./i.test(p));
 
-  if (payloadDX && payloadMusic) {
-    return {
-      dxPath: payloadDX,
-      musicPath: payloadMusic,
-      foleyPath: payloadFoley ?? '',
-      sfxPath: payloadSfx ?? '',
-      ambiencePath: payloadAmbience ?? '',
-    };
+  if (payloadDX && payloadMusic && payloadEffects) {
+    return [payloadDX, payloadMusic, payloadEffects];
   }
 
   // Fallback: derive paths from workspace + input filename.
   if (inputPath && workspaceDirectory) {
     const filename = inputPath.replace(/^.*[\\/]/, '');
     const baseName = filename.replace(/\.[^/.]+$/, '');
-    return {
-      dxPath: `${workspaceDirectory}/stems/${baseName}_DX.wav`,
-      musicPath: `${workspaceDirectory}/stems/${baseName}_Music.wav`,
-      foleyPath: `${workspaceDirectory}/stems/${baseName}_Foley.wav`,
-      sfxPath: `${workspaceDirectory}/stems/${baseName}_SFX.wav`,
-      ambiencePath: `${workspaceDirectory}/stems/${baseName}_Ambience.wav`,
-    };
+    return [
+      `${workspaceDirectory}/stems/${baseName}_DX.wav`,
+      `${workspaceDirectory}/stems/${baseName}_Music.wav`,
+      `${workspaceDirectory}/stems/${baseName}_Effects.wav`,
+    ];
   }
 
-  return {
-    dxPath: payloadDX ?? '',
-    musicPath: payloadMusic ?? '',
-    foleyPath: payloadFoley ?? '',
-    sfxPath: payloadSfx ?? '',
-    ambiencePath: payloadAmbience ?? '',
-  };
+  return [stems[0] ?? '', stems[1] ?? '', stems[2] ?? ''];
 }
 
 function buildProceedPrompt(completedStageLabel: string, nextStage: PipelineStageDefinition): string {
@@ -127,12 +110,10 @@ function App() {
   const { startStream: startDspStream, stopStream: stopDspStream } = dspStream;
 
   const ghostStemPaths = useMemo(() => {
-    const sp = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+    const [, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
     return {
-      musicPath: sp.musicPath || undefined,
-      sfxPath: sp.sfxPath || undefined,
-      foleyPath: sp.foleyPath || undefined,
-      ambiencePath: sp.ambiencePath || undefined,
+      musicPath: musicPath || undefined,
+      effectsPath: effectsPath || undefined,
     };
   }, [payload, inputPath, workspaceDirectory]);
 
@@ -160,13 +141,13 @@ function App() {
   useEffect(() => {
     const unlisten = listen<{ tool: string; time_secs?: number }>('agent-action', (event) => {
       if (event.payload.tool === 'seek_audio' && typeof event.payload.time_secs === 'number') {
-        const stemPaths = resolvePlaybackStemPaths(
+        const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(
           payload,
           inputPath,
           workspaceDirectory,
         );
-        if (stemPaths.dxPath) {
-          startDspStream(stemPaths, event.payload.time_secs);
+        if (dxPath) {
+          dspStream.startStream(dxPath, musicPath, effectsPath, event.payload.time_secs);
         }
       }
     });
@@ -322,13 +303,11 @@ function App() {
       try {
         const stems = await invoke<Record<string, string | null>>('get_stems', { outputDirectory: workspaceDirectory });
 
-        // Use canonical keys from the backend, with backward-compatible fallbacks
+        // Use canonical 3-stem keys from the backend
         const stemPaths: Record<string, string> = {
           DX: stems['DX'] ?? stems['dx_raw'] ?? stems['dialogue_raw'] ?? '',
           Music: stems['Music'] ?? stems['music_raw'] ?? stems['background_raw'] ?? '',
-          SFX: stems['SFX'] ?? stems['sfx_raw'] ?? '',
-          Foley: stems['Foley'] ?? stems['foley_raw'] ?? '',
-          Ambience: stems['Ambience'] ?? stems['ambience_raw'] ?? '',
+          Effects: stems['Effects'] ?? stems['effects_raw'] ?? '',
         };
 
         // Critical check: We at least need DX and Music to perform a meaningful scan
@@ -702,13 +681,13 @@ function App() {
                 ghostStemPaths={ghostStemPaths}
                 highlightAtSecs={highlightAtSecs}
                 onPlay={(time) => {
-                  const stemPaths = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (stemPaths.dxPath) startDspStream(stemPaths, time);
+                  const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
                 }}
                 onPause={() => stopDspStream()}
                 onSeek={(time) => {
-                  const stemPaths = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (stemPaths.dxPath) startDspStream(stemPaths, time);
+                  const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
                 }}
               />
             </div>
@@ -785,12 +764,12 @@ function App() {
                   wordSegments={payload.transcription.word_segments}
                   currentTime={dspStream.currentFrame?.timestamp_secs ?? 0}
                   onSeek={(time) => {
-                    const stemPaths = resolvePlaybackStemPaths(
+                    const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(
                       payload,
                       inputPath,
                       workspaceDirectory,
                     );
-                    if (stemPaths.dxPath) startDspStream(stemPaths, time);
+                    if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
                   }}
                 />
               </div>
@@ -807,8 +786,8 @@ function App() {
                 payload={payload}
                 workspaceDir={workspaceDirectory}
                 onSeek={(timeSecs) => {
-                  const stemPaths = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (stemPaths.dxPath) startDspStream(stemPaths, timeSecs);
+                  const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, timeSecs);
                 }}
                 onHighlight={(timeSecs) => {
                   setHighlightAtSecs(null);

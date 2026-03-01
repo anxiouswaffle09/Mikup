@@ -14,26 +14,36 @@ from audio_separator.separator import Separator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Repo root: src/ingestion/separator.py → ../../
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 class MikupSeparator:
     """
-    Cinematic 3-pass separation for Project Mikup.
+    Hybrid cinematic separation for Project Mikup.
     Canonical stems:
-      - DX
-      - Music
-      - Foley
-      - SFX
-      - Ambience
+      - DX       (vocals_mel_band_roformer.ckpt)
+      - Music    (CDX23/Demucs4)
+      - Effects  (CDX23/Demucs4)
     """
 
-    CANONICAL_STEMS = ("DX", "Music", "Foley", "SFX", "Ambience")
+    CANONICAL_STEMS = ("DX", "Music", "Effects")
+    CDX23_MODEL_IDS_HQ = [
+        "97d170e1-a778de4a.th",
+        "97d170e1-dbb4db15.th",
+        "97d170e1-e41a5468.th",
+    ]
+    CDX23_MODEL_IDS_FAST = ["97d170e1-dbb4db15.th"]
+    CDX23_DOWNLOAD_BASE = (
+        "https://github.com/ZFTurbo/MVSEP-CDX23-Cinematic-Sound-Demixing"
+        "/releases/download/v.1.0.0/"
+    )
 
     def __init__(self, output_dir="data/processed"):
         self.output_dir = os.path.abspath(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
         self.device = self._detect_torch_device()
         self.separator = self._build_separator()
-        self._semantic_tagger = None
 
     def _detect_torch_device(self):
         system = platform.system()
@@ -46,13 +56,17 @@ class MikupSeparator:
 
     def _build_separator(self):
         """Instantiate audio-separator with platform-aware provider/device hints."""
+        model_file_dir = os.path.join(_REPO_ROOT, "models", "separation")
+        os.makedirs(model_file_dir, exist_ok=True)
         try:
-            separator = Separator(output_dir=self.output_dir)
+            separator = Separator(
+                output_dir=self.output_dir,
+                model_file_dir=model_file_dir,
+            )
 
             available_providers = ort.get_available_providers()
             logger.info("Available ONNX Runtime providers: %s", available_providers)
 
-            # Prioritize Hardware Acceleration Providers
             providers = []
             if "CUDAExecutionProvider" in available_providers:
                 providers.append("CUDAExecutionProvider")
@@ -60,19 +74,13 @@ class MikupSeparator:
             if "CoreMLExecutionProvider" in available_providers:
                 providers.append("CoreMLExecutionProvider")
                 logger.info("Prioritizing CoreMLExecutionProvider for Darwin (macOS).")
-            
-            # Always fallback to CPU
+
             providers.append("CPUExecutionProvider")
-            
-            # Update the separator instance with the best providers
             separator.onnx_execution_provider = providers
 
-            # Best-effort torch device assignment for audio-separator wrappers.
             for attr in ("device", "torch_device"):
                 if hasattr(separator, attr):
                     try:
-                        # Map internal "mps" to "cpu" for libraries that don't support it directly
-                        # but still use ONNX CoreML.
                         if self.device == "mps":
                             setattr(separator, attr, "cpu")
                         else:
@@ -87,7 +95,7 @@ class MikupSeparator:
                 "Failed to initialize Separator with custom provider options: %s. Falling back to defaults.",
                 exc,
             )
-            return Separator()
+            return Separator(model_file_dir=model_file_dir)
 
     @staticmethod
     def _tokens_from_path(file_path):
@@ -244,316 +252,146 @@ class MikupSeparator:
             except OSError as exc:
                 logger.warning("Failed to remove intermediate artifact %s: %s", candidate, exc)
 
-    def _mix_stems(self, stem_paths, output_path):
-        valid_paths = [path for path in stem_paths if isinstance(path, str) and os.path.exists(path)]
-        if not valid_paths:
-            return None
-
-        loaded = []
-        target_sr = None
-        for path in valid_paths:
-            audio, sr = self._load_audio(path, target_sr=None)
-            if target_sr is None:
-                target_sr = sr
-            loaded.append((audio, sr))
-
-        if target_sr is None:
-            return None
-
-        resampled = []
-        max_len = 0
-        for audio, sr in loaded:
-            if sr != target_sr:
-                audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr, axis=1)
-            max_len = max(max_len, audio.shape[1])
-            resampled.append(audio)
-
-        mix = np.zeros((2, max_len), dtype=np.float32)
-        for audio in resampled:
-            if audio.shape[1] < max_len:
-                audio = np.pad(audio, ((0, 0), (0, max_len - audio.shape[1])), mode="constant")
-            mix += audio
-
-        mix /= max(len(resampled), 1)
-        return self._write_audio(output_path, mix, target_sr)
-
-    def _get_semantic_tagger(self):
-        if self._semantic_tagger is not None:
-            return self._semantic_tagger
-        try:
-            from src.semantics.tagger import MikupSemanticTagger
-
-            self._semantic_tagger = MikupSemanticTagger(device=self.device)
-            return self._semantic_tagger
-        except Exception as exc:
-            logger.warning("Unable to initialize semantic tagger for effects split: %s", exc)
-            self._semantic_tagger = False
-            return None
-
-    @staticmethod
-    def _semantic_scores(tags):
-        foley_keywords = {"footsteps", "rustle", "cloth"}
-        sfx_keywords = {"explosion", "beep", "impact"}
-
-        foley_score = 0.0
-        sfx_score = 0.0
-        for tag in tags or []:
-            if not isinstance(tag, dict):
-                continue
-            label = str(tag.get("label", "")).lower()
-            score = float(tag.get("score", 0.0) or 0.0)
-            if any(keyword in label for keyword in foley_keywords):
-                foley_score += score
-            if any(keyword in label for keyword in sfx_keywords):
-                sfx_score += score
-
-        return float(np.clip(foley_score, 0.0, 1.0)), float(np.clip(sfx_score, 0.0, 1.0))
-
-    def _classify_percussive_stem(self, percussive_path, fast_mode=False):
-        if fast_mode:
-            return 0.5, 0.5
-
-        tagger = self._get_semantic_tagger()
-        if not tagger:
-            return 0.5, 0.5
-
-        tags = []
-        try:
-            tags = tagger.tag_audio(
-                percussive_path,
-                candidate_labels=[
-                    "Footsteps and cloth rustle",
-                    "Explosion and hard impact",
-                    "Electronic beep and alert",
-                    "Soft ambient room tone",
-                ],
-            )
-            logger.info("Pass 3 CLAP percussive tags: %s", tags)
-        except Exception as exc:
-            logger.warning("Pass 3 semantic classification failed: %s", exc)
-
-        foley_score, sfx_score = self._semantic_scores(tags)
-        if foley_score == 0.0 and sfx_score == 0.0:
-            return 0.5, 0.5
-        total = max(foley_score + sfx_score, 1e-6)
-        return foley_score / total, sfx_score / total
-
-    def _split_other_stem(self, effects_stem, source_base, fast_mode=False):
-        """
-        Pass 3: Effects deconstruction.
-        - HPSS harmonic -> Ambience
-        - HPSS percussive -> Foley/SFX via CLAP semantic routing
-        """
-        if not effects_stem or not os.path.exists(effects_stem):
-            return None, None, None
-
-        audio, sr = self._load_audio(effects_stem, target_sr=None)
-        percussive_channels = []
-        ambience_channels = []
-
-        for channel in audio:
-            stft = librosa.stft(channel, n_fft=2048, hop_length=512)
-            harmonic, percussive = librosa.decompose.hpss(stft)
-            percussive_channels.append(
-                librosa.istft(percussive, hop_length=512, length=channel.shape[0])
-            )
-            ambience_channels.append(
-                librosa.istft(harmonic, hop_length=512, length=channel.shape[0])
-            )
-
-        percussive_audio = np.vstack(percussive_channels)
-        ambience_audio = np.vstack(ambience_channels)
-
-        percussive_tmp_path = os.path.join(self.output_dir, f"{source_base}_Percussive.tmp.wav")
-        self._write_audio(percussive_tmp_path, percussive_audio, sr)
-
-        try:
-            foley_weight, sfx_weight = self._classify_percussive_stem(
-                percussive_tmp_path,
-                fast_mode=fast_mode,
-            )
-        finally:
-            if os.path.exists(percussive_tmp_path):
-                try:
-                    os.remove(percussive_tmp_path)
-                except OSError:
-                    pass
-
-        if sfx_weight > foley_weight:
-            foley_audio = np.zeros_like(percussive_audio)
-            sfx_audio = percussive_audio
-        elif foley_weight > sfx_weight:
-            foley_audio = percussive_audio
-            sfx_audio = np.zeros_like(percussive_audio)
-        else:
-            foley_audio = percussive_audio * 0.5
-            sfx_audio = percussive_audio * 0.5
-
-        foley_path = os.path.join(self.output_dir, f"{source_base}_Foley.wav")
-        sfx_path = os.path.join(self.output_dir, f"{source_base}_SFX.wav")
-        ambience_path = os.path.join(self.output_dir, f"{source_base}_Ambience.wav")
-
-        return (
-            self._write_audio(foley_path, foley_audio, sr),
-            self._write_audio(sfx_path, sfx_audio, sr),
-            self._write_audio(ambience_path, ambience_audio, sr),
+    def _cdx23_models_dir(self):
+        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or os.path.join(
+            _REPO_ROOT, "models", "cdx23"
         )
+        os.makedirs(base, exist_ok=True)
+        return base
 
-    def separate_cinematic_trinity(self, input_file):
-        """
-        Pass 1: Cinematic Trinity split (Dialogue, Music, Effects).
-        """
-        logger.info("Starting Pass 1: Cinematic Trinity (MDX-NET Cinematic 2)...")
-        self._load_model_with_fallback(
-            [
-                "MDX-NET-Cinematic_2.onnx",
-                "Cinematic_2.onnx",
-                "UVR-MDX-NET-Voc_FT.onnx",
-            ]
-        )
+    def _pass1_mbr_vocal_split(self, input_file):
+        """Pass 1: Extract vocals (DX) and instrumental via MBR."""
+        logger.info("Pass 1: MBR vocal split (vocals_mel_band_roformer.ckpt)...")
+        self._load_model_with_fallback(["vocals_mel_band_roformer.ckpt"])
         output_files = self._separate(input_file)
-        logger.info("Pass 1 complete. Stems generated: %s", output_files)
+        logger.info("Pass 1 complete. Stems: %s", output_files)
         return output_files
 
-    def refine_dialogue(self, dialogue_file):
-        """
-        Pass 2: Dialogue refinement via BS-Roformer-Viperx-1297.
-        """
-        logger.info("Starting Pass 2: Dialogue refinement (BS-Roformer-Viperx-1297)...")
-        self._load_model_with_fallback(
-            [
-                "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-                "BS-Roformer-Viperx-1297.ckpt",
-            ]
-        )
-        output_files = self._separate(dialogue_file)
-        logger.info("Pass 2 complete. Stems generated: %s", output_files)
-        return output_files
+    def _pass2_cdx23_instrumental(self, instrumental_path, source_base, fast_mode=False):
+        """Pass 2: CDX23 (Demucs4/DnR) splits instrumental → music + effects."""
+        import numpy as np
+        import torch
+        from demucs.apply import apply_model
+        from demucs.states import load_model
+
+        logger.info("Pass 2: CDX23 instrumental split...")
+        models_dir = self._cdx23_models_dir()
+        model_ids = self.CDX23_MODEL_IDS_FAST if fast_mode else self.CDX23_MODEL_IDS_HQ
+        # demucs>=4.0 (Sep 2023 PyPI) supports MPS natively — complex ops fall back
+        # to CPU internally, all other ops use Metal. No need to override to CPU.
+        device = self.device
+
+        models = []
+        for model_id in model_ids:
+            model_path = os.path.join(models_dir, model_id)
+            if not os.path.isfile(model_path):
+                logger.info("Downloading CDX23 model: %s", model_id)
+                torch.hub.download_url_to_file(
+                    self.CDX23_DOWNLOAD_BASE + model_id, model_path
+                )
+            model = load_model(model_path)
+            model.to(device)
+            models.append(model)
+
+        audio, sr = self._load_audio(instrumental_path, target_sr=44100)
+        # demucs expects (batch=1, channels, samples)
+        audio_tensor = torch.from_numpy(audio).unsqueeze(0).float().to(device)
+
+        all_outputs = []
+        for model in models:
+            out = apply_model(model, audio_tensor, shifts=1, overlap=0.8)[0].cpu().numpy()
+            all_outputs.append(out)
+
+        # CDX23 output order: [0]=music, [1]=effect, [2]=dialog (dialog discarded)
+        avg = np.mean(all_outputs, axis=0)
+        music_audio = avg[0]    # (channels, samples)
+        effects_audio = avg[1]  # (channels, samples)
+
+        music_path = os.path.join(self.output_dir, f"{source_base}_Music.wav")
+        effects_path = os.path.join(self.output_dir, f"{source_base}_Effects.wav")
+        self._write_audio(music_path, music_audio, sr)
+        self._write_audio(effects_path, effects_audio, sr)
+        logger.info("Pass 2 complete: music=%s effects=%s", music_path, effects_path)
+        return music_path, effects_path
 
     def run_surgical_pipeline(self, input_file, fast_mode=False):
         """
-        Runs the canonical 3-pass cinematic pipeline.
-        Ensures 5-stem output even if Pass 1 only provides 2 stems.
+        Hybrid 3-stem cinematic pipeline.
+        Returns: {DX, Music, Effects, DX_Residual (optional)}
         """
         source_base = os.path.splitext(os.path.basename(input_file))[0] or "source"
 
-        # Pass 1: Cinematic Trinity
-        pass1_stems = self.separate_cinematic_trinity(input_file) or []
+        # Pass 1: MBR vocal split
+        pass1_stems = self._pass1_mbr_vocal_split(input_file) or []
         cleanup_candidates = set(pass1_stems)
 
-        dialogue_stem = self._pick_stem(
-            pass1_stems,
-            required_tokens={"dialogue"},
+        vocals_stem = self._pick_stem(
+            pass1_stems, required_tokens={"vocals"}
+        )
+        instrumental_stem = self._pick_stem(
+            pass1_stems, required_tokens={"other"}
         ) or self._pick_stem(
-            pass1_stems,
-            required_tokens={"vocals"},
-        )
-        music_stem = self._pick_stem(
-            pass1_stems,
-            required_tokens={"music"},
-        ) or self._pick_stem(
-            pass1_stems,
-            required_tokens={"instrumental"},
-        )
-        effects_stem = self._pick_stem(
-            pass1_stems,
-            required_tokens={"effects"},
-        ) or self._pick_stem(
-            pass1_stems,
-            required_tokens={"other"},
+            pass1_stems, forbidden_tokens={"vocals"}
         )
 
-        # Fallback: If we used a 2-stem model, "Music" contains the "Effects".
-        # We use the Music stem as the source for the Pass 3 split.
-        source_for_pass3 = effects_stem or music_stem
+        if not vocals_stem:
+            raise FileNotFoundError("Pass 1 did not produce a vocals stem.")
+        if not instrumental_stem:
+            raise FileNotFoundError("Pass 1 did not produce an instrumental stem.")
 
-        if dialogue_stem is None:
-            raise FileNotFoundError("Pass 1 did not produce a Dialogue stem.")
-
-        # Pass 2: Dialogue Refinement
-        pass2_stems = self.refine_dialogue(dialogue_stem) if not fast_mode else []
-        cleanup_candidates.update(pass2_stems)
-        if fast_mode:
-            logger.info("Fast mode enabled: skipping Pass 2 dialogue refinement.")
-
-        dx_stem = (
-            self._pick_stem(pass2_stems, required_tokens={"dx"})
-            or self._pick_stem(pass2_stems, required_tokens={"vocals"}, forbidden_tokens={"reverb", "residual"})
-            or self._pick_stem(pass2_stems, required_tokens={"dialogue"}, forbidden_tokens={"residual"})
-            or dialogue_stem
+        # Pass 2: CDX23 on instrumental
+        music_path, effects_path = self._pass2_cdx23_instrumental(
+            instrumental_stem, source_base, fast_mode=fast_mode
         )
-        dx_residual = (
-            self._pick_stem(pass2_stems, required_tokens={"residual"})
-            or self._pick_stem(pass2_stems, required_tokens={"reverb"})
-        )
+        cleanup_candidates.add(instrumental_stem)
 
-        # Pass 3: Effects Deconstruction
-        foley_stem, sfx_stem, ambience_stem = self._split_other_stem(
-            source_for_pass3,
-            source_base=source_base,
-            fast_mode=fast_mode,
-        )
+        # Pass 2b: Optional DX refinement via BS-Roformer
+        dx_residual = None
+        if not fast_mode:
+            logger.info("Pass 2b: BS-Roformer DX refinement...")
+            self._load_model_with_fallback([
+                "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+                "BS-Roformer-Viperx-1297.ckpt",
+            ])
+            pass2b_stems = self._separate(vocals_stem) or []
+            cleanup_candidates.update(pass2b_stems)
 
-        # Canonicalize Files
-        dx_stem = self._canonicalize_stem_file(dx_stem, source_base, "DX")
-        music_stem = self._canonicalize_stem_file(music_stem, source_base, "Music")
-        
+            dx_candidate = (
+                self._pick_stem(pass2b_stems, required_tokens={"vocals"}, forbidden_tokens={"reverb", "residual"})
+                or self._pick_stem(pass2b_stems, required_tokens={"dx"})
+            )
+            dx_residual = (
+                self._pick_stem(pass2b_stems, required_tokens={"instrumental"})
+                or self._pick_stem(pass2b_stems, required_tokens={"residual"})
+                or self._pick_stem(pass2b_stems, required_tokens={"reverb"})
+            )
+            vocals_stem = dx_candidate or vocals_stem
+        else:
+            logger.info("Fast mode: skipping Pass 2b DX refinement.")
+
+        # Canonicalize
+        dx_stem = self._canonicalize_stem_file(vocals_stem, source_base, "DX")
+        music_stem = self._canonicalize_stem_file(music_path, source_base, "Music")
+        effects_stem = self._canonicalize_stem_file(effects_path, source_base, "Effects")
         if dx_residual:
             dx_residual = self._canonicalize_stem_file(dx_residual, source_base, "DX_Residual")
 
-        # Ensure we have the full 5-stem set, even as silent fallbacks
-        if not foley_stem:
-            foley_stem = os.path.join(self.output_dir, f"{source_base}_Foley.wav")
-            if not os.path.exists(foley_stem): self._write_silent_wav(foley_stem)
-        else:
-            foley_stem = self._canonicalize_stem_file(foley_stem, source_base, "Foley")
-
-        if not sfx_stem:
-            sfx_stem = os.path.join(self.output_dir, f"{source_base}_SFX.wav")
-            if not os.path.exists(sfx_stem): self._write_silent_wav(sfx_stem)
-        else:
-            sfx_stem = self._canonicalize_stem_file(sfx_stem, source_base, "SFX")
-
-        if not ambience_stem:
-            # If we don't have ambience but we have effects_stem, use effects_stem as ambience
-            if effects_stem:
-                ambience_stem = self._canonicalize_stem_file(effects_stem, source_base, "Ambience")
-            else:
-                ambience_stem = os.path.join(self.output_dir, f"{source_base}_Ambience.wav")
-                if not os.path.exists(ambience_stem): self._write_silent_wav(ambience_stem)
-        else:
-            ambience_stem = self._canonicalize_stem_file(ambience_stem, source_base, "Ambience")
-
-        canonical_stems = {
-            "DX": dx_stem,
-            "Music": music_stem,
-            "Foley": foley_stem,
-            "SFX": sfx_stem,
-            "Ambience": ambience_stem,
-        }
-        missing = [name for name, path in canonical_stems.items() if not path or not os.path.exists(path)]
+        canonical_stems = {"DX": dx_stem, "Music": music_stem, "Effects": effects_stem}
+        missing = [k for k, v in canonical_stems.items() if not v or not os.path.exists(v)]
         if missing:
-            raise FileNotFoundError(
-                f"Missing canonical stem(s) after surgical pipeline: {', '.join(missing)}"
-            )
+            raise FileNotFoundError(f"Missing canonical stem(s): {', '.join(missing)}")
 
-        # Cleanup: Remove intermediate Pass 1/Pass 2 artifacts.
-        # We only keep the 5 canonical stems and the DX Residual tail.
-        keep_for_downstream = list(canonical_stems.values())
+        keep = list(canonical_stems.values())
         if dx_residual:
-            keep_for_downstream.append(dx_residual)
-            
-        self._cleanup_intermediate_wavs(cleanup_candidates, keep_for_downstream)
+            keep.append(dx_residual)
+        self._cleanup_intermediate_wavs(cleanup_candidates, keep)
 
         return {
             "DX": dx_stem,
             "Music": music_stem,
-            "Foley": foley_stem,
-            "SFX": sfx_stem,
-            "Ambience": ambience_stem,
+            "Effects": effects_stem,
             "DX_Residual": dx_residual,
         }
-
 
 
 if __name__ == "__main__":

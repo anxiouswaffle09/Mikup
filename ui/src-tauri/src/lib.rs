@@ -643,22 +643,14 @@ async fn generate_static_map(
         let music = profiles
             .get("Music")
             .ok_or_else(|| "Scanner did not produce Music profile".to_string())?;
-        let sfx = profiles
-            .get("SFX")
-            .ok_or_else(|| "Scanner did not produce SFX profile".to_string())?;
-        let foley = profiles
-            .get("Foley")
-            .ok_or_else(|| "Scanner did not produce Foley profile".to_string())?;
-        let ambience = profiles
-            .get("Ambience")
-            .ok_or_else(|| "Scanner did not produce Ambience profile".to_string())?;
+        let effects = profiles
+            .get("Effects")
+            .ok_or_else(|| "Scanner did not produce Effects profile".to_string())?;
 
         let lufs_graph = serde_json::json!({
             "DX": dx,
             "Music": music,
-            "SFX": sfx,
-            "Foley": foley,
-            "Ambience": ambience,
+            "Effects": effects,
             // Backward-compatible aliases consumed by current UI panels.
             "dialogue_raw": dx,
             "background_raw": music,
@@ -750,12 +742,9 @@ async fn set_stem_state(
     is_muted: bool,
 ) -> Result<(), String> {
     let normalized = stem_id.trim().to_ascii_lowercase();
-    if !matches!(
-        normalized.as_str(),
-        "dx" | "music" | "sfx" | "foley" | "ambience"
-    ) {
+    if !matches!(normalized.as_str(), "dx" | "music" | "effects") {
         return Err(format!(
-            "Invalid stem_id '{stem_id}'. Allowed values: dx, music, sfx, foley, ambience"
+            "Invalid stem_id '{stem_id}'. Allowed values: dx, music, effects"
         ));
     }
 
@@ -767,7 +756,7 @@ async fn set_stem_state(
     Ok(())
 }
 
-/// Stream DSP metrics from the 5-stem WAV set (DX, music, foley, sfx, ambience) to the frontend.
+/// Stream DSP metrics from the 3-stem WAV set (DX, Music, Effects) to the frontend.
 ///
 /// Emits:
 /// - `dsp-frame`    — `DspFramePayload` at up to 60 FPS during processing.
@@ -783,16 +772,12 @@ async fn stream_audio_metrics(
     stem_states: tauri::State<'_, Arc<RwLock<HashMap<String, StemState>>>>,
     dx_path: String,
     music_path: String,
-    foley_path: String,
-    sfx_path: String,
-    ambience_path: String,
+    effects_path: String,
     start_time: f64,
 ) -> Result<(), String> {
     ensure_safe_argument("DX path", &dx_path)?;
     ensure_safe_argument("Music path", &music_path)?;
-    ensure_safe_argument("Foley path", &foley_path)?;
-    ensure_safe_argument("SFX path", &sfx_path)?;
-    ensure_safe_argument("Ambience path", &ambience_path)?;
+    ensure_safe_argument("Effects path", &effects_path)?;
     if !start_time.is_finite() || start_time < 0.0 {
         return Err("start_time must be a finite value >= 0".to_string());
     }
@@ -809,9 +794,7 @@ async fn stream_audio_metrics(
         let mut decoder = MikupAudioDecoder::new(
             &dx_path,
             &music_path,
-            &foley_path,
-            &sfx_path,
-            &ambience_path,
+            &effects_path,
             shared_stem_states,
             DSP_SAMPLE_RATE,
             DSP_FRAME_SIZE,

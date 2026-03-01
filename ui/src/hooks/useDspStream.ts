@@ -8,16 +8,8 @@ export interface UseDspStreamReturn {
   completePayload: DspCompletePayload | null;
   isStreaming: boolean;
   error: string | null;
-  startStream: (stems: DspStemPaths, startTime?: number) => void;
+  startStream: (dxPath: string, musicPath: string, effectsPath: string, startTimeSecs?: number) => void;
   stopStream: () => void;
-}
-
-export interface DspStemPaths {
-  dxPath: string;
-  musicPath: string;
-  foleyPath: string;
-  sfxPath: string;
-  ambiencePath: string;
 }
 
 export function useDspStream(): UseDspStreamReturn {
@@ -71,22 +63,17 @@ export function useDspStream(): UseDspStreamReturn {
     };
   }, []);
 
-  const startStream = useCallback(
-    (stems: DspStemPaths, startTime = 0) => {
-      setCurrentFrame(null);
-      setCompletePayload(null);
-      setError(null);
-      setIsStreaming(true);
-      // Fire-and-forget: completion/errors come through Tauri events above.
-      invoke<void>('stream_audio_metrics', { ...stems, startTime }).catch(
-        (err) => {
-          setError(err instanceof Error ? err.message : String(err));
-          setIsStreaming(false);
-        },
-      );
-    },
-    [],
-  );
+  const startStream = useCallback((dxPath: string, musicPath: string, effectsPath: string, startTimeSecs?: number) => {
+    setCurrentFrame(null);
+    setCompletePayload(null);
+    setError(null);
+    setIsStreaming(true);
+    // Fire-and-forget: completion/errors come through Tauri events above.
+    invoke<void>('stream_audio_metrics', { dxPath, musicPath, effectsPath, startTime: startTimeSecs ?? 0 }).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      setIsStreaming(false);
+    });
+  }, []);
 
   const stopStream = useCallback(() => {
     invoke<void>('stop_dsp_stream').catch(() => {
