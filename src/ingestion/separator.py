@@ -3,6 +3,7 @@ import os
 import platform
 import re
 import wave
+from pathlib import Path
 
 import librosa
 import numpy as np
@@ -20,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Repo root: src/ingestion/separator.py → ../../
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class MikupSeparator:
@@ -45,8 +46,8 @@ class MikupSeparator:
     )
 
     def __init__(self, output_dir):
-        self.output_dir = os.path.abspath(output_dir)
-        os.makedirs(self.output_dir, exist_ok=True)
+        self.output_dir = str(Path(output_dir).resolve())
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self.device = self._detect_torch_device()
         self.separator = self._build_separator()
 
@@ -61,8 +62,8 @@ class MikupSeparator:
 
     def _build_separator(self):
         """Instantiate audio-separator with platform-aware provider/device hints."""
-        model_file_dir = os.path.join(_REPO_ROOT, "models", "separation")
-        os.makedirs(model_file_dir, exist_ok=True)
+        model_file_dir = str(_REPO_ROOT / "models" / "separation")
+        Path(model_file_dir).mkdir(parents=True, exist_ok=True)
         try:
             separator = Separator(
                 output_dir=self.output_dir,
@@ -106,7 +107,7 @@ class MikupSeparator:
     def _tokens_from_path(file_path):
         if not isinstance(file_path, str):
             return set()
-        stem_name = os.path.splitext(os.path.basename(file_path))[0].lower()
+        stem_name = Path(file_path).stem.lower()
         tokens = {token for token in re.split(r"[^a-z0-9]+", stem_name) if token}
         if "noreverb" in tokens:
             tokens.update({"no", "reverb"})
@@ -134,18 +135,18 @@ class MikupSeparator:
             return None
 
         candidates = []
-        if os.path.isabs(stem_path):
+        if Path(stem_path).is_absolute():
             candidates.append(stem_path)
         else:
-            candidates.append(os.path.join(self.output_dir, stem_path))
-            candidates.append(os.path.join(self.output_dir, os.path.basename(stem_path)))
-            candidates.append(os.path.abspath(stem_path))
+            candidates.append(str(Path(self.output_dir) / stem_path))
+            candidates.append(str(Path(self.output_dir) / Path(stem_path).name))
+            candidates.append(str(Path(stem_path).resolve()))
 
         for candidate in candidates:
-            if os.path.exists(candidate):
-                return os.path.abspath(candidate)
+            if Path(candidate).exists():
+                return str(Path(candidate).resolve())
 
-        return os.path.abspath(os.path.join(self.output_dir, os.path.basename(stem_path)))
+        return str((Path(self.output_dir) / Path(stem_path).name).resolve())
 
     def _normalize_output_paths(self, output_files):
         if isinstance(output_files, str):
@@ -206,11 +207,11 @@ class MikupSeparator:
         audio = self._ensure_stereo(audio)
         audio = self._normalize_peak(audio)
         sf.write(path, audio.T, sr)
-        return os.path.abspath(path)
+        return str(Path(path).resolve())
 
     @staticmethod
     def _write_silent_wav(path, duration_seconds=3.0, sample_rate=22050, channels=2):
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         frame_count = max(1, int(duration_seconds * sample_rate))
         silence_frame = b"\x00\x00" * channels
         with wave.open(path, "wb") as wav_file:
@@ -218,50 +219,50 @@ class MikupSeparator:
             wav_file.setsampwidth(2)
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(silence_frame * frame_count)
-        return os.path.abspath(path)
+        return str(Path(path).resolve())
 
     def _canonicalize_stem_file(self, stem_path, source_base, stem_name):
-        if not stem_path or not os.path.exists(stem_path):
+        if not stem_path or not Path(stem_path).exists():
             return None
-        canonical_path = os.path.join(self.output_dir, f"{source_base}_{stem_name}.wav")
+        canonical_path = str(Path(self.output_dir) / f"{source_base}_{stem_name}.wav")
         try:
             audio, sr = self._load_audio(stem_path, target_sr=None)
             return self._write_audio(canonical_path, audio, sr)
         except Exception as exc:
             logger.warning("Failed to canonicalize stem %s from %s: %s", stem_name, stem_path, exc)
-            return os.path.abspath(stem_path)
+            return str(Path(stem_path).resolve())
 
     def _cleanup_intermediate_wavs(self, tracked_paths, keep_paths):
         tracked = {
-            os.path.abspath(path)
+            str(Path(path).resolve())
             for path in tracked_paths
-            if isinstance(path, str) and os.path.isfile(path)
+            if isinstance(path, str) and Path(path).is_file()
         }
         keep = {
-            os.path.abspath(path)
+            str(Path(path).resolve())
             for path in keep_paths
-            if isinstance(path, str) and os.path.isfile(path)
+            if isinstance(path, str) and Path(path).is_file()
         }
-        output_dir_abs = os.path.abspath(self.output_dir)
+        output_dir_abs = Path(self.output_dir).resolve()
         for candidate in tracked:
-            candidate_abs = os.path.abspath(candidate)
-            if not candidate_abs.startswith(output_dir_abs + os.sep):
+            candidate_path = Path(candidate).resolve()
+            if not candidate_path.is_relative_to(output_dir_abs):
                 continue
             if not candidate.lower().endswith(".wav"):
                 continue
             if candidate in keep:
                 continue
             try:
-                os.remove(candidate)
+                Path(candidate).unlink()
                 logger.info("Removed intermediate stem artifact: %s", candidate)
             except OSError as exc:
                 logger.warning("Failed to remove intermediate artifact %s: %s", candidate, exc)
 
     def _cdx23_models_dir(self):
-        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or os.path.join(
-            _REPO_ROOT, "models", "cdx23"
+        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or str(
+            _REPO_ROOT / "models" / "cdx23"
         )
-        os.makedirs(base, exist_ok=True)
+        Path(base).mkdir(parents=True, exist_ok=True)
         return base
 
     def _pass1_mbr_vocal_split(self, input_file):
@@ -302,8 +303,8 @@ class MikupSeparator:
 
         models = []
         for model_id in model_ids:
-            model_path = os.path.join(models_dir, model_id)
-            if not os.path.isfile(model_path):
+            model_path = str(Path(models_dir) / model_id)
+            if not Path(model_path).is_file():
                 logger.info("Downloading CDX23 model: %s", model_id)
                 torch.hub.download_url_to_file(
                     self.CDX23_DOWNLOAD_BASE + model_id, model_path
@@ -313,8 +314,8 @@ class MikupSeparator:
             except Exception as exc:
                 raise RuntimeError(
                     f"Security gate blocked loading CDX23 model '{model_path}'. "
-                    f"Ensure TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 is set or HTDemucs "
-                    f"is registered via torch.serialization.add_safe_globals(). "
+                    f"Ensure HTDemucs and related classes are registered via "
+                    f"torch.serialization.add_safe_globals() in src/bootstrap.py. "
                     f"Original error: {exc}"
                 ) from exc
             model.to(device)
@@ -334,8 +335,8 @@ class MikupSeparator:
         music_audio = avg[0]    # (channels, samples)
         effects_audio = avg[1]  # (channels, samples)
 
-        music_path = os.path.join(self.output_dir, f"{source_base}_Music.wav")
-        effects_path = os.path.join(self.output_dir, f"{source_base}_Effects.wav")
+        music_path = str(Path(self.output_dir) / f"{source_base}_Music.wav")
+        effects_path = str(Path(self.output_dir) / f"{source_base}_Effects.wav")
         self._write_audio(music_path, music_audio, sr)
         self._write_audio(effects_path, effects_audio, sr)
         logger.info("Pass 2 complete: music=%s effects=%s", music_path, effects_path)
@@ -346,7 +347,7 @@ class MikupSeparator:
         Hybrid 3-stem cinematic pipeline.
         Returns: {DX, Music, Effects, DX_Residual (optional)}
         """
-        source_base = os.path.splitext(os.path.basename(input_file))[0] or "source"
+        source_base = Path(input_file).stem or "source"
 
         # Pass 1: MBR vocal split
         pass1_stems = self._pass1_mbr_vocal_split(input_file) or []
@@ -404,7 +405,7 @@ class MikupSeparator:
             dx_residual = self._canonicalize_stem_file(dx_residual, source_base, "DX_Residual")
 
         canonical_stems = {"DX": dx_stem, "Music": music_stem, "Effects": effects_stem}
-        missing = [k for k, v in canonical_stems.items() if not v or not os.path.exists(v)]
+        missing = [k for k, v in canonical_stems.items() if not v or not Path(v).exists()]
         if missing:
             raise FileNotFoundError(f"Missing canonical stem(s): {', '.join(missing)}")
 

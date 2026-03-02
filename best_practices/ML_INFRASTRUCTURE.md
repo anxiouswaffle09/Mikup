@@ -1,31 +1,27 @@
 # Best Practices: Machine Learning Infrastructure
 
-Updated as of: February 26, 2026
+Updated as of: March 2, 2026
+
+## PyTorch Security (Torch 2.4/2.10+)
+To prevent arbitrary code execution via untrusted checkpoints while still supporting `weights_only=True`, the project uses the **Safe Globals** pattern.
+
+### Mandatory Procedure:
+1.  **Strict Weights Loading:** All `torch.load` calls should default to `weights_only=True`.
+2.  **Bootstrap Registration:** Use `torch.serialization.add_safe_globals()` in `src/bootstrap.py` to register exactly the classes needed by our pipeline (e.g., `HTDemucs`, `numpy.dtype`).
+3.  **No Environment Overrides:** The `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD` environment variable is **strictly forbidden**. All required classes must be registered through `add_safe_globals()` in `src/bootstrap.py`.
+
+## Hybrid Separation (The "Mikup Mix")
+For high-fidelity audio dramas, a two-pass separation strategy is mandatory to capture both dialogue clarity and cinematic scale.
+
+### The Strategy:
+- **Pass 1 (Roformer):** Use `model_bs_roformer_ep_317_sdr_12.9755.ckpt` strictly for **Dialogue**. It is the industry standard for vocal isolation in high-noise/high-music environments.
+- **Pass 2 (CDX23):** Use `h_demucs_cdx23` for **Cinematic Stems** (Drums, Bass, Other). It preserves the "cinematic spatial image" better than pure Roformer for non-vocal elements.
+- **Alignment:** Stems must be phase-aligned before diagnostic playback to avoid comb filtering in the DAW.
 
 ## Hugging Face Transformers (v5.2.0)
 The v5 series introduces "Multimodal Auto" classes as first-class citizens.
 
 ### Key Practices:
-- **AutoModelForMultimodalLM:** Use this for models like Qwen2.5-VL or Phi-4-Multimodal that handle audio/image/text simultaneously.
-- **Expert implementation:** Use the `experts_implementation` parameter to offload vision/audio/text backends to different VRAM segments.
-- **Quantization:** Integrate `torchao` for int4 weight-only quantization to run the pipeline on local hardware with <24GB VRAM.
-
-## PyTorch (v2.10.0)
-- **Python 3.13 Support:** Use the latest stable Python 3.13 for improved GIL performance in multi-threaded ingestion.
-- **SDPA (Scaled Dot Product Attention):** Explicitly set `attn_implementation="sdpa"` in model loading for a 20-30% speedup on modern GPUs.
-- **MPS Optimization:** Improved support for Apple Silicon (Metal Performance Shaders) for local development on macOS.
-
-### Model Loading Snippet:
-```python
-from transformers import AutoModelForMultimodalLM, TorchAoConfig
-import torch
-
-quantization_config = TorchAoConfig("int4_weight_only", group_size=128)
-model = AutoModelForMultimodalLM.from_pretrained(
-    "OpenGVLab/InternVL3-1B-hf",
-    torch_dtype=torch.bfloat16,
-    device_map="auto",
-    quantization_config=quantization_config,
-    attn_implementation="sdpa"
-)
-```
+- **AutoModelForMultimodalLM:** Use for Qwen2.5-VL or Phi-4-Multimodal for audio/text fusion.
+- **Quantization:** Use `torchao` for `int4_weight_only` quantization on consumer hardware (<16GB VRAM).
+- **SDPA:** Explicitly set `attn_implementation="sdpa"` for a 30% speedup on modern GPUs.

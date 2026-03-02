@@ -1,17 +1,56 @@
 # src/bootstrap.py
 """
-PyTorch security bootstrap for Project Mikup.
+System bootstrap for Project Mikup.
 
-Registers trusted model classes with torch.serialization before any model
-loading occurs, and sets the env var required by audio-separator.
+Includes:
+- Startup banner: prints version and GIL status from versions.json.
+- PyTorch security: Registers trusted model classes with torch.serialization.
+- Model integrity: Checks for required model weights in the models/ directory.
 
-Call _register_torch_safe_globals() at process start — before any other
-Mikup imports that may trigger torch.load.
+Call print_startup_banner(), _register_torch_safe_globals(), and
+check_model_integrity() at process start.
 """
+import collections
+import json
 import logging
-import os
+import sysconfig
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_versions() -> dict:
+    """Load the project manifest from versions.json at the repo root."""
+    path = _PROJECT_ROOT / "versions.json"
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        logger.warning("Could not load versions.json: %s", exc)
+        return {}
+
+
+def print_startup_banner(versions: dict) -> None:
+    """Print project version, tech-stack standard, and Python GIL status."""
+    project = versions.get("project", "Mikup")
+    version = versions.get("version", "unknown")
+    standard = versions.get("tech_stack_standard", "unknown")
+
+    print(f"\n{'─' * 52}")
+    print(f"  {project} v{version}  |  {standard}")
+    print(f"{'─' * 52}")
+
+    gil_disabled = sysconfig.get_config_var("Py_GIL_DISABLED")
+    if gil_disabled:
+        logger.info("Python free-threaded mode confirmed (GIL disabled).")
+        print("  [OK] Python GIL disabled — free-threaded mode active.")
+    else:
+        logger.warning("Python GIL is active. Free-threaded mode not enabled.")
+        print("  [PERF] GIL active — for best performance use Python 3.14t.")
+
+    print()
 
 
 def _register_torch_safe_globals() -> None:
@@ -22,11 +61,10 @@ def _register_torch_safe_globals() -> None:
     """
     import torch
 
-    # Allow third-party libs (audio-separator) that call torch.load without
-    # weights_only=False explicitly.
-    os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
-
     safe = []
+
+    # collections.OrderedDict — used by torch state_dict serialization
+    safe.append(collections.OrderedDict)
 
     # numpy — used by virtually every checkpoint's state_dict serialization
     try:
@@ -46,9 +84,6 @@ def _register_torch_safe_globals() -> None:
         pass
 
     # demucs HTDemucs — CDX23 cinematic model architecture.
-    # Uses broad except because stub torch causes AttributeError (not ImportError)
-    # when demucs tries to subclass torch.nn.Module during module-level class
-    # definition. Safe to skip — real demucs registers fine in production.
     try:
         from demucs.htdemucs import HTDemucs
         safe.append(HTDemucs)
@@ -73,3 +108,46 @@ def _register_torch_safe_globals() -> None:
     if safe:
         torch.serialization.add_safe_globals(safe)
         logger.info("Torch safe globals registered: %d class(es)", len(safe))
+
+
+def check_model_integrity(versions: dict | None = None) -> None:
+    """
+    Check if the required model weights are present in the models/ directory.
+    Checks are derived from versions.json['ml_models'] to prevent manifest drift.
+    """
+    models_dir = _PROJECT_ROOT / "models"
+    ml_models = (versions or {}).get("ml_models", {})
+
+    # Map ml_models keys -> (local subdir, specific filename or None for dir-level check)
+    # 'alignment' is fetched at runtime by whisperx — not a local file to check.
+    checks: list[tuple[str, str | None]] = [
+        ("separation",   ml_models.get("dialogue_separator")),  # specific .ckpt file
+        ("cdx23",        None),                                  # dir check only
+        ("whisper-small", None),                                 # dir check only
+        ("clap",         None),                                  # dir check only
+    ]
+
+    if not models_dir.exists():
+        logger.critical("CRITICAL: 'models/' directory is missing entirely.")
+        print("\n[!] CRITICAL: models/ directory not found.")
+        print("Please run: python scripts/download_models.py\n")
+        return
+
+    missing = []
+    for subdir, filename in checks:
+        target = models_dir / subdir
+        if not target.exists():
+            missing.append(f"{subdir}/" if not filename else f"{subdir}/{filename}")
+            continue
+        if filename:
+            if not (target / filename).exists():
+                missing.append(f"{subdir}/{filename}")
+        elif not any(target.iterdir()):
+            missing.append(f"{subdir}/")
+
+    if missing:
+        logger.warning("Missing or empty model components: %s", ", ".join(missing))
+        print(f"\n[!] WARNING: Missing or empty model components: {', '.join(missing)}")
+        print("Your environment may be out of sync. Please run: python scripts/download_models.py\n")
+    else:
+        logger.info("Model integrity check passed.")

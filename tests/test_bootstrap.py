@@ -48,11 +48,16 @@ class TestBootstrapModule(unittest.TestCase):
             "src.bootstrap must expose _register_torch_safe_globals()",
         )
 
-    def test_env_var_set_after_call(self):
+    def test_env_var_not_set_after_call(self):
+        """TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD must NOT be set — the bypass is forbidden."""
         import os
         os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
         bootstrap_mod._register_torch_safe_globals()
-        self.assertEqual(os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"), "1")
+        self.assertIsNone(
+            os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"),
+            "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD must not be set by bootstrap — "
+            "all classes must be registered via add_safe_globals() instead",
+        )
 
     def test_numpy_registered_after_call(self):
         import numpy as np

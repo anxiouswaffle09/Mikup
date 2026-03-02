@@ -4,28 +4,36 @@ import json
 import gc
 import sys
 import uuid
+import threading
 import torch
 import logging
 import time
 import math
+from pathlib import Path
 from datetime import datetime
+from dataclasses import dataclass, field
+from typing import TypeVar
+
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Allow running as either `python src/main.py` or `python -m src.main`.
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if __package__ in (None, ""):
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
+    _root_str = str(PROJECT_ROOT)
+    if _root_str not in sys.path:
+        sys.path.insert(0, _root_str)
 
 # ---------------------------------------------------------------------------
 # PyTorch 2.10+ security: register trusted model classes before any imports
 # that may trigger model loading. This must run before Mikup module imports.
 # ---------------------------------------------------------------------------
-from src.bootstrap import _register_torch_safe_globals
+from src.bootstrap import _register_torch_safe_globals, check_model_integrity
 _register_torch_safe_globals()
+check_model_integrity()
 # ---------------------------------------------------------------------------
 
 from src.ingestion.separator import MikupSeparator
@@ -36,9 +44,95 @@ from src.llm.director import MikupDirector
 # Load environment variables
 load_dotenv()
 
+
+# ---------------------------------------------------------------------------
+# No-GIL–optimised data structures (slots=True for interpreter efficiency)
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class StageInfo:
+    completed: bool = False
+    timestamp: str | None = None
+    artifacts: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class StemsManifest:
+    DX: str | None = None
+    Music: str | None = None
+    Effects: str | None = None
+    DX_Residual: str | None = None
+
+
+@dataclass(slots=True)
+class TranscriptionPayload:
+    segments: list[dict] = field(default_factory=list)
+    pacing_mikups: list[dict] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class PayloadMetadata:
+    source_file: str = "Unknown"
+    pipeline_version: str = "0.2.0-beta"
+    timestamp: str = ""
+    is_complete: bool = False
+
+
+@dataclass(slots=True)
+class SemanticTag:
+    label: str = ""
+    score: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models — top-level JSON serialization/deserialization boundaries
+# ---------------------------------------------------------------------------
+
+class StageState(BaseModel):
+    source_file: str | None = None
+    source_mtime: float | None = None
+    output_dir: str | None = None
+    fast_mode: bool = False
+    mock_mode: bool = False
+    selected_stage: str | None = None
+    artifacts: dict[str, str] = Field(default_factory=dict)
+    stems: dict[str, str | None] = Field(default_factory=dict)
+    output_payload: str | None = None
+    updated_at: str | None = None
+    stages: dict[str, StageInfo] = Field(default_factory=dict)
+
+
+class MikupPayload(BaseModel):
+    is_complete: bool = False
+    metadata: PayloadMetadata = Field(default_factory=PayloadMetadata)
+    transcription: dict = Field(default_factory=lambda: {"segments": []})
+    metrics: dict = Field(default_factory=dict)
+    semantics: dict = Field(default_factory=lambda: {"background_tags": []})
+    artifacts: dict = Field(default_factory=dict)
+    ai_report: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Module-level lock for No-GIL thread safety on file writes & state mutations
+# ---------------------------------------------------------------------------
+
+_state_lock = threading.RLock()
+
+# Generic type for Pydantic model parameter
+_M = TypeVar("_M", bound=BaseModel)
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "director")
+PIPELINE_ORDER = list(STAGE_CHOICES)
 CANONICAL_STEM_KEYS = ("DX", "Music", "Effects")
 OPTIONAL_STEM_KEYS = ("DX_Residual",)
+
+# Keep a str alias for code that still references `project_root` by name
+project_root = str(PROJECT_ROOT)
 
 
 def flush_vram():
@@ -61,19 +155,23 @@ def emit_progress(stage, progress, message):
     }), flush=True)
 
 
-def is_existing_file(path):
-    return isinstance(path, str) and bool(path.strip()) and os.path.exists(path)
+def is_existing_file(path) -> bool:
+    if not isinstance(path, (str, Path)) or (isinstance(path, str) and not path.strip()):
+        return False
+    return Path(path).exists()
 
 
 def ensure_directory(path):
-    os.makedirs(path, exist_ok=True)
-    return path
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    return str(p)
 
 
 def ensure_output_dir(output_path):
-    output_dir = os.path.dirname(output_path) or "."
-    os.makedirs(output_dir, exist_ok=True)
-    return output_dir
+    p = Path(output_path)
+    parent = p.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    return str(parent)
 
 
 def write_empty_transcription(path):
@@ -81,32 +179,135 @@ def write_empty_transcription(path):
         json.dump({"segments": []}, f)
 
 
-def _read_json_file(path, default=None):
+def _read_json_file(path, default=None, model: type[_M] | None = None):
+    """Read a JSON file and optionally validate with a Pydantic model.
+
+    When *model* is supplied, the parsed dict is validated through
+    ``model.model_validate()`` and the resulting BaseModel instance is
+    returned.  On validation failure the raw dict is returned instead so
+    callers never crash on legacy data.
+    """
     if not is_existing_file(path):
         return default
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if model is not None and isinstance(data, dict):
+            try:
+                return model.model_validate(data)
+            except Exception:
+                return data
+        return data
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Failed to read JSON from %s: %s", path, exc)
         return default
 
 
 def _write_json_file(path, payload):
-    ensure_output_dir(path)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    with _state_lock:
+        ensure_output_dir(path)
+        data = payload.model_dump() if isinstance(payload, BaseModel) else payload
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
 
 def _artifact_paths(output_dir):
-    data_dir = ensure_directory(os.path.join(output_dir, "data"))
+    data_dir = Path(ensure_directory(str(Path(output_dir) / "data")))
     return {
-        "stage_state": os.path.join(data_dir, "stage_state.json"),
-        "stems": os.path.join(data_dir, "stems.json"),
-        "transcription": os.path.join(data_dir, "transcription.json"),
-        "semantics": os.path.join(data_dir, "semantics.json"),
-        "dsp_metrics": os.path.join(data_dir, "dsp_metrics.json"),
+        "stage_state": str(data_dir / "stage_state.json"),
+        "stems": str(data_dir / "stems.json"),
+        "transcription": str(data_dir / "transcription.json"),
+        "semantics": str(data_dir / "semantics.json"),
+        "dsp_metrics": str(data_dir / "dsp_metrics.json"),
     }
+
+
+def _safe_remove_path(path):
+    if not isinstance(path, (str, Path)):
+        return
+    p = Path(path)
+    if isinstance(path, str) and not path.strip():
+        return
+    if not p.exists():
+        return
+    try:
+        if p.is_dir():
+            # os.walk has no pathlib equivalent -- keep it
+            for root, dirs, files in os.walk(str(p), topdown=False):
+                root_path = Path(root)
+                for filename in files:
+                    try:
+                        (root_path / filename).unlink()
+                    except OSError as exc:
+                        logger.warning("Failed to delete file %s: %s", root_path / filename, exc)
+                for dirname in dirs:
+                    try:
+                        (root_path / dirname).rmdir()
+                    except OSError as exc:
+                        logger.warning("Failed to delete directory %s: %s", root_path / dirname, exc)
+            p.rmdir()
+        else:
+            p.unlink()
+    except OSError as exc:
+        logger.warning("Failed to delete artifact %s: %s", p, exc)
+
+
+def _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
+    paths = set()
+    out = Path(output_dir)
+    stages = stage_state.get("stages") if isinstance(stage_state, dict) else {}
+    stage_meta = stages.get(stage_name) if isinstance(stages, dict) else {}
+    stage_artifacts = stage_meta.get("artifacts") if isinstance(stage_meta, dict) else {}
+
+    if isinstance(stage_artifacts, dict):
+        for artifact_path in stage_artifacts.values():
+            if isinstance(artifact_path, str):
+                paths.add(artifact_path)
+
+    if stage_name == "separation":
+        paths.add(str(out / "stems"))
+        paths.add(artifacts["stems"])
+        stems = _read_json_file(artifacts["stems"], default={})
+        if isinstance(stems, dict):
+            for stem_path in stems.values():
+                if isinstance(stem_path, str):
+                    paths.add(stem_path)
+    elif stage_name == "transcription":
+        paths.add(artifacts["transcription"])
+    elif stage_name == "dsp":
+        paths.add(artifacts["dsp_metrics"])
+    elif stage_name == "semantics":
+        paths.add(artifacts["semantics"])
+    elif stage_name == "director":
+        paths.add(str(out / "mikup_payload.json"))
+        paths.add(str(out / "mikup_report.md"))
+        paths.add(str(out / "data" / ".mikup_context.md"))
+        paths.add(artifacts.get("output_payload"))
+
+    return {path for path in paths if isinstance(path, str) and path.strip()}
+
+
+def _invalidate_redo_stages(args, output_dir, artifacts, stage_state):
+    if not args.redo_stage:
+        return set()
+
+    with _state_lock:
+        target_index = PIPELINE_ORDER.index(args.redo_stage)
+        stages_to_invalidate = PIPELINE_ORDER[target_index:]
+        logger.info("[REDO] Invaliding Stage: %s and all downstream dependencies.", args.redo_stage)
+
+        for stage_name in stages_to_invalidate:
+            for artifact_path in _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
+                _safe_remove_path(artifact_path)
+
+        stages_block = stage_state.get("stages")
+        if not isinstance(stages_block, dict):
+            stages_block = {}
+        for stage_name in stages_to_invalidate:
+            stages_block.pop(stage_name, None)
+        stage_state["stages"] = stages_block
+
+    return set(stages_to_invalidate)
 
 
 def _extract_canonical_stems(stems):
@@ -142,17 +343,18 @@ def _mark_stage_complete(state, stage_name, artifacts=None):
 
 
 def _persist_state(state_path, state, args, output_dir, artifacts, stems):
-    state["source_file"] = os.path.abspath(args.input)
-    state["source_mtime"] = _safe_get_mtime(args.input)
-    state["output_dir"] = output_dir
-    state["fast_mode"] = bool(args.fast)
-    state["mock_mode"] = bool(args.mock)
-    state["selected_stage"] = args.stage
-    state["artifacts"] = artifacts
-    state["stems"] = stems if isinstance(stems, dict) else {}
-    state["output_payload"] = args.output
-    state["updated_at"] = datetime.now().isoformat()
-    _write_json_file(state_path, state)
+    with _state_lock:
+        state["source_file"] = str(Path(args.input).resolve())
+        state["source_mtime"] = _safe_get_mtime(args.input)
+        state["output_dir"] = output_dir
+        state["fast_mode"] = bool(args.fast)
+        state["mock_mode"] = bool(args.mock)
+        state["selected_stage"] = args.stage
+        state["artifacts"] = artifacts
+        state["stems"] = stems if isinstance(stems, dict) else {}
+        state["output_payload"] = args.output
+        state["updated_at"] = datetime.now().isoformat()
+        _write_json_file(state_path, state)
 
 
 def _has_transcription_payload(path):
@@ -167,9 +369,10 @@ def _has_semantics_payload(path):
 
 def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
     """Return True if the given stage's output artifacts exist and are structurally valid."""
+    out = Path(output_dir)
     try:
         if stage_name == "separation":
-            stems_path = os.path.join(output_dir, "data", "stems.json")
+            stems_path = str(out / "data" / "stems.json")
             stems = _read_json_file(stems_path)
             if not isinstance(stems, dict):
                 return False
@@ -178,24 +381,24 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
             return True
 
         if stage_name == "transcription":
-            return _has_transcription_payload(os.path.join(output_dir, "data", "transcription.json"))
+            return _has_transcription_payload(str(out / "data" / "transcription.json"))
 
         if stage_name == "dsp":
-            dsp_metrics_path = os.path.join(output_dir, "data", "dsp_metrics.json")
+            dsp_metrics_path = str(out / "data" / "dsp_metrics.json")
             metrics = _read_json_file(dsp_metrics_path, default={})
             if isinstance(metrics, dict) and bool(metrics):
                 return True
-            stage_state = _read_json_file(os.path.join(output_dir, "data", "stage_state.json"), default={})
+            stage_state = _read_json_file(str(out / "data" / "stage_state.json"), default={})
             stages = stage_state.get("stages") if isinstance(stage_state, dict) else {}
             dsp_state = stages.get("dsp") if isinstance(stages, dict) else {}
             return isinstance(dsp_state, dict) and bool(dsp_state.get("completed"))
 
         if stage_name == "semantics":
-            return _has_semantics_payload(os.path.join(output_dir, "data", "semantics.json"))
+            return _has_semantics_payload(str(out / "data" / "semantics.json"))
 
         if stage_name == "director":
-            path = os.path.join(output_dir, "mikup_payload.json")
-            payload = _read_json_file(path)
+            payload_path = str(out / "mikup_payload.json")
+            payload = _read_json_file(payload_path)
             return isinstance(payload, dict) and bool(payload)
 
         return False
@@ -214,12 +417,13 @@ def _write_silent_wav(path, duration_seconds=3.0, sample_rate=22050, channels=2)
 
 
 def _mock_stems(output_dir, source_hint="mock"):
-    base_name = os.path.splitext(os.path.basename(source_hint))[0] or "mock"
+    base_name = Path(source_hint).stem or "mock"
+    out = Path(output_dir)
     stems = {
-        "DX": os.path.join(output_dir, f"{base_name}_DX.wav"),
-        "Music": os.path.join(output_dir, f"{base_name}_Music.wav"),
-        "Effects": os.path.join(output_dir, f"{base_name}_Effects.wav"),
-        "DX_Residual": os.path.join(output_dir, f"{base_name}_DX_Residual.wav"),
+        "DX": str(out / f"{base_name}_DX.wav"),
+        "Music": str(out / f"{base_name}_Music.wav"),
+        "Effects": str(out / f"{base_name}_Effects.wav"),
+        "DX_Residual": str(out / f"{base_name}_DX_Residual.wav"),
     }
     for stem_path in stems.values():
         if not is_existing_file(stem_path):
@@ -245,7 +449,7 @@ def normalize_and_validate_stems(stems):
 
     for key in CANONICAL_STEM_KEYS + OPTIONAL_STEM_KEYS:
         stem_path = normalized.get(key)
-        if stem_path and not os.path.exists(stem_path):
+        if stem_path and not Path(stem_path).exists():
             logger.warning(
                 "Stem %s not found at %s; continuing without it.",
                 key,
@@ -283,12 +487,12 @@ def merge_dicts(base, override):
 
 def _resolve_source_file(args, stage_state):
     candidate = str(getattr(args, "input", "") or "").strip()
-    if candidate and os.path.basename(candidate).lower() != "dummy":
+    if candidate and Path(candidate).name.lower() != "dummy":
         return candidate
 
     if isinstance(stage_state, dict):
         previous = str(stage_state.get("source_file") or "").strip()
-        if previous and os.path.basename(previous).lower() != "dummy":
+        if previous and Path(previous).name.lower() != "dummy":
             return previous
 
     return candidate or "Unknown"
@@ -371,7 +575,7 @@ def _safe_get_mtime(path):
     if not is_existing_file(path):
         return None
     try:
-        return os.path.getmtime(path)
+        return Path(path).stat().st_mtime
     except OSError:
         return None
 
@@ -392,13 +596,13 @@ def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/conf
       <repo_root>/Projects/.
     """
     if output_dir_flag is not None:
-        return os.path.abspath(output_dir_flag)
+        return str(Path(output_dir_flag).resolve())
 
     config = _read_config(config_path)
-    base = config.get("default_projects_dir") or os.path.join(project_root, "Projects")
-    stem = os.path.splitext(os.path.basename(input_path))[0] or "project"
+    base = config.get("default_projects_dir") or str(Path(project_root) / "Projects")
+    stem = Path(input_path).stem or "project"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(os.path.abspath(base), f"{stem}_{timestamp}")
+    return str(Path(base).resolve() / f"{stem}_{timestamp}")
 
 
 def _timestamps_match(lhs, rhs, tolerance=1e-6):
@@ -430,9 +634,9 @@ def _is_history_snapshot_safe(args, stage_state, artifacts):
     if not requested_stage:
         return True
 
-    source_file = os.path.abspath(getattr(args, "input", "") or "")
+    source_file = str(Path(getattr(args, "input", "") or "").resolve())
     current_source_mtime = _safe_get_mtime(source_file)
-    recorded_source_file = os.path.abspath(str(stage_state.get("source_file") or ""))
+    recorded_source_file = str(Path(str(stage_state.get("source_file") or "")).resolve())
     recorded_source_mtime = stage_state.get("source_mtime")
     stage_artifacts = stage_state.get("artifacts") if isinstance(stage_state, dict) else {}
     if not isinstance(stage_artifacts, dict):
@@ -443,7 +647,7 @@ def _is_history_snapshot_safe(args, stage_state, artifacts):
 
     if current_source_mtime is None:
         # Mock/dummy sources may not exist on disk. If the snapshot has a recorded mtime
-        # the file has since disappeared — treat as unsafe. If both are None, path identity
+        # the file has since disappeared -- treat as unsafe. If both are None, path identity
         # (already confirmed above) is the only available guard.
         if recorded_source_mtime is not None:
             return False
@@ -479,15 +683,15 @@ def _update_history_snapshot(args, output_dir, artifacts, stems, stage_state, ai
 
 
 def _relativize_path(path, root):
-    if not isinstance(path, str) or not path.strip():
+    if not isinstance(path, (str, Path)) or (isinstance(path, str) and not path.strip()):
         return path
-    normalized = os.path.abspath(path) if os.path.isabs(path) else path
-    if os.path.isabs(normalized):
-        try:
-            return os.path.relpath(normalized, root)
-        except ValueError:
-            return normalized
-    return normalized
+    p = Path(path)
+    if not p.is_absolute():
+        return str(p)
+    try:
+        return str(p.relative_to(root))
+    except ValueError:
+        return str(p)
 
 
 def _relativize_payload_paths(payload, root):
@@ -506,48 +710,50 @@ def _relativize_payload_paths(payload, root):
 
 def update_history(payload, history_path="data/history.json"):
     """Adds the current analysis to the history.json file."""
-    history = []
-    if os.path.exists(history_path):
-        try:
-            with open(history_path, "r", encoding="utf-8") as f:
-                history = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            history = []
+    with _state_lock:
+        history = []
+        hp = Path(history_path)
+        if hp.exists():
+            try:
+                with open(hp, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                history = []
 
-    history_payload = json.loads(json.dumps(payload))
-    history_payload = _relativize_payload_paths(history_payload, project_root)
+        history_payload = json.loads(json.dumps(payload))
+        history_payload = _relativize_payload_paths(history_payload, project_root)
 
-    metadata = history_payload.get("metadata") or {}
-    metrics = history_payload.get("metrics") or {}
-    spatial_metrics = metrics.get("spatial_metrics") or {}
-    source_file = str(metadata.get("source_file", "")) or "Unknown"
+        metadata = history_payload.get("metadata") or {}
+        metrics = history_payload.get("metrics") or {}
+        spatial_metrics = metrics.get("spatial_metrics") or {}
+        source_file = str(metadata.get("source_file", "")) or "Unknown"
 
-    # Create a summary entry
-    entry = {
-        "id": str(uuid.uuid4()),
-        "filename": os.path.basename(source_file) or "Unknown",
-        "date": datetime.now().isoformat(),
-        "duration": spatial_metrics.get("total_duration", 0) or 0,
-        "payload": history_payload  # Store full payload for instant loading
-    }
+        # Create a summary entry
+        entry = {
+            "id": str(uuid.uuid4()),
+            "filename": Path(source_file).name or "Unknown",
+            "date": datetime.now().isoformat(),
+            "duration": spatial_metrics.get("total_duration", 0) or 0,
+            "payload": history_payload  # Store full payload for instant loading
+        }
 
-    history.insert(0, entry)
-    # Keep last 50 projects
-    history = history[:50]
+        history.insert(0, entry)
+        # Keep last 50 projects
+        history = history[:50]
 
-    history_dir = os.path.dirname(history_path)
-    if history_dir:
-        os.makedirs(history_dir, exist_ok=True)
-    with open(history_path, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2)
+        history_dir = hp.parent
+        if str(history_dir) and str(history_dir) != ".":
+            history_dir.mkdir(parents=True, exist_ok=True)
+        with open(hp, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
 
 
 def cleanup_stems(stems):
     """Deletes processed WAV stems to save space."""
     for path in stems.values():
-        if path and os.path.exists(path):
+        if path and Path(path).exists():
             try:
-                os.remove(path)
+                Path(path).unlink()
                 logger.info(f"Cleaned up stem: {path}")
             except Exception as e:
                 logger.warning(f"Failed to cleanup stem {path}: {e}")
@@ -582,7 +788,7 @@ def build_mikup_context_markdown(payload):
     semantics = _as_dict(payload.get("semantics"))
 
     source_path = metadata.get("source_file", "unknown")
-    source_file = os.path.basename(str(source_path)) or "unknown"
+    source_file = Path(str(source_path)).name or "unknown"
     timestamp = str(metadata.get("timestamp") or datetime.now().isoformat())
     duration_seconds = _safe_float(spatial_metrics.get("total_duration"))
 
@@ -662,12 +868,13 @@ def build_mikup_context_markdown(payload):
 
 
 def write_mikup_context_file(payload, output_dir):
-    context_path = os.path.join(output_dir, "data", ".mikup_context.md")
-    context_markdown = build_mikup_context_markdown(payload)
-    ensure_output_dir(context_path)
-    with open(context_path, "w", encoding="utf-8") as f:
-        f.write(context_markdown)
-    logger.info("LLM Context bridge generated: %s", context_path)
+    with _state_lock:
+        context_path = Path(output_dir) / "data" / ".mikup_context.md"
+        context_markdown = build_mikup_context_markdown(payload)
+        ensure_output_dir(str(context_path))
+        with open(context_path, "w", encoding="utf-8") as f:
+            f.write(context_markdown)
+        logger.info("LLM Context bridge generated: %s", context_path)
 
 
 def main():
@@ -678,23 +885,23 @@ def main():
         help="Directory for intermediate stage artifacts (default: auto-generated Projects workspace)",
         default=None)
     parser.add_argument("--stage", choices=STAGE_CHOICES, help="Run only the specified stage and exit")
-    parser.add_argument("--fast", action="store_true", help="Quick mode: skip heavy separation/transcription work")
-    parser.add_argument("--mock", action="store_true", help="Use mock data for testing")
+    parser.add_argument("--redo-stage", choices=STAGE_CHOICES,
+        help="Redo the specified stage and invalidate all downstream stage artifacts")
+    parser.add_argument("--fast", action=argparse.BooleanOptionalAction, default=None,
+        help="Quick mode: skip heavy separation/transcription work")
+    parser.add_argument("--mock", action=argparse.BooleanOptionalAction, default=None,
+        help="Use mock data for testing")
     parser.add_argument("--force", action="store_true", help="Force re-run of stage(s) even if artifacts exist")
 
     args = parser.parse_args()
-    args.input = os.path.abspath(args.input)
-
-    if not os.path.exists(args.input) and not args.mock:
-        logger.error(f"Input file {args.input} not found.")
-        sys.exit(1)
+    args.input = str(Path(args.input).resolve())
 
     output_dir = _resolve_output_dir(
         input_path=args.input,
         output_dir_flag=args.output_dir,
     )
     args.output_dir = output_dir
-    args.output = args.output or os.path.join(output_dir, "mikup_payload.json")
+    args.output = args.output or str(Path(output_dir) / "mikup_payload.json")
 
     try:
         ensure_directory(output_dir)
@@ -713,19 +920,36 @@ def main():
     if not isinstance(stage_state, dict):
         stage_state = {}
 
+    if args.fast is None:
+        args.fast = bool(stage_state.get("fast_mode", False))
+    if args.mock is None:
+        args.mock = bool(stage_state.get("mock_mode", False))
+
+    if not Path(args.input).exists() and not args.mock:
+        logger.error(f"Input file {args.input} not found.")
+        sys.exit(1)
+
     previous_source = stage_state.get("source_file")
     if (
         previous_source
         and not args.mock
-        and os.path.abspath(previous_source) != os.path.abspath(args.input)
+        and str(Path(previous_source).resolve()) != str(Path(args.input).resolve())
         and full_pipeline
     ):
         logger.warning(
             "Existing stage_state.json is for %s, but current input is %s. Starting full pipeline stages fresh.",
             previous_source,
-            os.path.abspath(args.input),
+            str(Path(args.input).resolve()),
         )
         stage_state = {}
+
+    forced_stages = _invalidate_redo_stages(args, output_dir, artifacts, stage_state)
+    if forced_stages:
+        args.force = True
+        _persist_state(artifacts["stage_state"], stage_state, args, output_dir, artifacts, _read_json_file(artifacts["stems"], default={}) or {})
+
+    def _allow_cache(stage_name):
+        return not args.force or stage_name not in forced_stages
 
     stems = _read_json_file(artifacts["stems"], default={})
     if not isinstance(stems, dict):
@@ -734,7 +958,7 @@ def main():
     transcription_path = artifacts["transcription"]
     semantics_path = artifacts["semantics"]
 
-    has_separation = validate_stage_artifacts("separation", output_dir) and not args.force
+    has_separation = validate_stage_artifacts("separation", output_dir) and _allow_cache("separation")
     should_run_separation = (args.stage == "separation") or (full_pipeline and not has_separation)
 
     validated_stems = None
@@ -755,7 +979,7 @@ def main():
             emit_progress("SEPARATION", 25, "Mock separation artifacts registered.")
         else:
             emit_progress("SEPARATION", 10, "Cinematic 3-Pass Separation starting...")
-            separator = MikupSeparator(output_dir=os.path.join(output_dir, "stems"))
+            separator = MikupSeparator(output_dir=str(Path(output_dir) / "stems"))
             try:
                 stems = normalize_and_validate_stems(
                     separator.run_surgical_pipeline(args.input, fast_mode=args.fast)
@@ -792,7 +1016,7 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_transcription = validate_stage_artifacts("transcription", output_dir) and not args.force
+    has_transcription = validate_stage_artifacts("transcription", output_dir) and _allow_cache("transcription")
     should_run_transcription = (args.stage == "transcription") or (full_pipeline and not has_transcription)
 
     if should_run_transcription:
@@ -859,12 +1083,12 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_dsp_metrics = validate_stage_artifacts("dsp", output_dir) and not args.force
+    has_dsp_metrics = validate_stage_artifacts("dsp", output_dir) and _allow_cache("dsp")
     should_run_dsp = (args.stage == "dsp") or (full_pipeline and not has_dsp_metrics)
 
     if should_run_dsp:
         emit_progress("DSP", 60, "Feature Extraction (Handled by Rust Backend)")
-        
+
         # The DSP logic has been migrated to the native Rust Tauri backend (`ui/src-tauri/src/dsp/`)
         # for real-time 60fps streaming and perfect DAW-level audio synchronization.
         # When called from this CLI, we simply acknowledge the stage and skip it.
@@ -886,7 +1110,7 @@ def main():
         emit_progress("COMPLETE", 100, "Requested stage finished.")
         return
 
-    has_semantics = validate_stage_artifacts("semantics", output_dir) and not args.force
+    has_semantics = validate_stage_artifacts("semantics", output_dir) and _allow_cache("semantics")
     should_run_semantics = (args.stage == "semantics") or (full_pipeline and not has_semantics)
 
     semantic_tags = []
@@ -954,7 +1178,7 @@ def main():
                 report_md = director.generate_report(final_payload)
                 if report_md:
                     final_payload["ai_report"] = report_md
-                    report_path = os.path.join(output_dir, "mikup_report.md")
+                    report_path = str(Path(output_dir) / "mikup_report.md")
                     try:
                         with open(report_path, "w", encoding="utf-8") as f:
                             f.write(report_md)

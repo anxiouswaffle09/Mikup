@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Label, Area, AreaChart, Brush
@@ -45,7 +45,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
     endIndex: Number.MAX_SAFE_INTEGER,
   });
 
-  const graphData = useMemo(() => {
+  const graphData = (() => {
     const lufs = payload.metrics?.lufs_graph;
     if (!lufs) return [];
 
@@ -74,15 +74,15 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
       });
     }
     return data;
-  }, [payload.metrics?.lufs_graph]);
+  })();
 
   const maxIndex = Math.max(0, graphData.length - 1);
-  const effectiveBrushRange = useMemo(() => {
-    const start = Math.max(0, Math.min(brushRange.startIndex, maxIndex));
-    const rawEnd = brushRange.endIndex === Number.MAX_SAFE_INTEGER ? maxIndex : brushRange.endIndex;
-    const end = Math.max(start, Math.min(rawEnd, maxIndex));
-    return { startIndex: start, endIndex: end };
-  }, [brushRange, maxIndex]);
+  const effectiveBrushStart = Math.max(0, Math.min(brushRange.startIndex, maxIndex));
+  const effectiveBrushEnd = Math.max(
+    effectiveBrushStart,
+    Math.min(brushRange.endIndex === Number.MAX_SAFE_INTEGER ? maxIndex : brushRange.endIndex, maxIndex),
+  );
+  const effectiveBrushRange = { startIndex: effectiveBrushStart, endIndex: effectiveBrushEnd };
 
   const toggleStream = (stream: string) => {
     setActiveStreams((prev) => {

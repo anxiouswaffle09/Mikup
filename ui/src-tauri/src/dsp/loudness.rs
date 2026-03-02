@@ -98,6 +98,13 @@ impl LoudnessAnalyzer {
         self.sample_rate
     }
 
+    pub fn reset(&mut self) {
+        match Self::new(self.sample_rate) {
+            Ok(fresh) => *self = fresh,
+            Err(err) => eprintln!("Failed to reset loudness analyzer: {err}"),
+        }
+    }
+
     pub fn final_metrics(&self) -> FinalLoudnessMetrics {
         FinalLoudnessMetrics {
             dialogue: StemFinalMetrics {

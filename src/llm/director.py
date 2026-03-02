@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from pathlib import Path
 from google import genai
 
 logger = logging.getLogger(__name__)
@@ -24,18 +25,18 @@ class MikupDirector:
             self.client = None
             logger.warning("GEMINI_API_KEY not found in environment. Stage 5 will be skipped.")
         self._history: list[dict] = []
-        self.payload_path = os.path.abspath(payload_path) if payload_path else None
+        self.payload_path = str(Path(payload_path).resolve()) if payload_path else None
         env_workspace = os.getenv("WORKSPACE_DIR")
         resolved_workspace = (
             workspace_dir
             or env_workspace
-            or (os.path.dirname(self.payload_path) if self.payload_path else None)
+            or (str(Path(self.payload_path).parent) if self.payload_path else None)
             or os.getcwd()
         )
-        self.workspace_dir = os.path.abspath(resolved_workspace)
+        self.workspace_dir = str(Path(resolved_workspace).resolve())
 
     def load_prompt(self):
-        prompt_path = os.path.join(os.path.dirname(__file__), 'director_prompt.md')
+        prompt_path = Path(__file__).parent / 'director_prompt.md'
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 return f.read()
@@ -123,11 +124,8 @@ class MikupDirector:
     def _is_path_safe(self, path: str) -> bool:
         if not isinstance(path, str) or not path.strip():
             return False
-        abs_path = os.path.abspath(path)
-        try:
-            return os.path.commonpath([self.workspace_dir, abs_path]) == self.workspace_dir
-        except ValueError:
-            return False
+        abs_path = str(Path(path).resolve())
+        return Path(abs_path).is_relative_to(self.workspace_dir)
 
     def _resolve_stem_path(
         self,
@@ -136,10 +134,10 @@ class MikupDirector:
         payload: dict | None = None,
     ) -> str | None:
         def _resolve_candidate(path_value: str) -> str:
-            expanded = os.path.expanduser(path_value)
-            if os.path.isabs(expanded):
-                return os.path.abspath(expanded)
-            return os.path.abspath(os.path.join(self.workspace_dir, expanded))
+            expanded = str(Path(path_value).expanduser())
+            if Path(expanded).is_absolute():
+                return str(Path(expanded).resolve())
+            return str((Path(self.workspace_dir) / expanded).resolve())
 
         if isinstance(requested_path, str) and requested_path.strip():
             requested_abs = _resolve_candidate(requested_path)
@@ -149,7 +147,7 @@ class MikupDirector:
                     requested_abs,
                 )
                 return None
-            if os.path.exists(requested_abs):
+            if Path(requested_abs).exists():
                 return requested_abs
 
         payload_data = payload if isinstance(payload, dict) else {}
@@ -174,7 +172,7 @@ class MikupDirector:
                     candidate_abs,
                 )
                 return None
-            if os.path.exists(candidate_abs):
+            if Path(candidate_abs).exists():
                 return candidate_abs
         return None
 

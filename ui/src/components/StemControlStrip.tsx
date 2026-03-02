@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { startTransition, useOptimistic, useState } from "react";
+import { commands } from "@bindings";
 
 interface StemConfig {
   id: string;
@@ -43,27 +43,30 @@ export function StemControlStrip() {
     Object.fromEntries(STEMS.map((s) => [s.id, { isSolo: false, isMuted: false }]))
   );
 
-  const handleToggle = async (stemId: string, field: "isSolo" | "isMuted") => {
-    let next: StemState | undefined;
-    setStemStates((prev) => {
-      const current = prev[stemId];
-      next = { ...current, [field]: !current[field] };
-      return { ...prev, [stemId]: next };
+  // useOptimistic: apply toggle immediately to UI; auto-reverts if the action throws.
+  const [optimisticStates, applyOptimistic] = useOptimistic(
+    stemStates,
+    (curr, { stemId, field }: { stemId: string; field: "isSolo" | "isMuted" }) => ({
+      ...curr,
+      [stemId]: { ...curr[stemId], [field]: !curr[stemId][field] },
+    }),
+  );
+
+  const handleToggle = (stemId: string, field: "isSolo" | "isMuted") => {
+    startTransition(async () => {
+      applyOptimistic({ stemId, field });
+      const next: StemState = {
+        ...stemStates[stemId],
+        [field]: !stemStates[stemId][field],
+      };
+      try {
+        const result = await commands.setStemState(stemId, next.isSolo, next.isMuted);
+        if (result.status === "error") throw new Error(result.error);
+        setStemStates((prev) => ({ ...prev, [stemId]: next }));
+      } catch {
+        // startTransition auto-reverts optimisticStates when the async action settles.
+      }
     });
-    if (!next) return;
-    try {
-      await invoke("set_stem_state", {
-        stemId,
-        isSolo: next.isSolo,
-        isMuted: next.isMuted,
-      });
-    } catch {
-      // Revert on error
-      setStemStates((prev) => {
-        const reverted = { ...prev[stemId], [field]: !prev[stemId][field] };
-        return { ...prev, [stemId]: reverted };
-      });
-    }
   };
 
   return (
@@ -72,7 +75,7 @@ export function StemControlStrip() {
         Stems
       </span>
       {STEMS.map((stem) => {
-        const state = stemStates[stem.id];
+        const state = optimisticStates[stem.id];
         const isMuted = state.isMuted;
         const isSolo = state.isSolo;
 

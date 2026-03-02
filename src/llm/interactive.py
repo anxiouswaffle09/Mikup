@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
 
 logging.basicConfig(
     stream=sys.stderr,
@@ -34,8 +35,8 @@ def main() -> None:
     workspace_dir = os.environ.get("WORKSPACE_DIR", "").strip()
     payload_path: str | None = None
     if workspace_dir:
-        candidate = os.path.join(workspace_dir, "mikup_payload.json")
-        if os.path.exists(candidate):
+        candidate = str(Path(workspace_dir) / "mikup_payload.json")
+        if Path(candidate).exists():
             payload_path = candidate
         else:
             logger.warning("mikup_payload.json not found at %s", candidate)

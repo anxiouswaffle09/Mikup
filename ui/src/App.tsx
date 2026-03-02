@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, use, useActionState, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { commands } from '@bindings';
 import { open } from '@tauri-apps/plugin-dialog';
 import { WaveformVisualizer } from './components/WaveformVisualizer';
 import { MetricsPanel } from './components/MetricsPanel';
@@ -22,7 +22,6 @@ import {
   type PipelineStageDefinition,
   type LufsSeries,
   type AppConfig,
-  type WorkspaceSetupResult,
 } from './types';
 import { clsx } from 'clsx';
 
@@ -49,6 +48,11 @@ const PIPELINE_STAGES: PipelineStageDefinition[] = [
 ];
 
 const DSP_STAGE_INDEX = PIPELINE_STAGES.findIndex((s) => s.id === 'DSP');
+
+// Stable module-level promise: resolves to null on error so Suspense never rejects.
+const configPromise = commands.getAppConfig()
+  .then((r) => (r.status === 'ok' ? r.data as AppConfig : null))
+  .catch(() => null);
 
 function resolvePlaybackStemPaths(
   payload: MikupPayload | null,
@@ -87,7 +91,8 @@ function buildProceedPrompt(completedStageLabel: string, nextStage: PipelineStag
   return `${completedStageLabel} finished. Proceed to ${nextStage.label}?`;
 }
 
-function App() {
+function AppContent() {
+  const initialConfig = use(configPromise);
   const [view, setView] = useState<ViewState>('landing');
   const [payload, setPayload] = useState<MikupPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,10 +105,12 @@ function App() {
   const [runningStageIndex, setRunningStageIndex] = useState<number | null>(null);
   const [workflowMessage, setWorkflowMessage] = useState('Select an audio file to begin.');
   const [fastMode, setFastMode] = useState(false);
-  const [isPreparingWorkflow, setIsPreparingWorkflow] = useState(false);
+  // isPreparingWorkflow is derived from useActionState isPending below
   const [loudnessTargetId, setLoudnessTargetId] = useState<LoudnessTargetId>('streaming');
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [showFirstRunModal, setShowFirstRunModal] = useState(false);
+  const [config, setConfig] = useState<AppConfig | null>(
+    initialConfig?.default_projects_dir ? initialConfig : null,
+  );
+  const [showFirstRunModal, setShowFirstRunModal] = useState(!initialConfig?.default_projects_dir);
   const [highlightAtSecs, setHighlightAtSecs] = useState<number | null>(null);
   const [redoTargetStage, setRedoTargetStage] = useState<PipelineStageDefinition | null>(null);
   const [isRedoing, setIsRedoing] = useState(false);
@@ -116,12 +123,17 @@ function App() {
   const { startStream: startDspStream, stopStream: stopDspStream } = dspStream;
 
   const ghostStemPaths = useMemo(() => {
-    const [, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
+    const [, ghostMusic, ghostEffects] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
     return {
-      musicPath: musicPath || undefined,
-      effectsPath: effectsPath || undefined,
+      musicPath: ghostMusic || undefined,
+      effectsPath: ghostEffects || undefined,
     };
   }, [payload, inputPath, workspaceDirectory]);
+
+  const audioSources = useMemo(
+    () => resolveStemAudioSources(payload, config?.project_root ?? undefined),
+    [payload, config?.project_root],
+  );
 
   useEffect(() => {
     const unlisten = listen<ProgressStatus>('process-status', (event) => {
@@ -153,7 +165,7 @@ function App() {
           workspaceDirectory,
         );
         if (dxPath) {
-          startDspStream(dxPath, musicPath, effectsPath, event.payload.time_secs);
+          startDspStream(dxPath, musicPath, effectsPath, event.payload.time_secs, inputPath ?? '');
         }
       }
     });
@@ -162,126 +174,131 @@ function App() {
     };
   }, [payload, inputPath, workspaceDirectory, startDspStream]);
 
-  // Load app config on mount; gate on first-run modal if no default projects dir is set.
-  useEffect(() => {
-    invoke<AppConfig>('get_app_config')
-      .then((cfg) => {
-        if (!cfg.default_projects_dir) {
-          setShowFirstRunModal(true);
-        } else {
-          setConfig(cfg);
-        }
-      })
-      .catch(() => {
-        // Config unreadable — show first-run modal as safe fallback.
-        setShowFirstRunModal(true);
-      });
-  }, []);
-
-  const handleFirstRunSave = async () => {
-    setError(null);
-    const selectedDir = await open({
-      multiple: false,
-      directory: true,
-      title: 'Choose your default Mikup projects folder',
-    });
-    if (typeof selectedDir !== 'string') return;
-
-    try {
-      const saved = await invoke<AppConfig>('set_default_projects_dir', { path: selectedDir });
-      setConfig(saved);
-      setShowFirstRunModal(false);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const handleChangeDefaultFolder = async () => {
-    const selectedDir = await open({
-      multiple: false,
-      directory: true,
-      title: 'Change default Mikup projects folder',
-    });
-    if (typeof selectedDir !== 'string') return;
-
-    try {
-      const saved = await invoke<AppConfig>('set_default_projects_dir', { path: selectedDir });
-      setConfig(saved);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const handleStartNewProcess = async (filePath: string, overrideDir?: string) => {
-    if (!filePath.trim()) {
-      setError('Selected audio file path is invalid.');
-      return;
-    }
-    if (!config) {
-      setError('App config not loaded. Restart the application.');
-      return;
-    }
-
-    const baseDir = overrideDir ?? config.default_projects_dir;
-
-    setIsPreparingWorkflow(true);
-
-    try {
+  // --- useActionState: first-run folder picker ---
+  const [, firstRunAction, isFirstRunSaving] = useActionState(
+    async (_prev: null) => {
       setError(null);
-      setPipelineErrors([]);
-      const workspace = await invoke<WorkspaceSetupResult>('setup_project_workspace', {
-        inputPath: filePath,
-        baseDirectory: baseDir,
+      const selectedDir = await open({
+        multiple: false,
+        directory: true,
+        title: 'Choose your default Mikup projects folder',
       });
-
-      setInputPath(workspace.copied_input_path);
-      setWorkspaceDirectory(workspace.workspace_dir);
-      setRunningStageIndex(null);
-
-      let resumeCount = 0;
+      if (typeof selectedDir !== 'string') return null;
       try {
-        resumeCount = await invoke<number>('get_pipeline_state', {
-          outputDirectory: workspace.workspace_dir,
-        });
-      } catch {
-        resumeCount = 0;
-      }
-
-      setCompletedStageCount(resumeCount);
-
-      if (resumeCount > 0 && resumeCount < PIPELINE_STAGES.length) {
-        const nextStage = PIPELINE_STAGES[resumeCount];
-        setWorkflowMessage(
-          `Previous progress found. Resuming from Stage ${resumeCount + 1}: ${nextStage.label}.`
-        );
-        setProgress({ stage: 'INIT', progress: 0, message: `Resuming from stage ${resumeCount + 1}.` });
-      } else if (resumeCount >= PIPELINE_STAGES.length) {
-        try {
-          const result = await invoke<string>('read_output_payload', {
-            outputDirectory: workspace.workspace_dir,
-          });
-          const parsed = parseMikupPayload(JSON.parse(result));
-          setPayload(parsed);
-          setView('analysis');
-          return;
-        } catch {
-          setWorkflowMessage('All stages previously completed. Re-run any stage or load results.');
-          setProgress({ stage: 'COMPLETE', progress: 100, message: 'Previously completed.' });
+        const result = await commands.setDefaultProjectsDir(selectedDir);
+        if (result.status === 'error') {
+          setError(result.error);
+          return null;
         }
-      } else {
-        setWorkflowMessage('Workspace ready. Run Stage 1: Surgical Separation.');
-        setProgress({ stage: 'INIT', progress: 0, message: 'Ready to run stage 1.' });
+        setConfig(result.data as AppConfig);
+        setShowFirstRunModal(false);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
       }
+      return null;
+    },
+    null,
+  );
+  const handleFirstRunSave = () => { void firstRunAction(); };
 
-      setView('processing');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsPreparingWorkflow(false);
-    }
+  // --- useActionState: change default folder ---
+  const [, changeDefaultFolderAction] = useActionState(
+    async (_prev: null) => {
+      const selectedDir = await open({
+        multiple: false,
+        directory: true,
+        title: 'Change default Mikup projects folder',
+      });
+      if (typeof selectedDir !== 'string') return null;
+      try {
+        const result = await commands.setDefaultProjectsDir(selectedDir);
+        if (result.status === 'error') {
+          setError(result.error);
+          return null;
+        }
+        setConfig(result.data as AppConfig);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+      return null;
+    },
+    null,
+  );
+  const handleChangeDefaultFolder = () => { void changeDefaultFolderAction(); };
+
+  // --- useActionState: setup_project_workspace (isPending replaces isPreparingWorkflow) ---
+  const [, startWorkspaceAction, isPreparingWorkflow] = useActionState(
+    async (_prev: null, { filePath, overrideDir }: { filePath: string; overrideDir?: string }) => {
+      if (!filePath.trim()) {
+        setError('Selected audio file path is invalid.');
+        return null;
+      }
+      if (!config) {
+        setError('App config not loaded. Restart the application.');
+        return null;
+      }
+      const baseDir = overrideDir ?? config.default_projects_dir;
+      try {
+        setError(null);
+        setPipelineErrors([]);
+        const wsResult = await commands.setupProjectWorkspace(filePath, baseDir);
+        if (wsResult.status === 'error') {
+          setError(wsResult.error);
+          return null;
+        }
+        const workspace = wsResult.data;
+        setInputPath(workspace.copied_input_path);
+        setWorkspaceDirectory(workspace.workspace_dir);
+        setRunningStageIndex(null);
+
+        const psResult = await commands.getPipelineState(workspace.workspace_dir);
+        const resumeCount = psResult.status === 'ok' ? psResult.data : 0;
+        setCompletedStageCount(resumeCount);
+
+        if (resumeCount > 0 && resumeCount < PIPELINE_STAGES.length) {
+          const nextStage = PIPELINE_STAGES[resumeCount];
+          setWorkflowMessage(
+            `Previous progress found. Resuming from Stage ${resumeCount + 1}: ${nextStage.label}.`
+          );
+          setProgress({ stage: 'INIT', progress: 0, message: `Resuming from stage ${resumeCount + 1}.` });
+        } else if (resumeCount >= PIPELINE_STAGES.length) {
+          try {
+            const payloadResult = await commands.readOutputPayload(workspace.workspace_dir);
+            if (payloadResult.status === 'error') throw new Error(payloadResult.error);
+            const parsed = parseMikupPayload(JSON.parse(payloadResult.data));
+            setPayload(parsed);
+            setView('analysis');
+            return null;
+          } catch {
+            setWorkflowMessage('All stages previously completed. Re-run any stage or load results.');
+            setProgress({ stage: 'COMPLETE', progress: 100, message: 'Previously completed.' });
+          }
+        } else {
+          setWorkflowMessage('Workspace ready. Run Stage 1: Surgical Separation.');
+          setProgress({ stage: 'INIT', progress: 0, message: 'Ready to run stage 1.' });
+        }
+        setView('processing');
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+      return null;
+    },
+    null,
+  );
+  const handleStartNewProcess = (filePath: string, overrideDir?: string) => {
+    void startWorkspaceAction({ filePath, overrideDir });
   };
 
-  const runStage = async (stageIndex: number, force = false): Promise<void> => {
+  // --- useActionState: run_pipeline_stage ---
+  const [, dispatchRunStage, isRunningStage] = useActionState(
+    async (_prev: null, input: { stageIndex: number; force?: boolean }) => {
+      await runStageImpl(input.stageIndex, input.force ?? false);
+      return null;
+    },
+    null,
+  );
+
+  const runStageImpl = async (stageIndex: number, force = false): Promise<void> => {
     if (!inputPath || !workspaceDirectory) {
       setError('Input file and workspace folder are required before running stages.');
       return;
@@ -307,7 +324,9 @@ function App() {
       if (!inputPath || !workspaceDirectory) return;
 
       try {
-        const stems = await invoke<Record<string, string | null>>('get_stems', { outputDirectory: workspaceDirectory });
+        const stemsResult = await commands.getStems(workspaceDirectory);
+        if (stemsResult.status === 'error') throw new Error(stemsResult.error);
+        const stems = stemsResult.data as Record<string, string | null>;
 
         // Use canonical 3-stem keys from the backend
         const stemPaths: Record<string, string> = {
@@ -322,13 +341,12 @@ function App() {
         }
 
         setProgress({ stage: 'DSP', progress: 0, message: 'Starting Turbo Scan...' });
-        const scanResult = await invoke<{ lufs_graph: Record<string, LufsSeries> }>('generate_static_map', {
-          outputDirectory: workspaceDirectory,
-          stemPaths,
-        });
+        const scanResultRaw = await commands.generateStaticMap(workspaceDirectory, stemPaths);
+        if (scanResultRaw.status === 'error') throw new Error(scanResultRaw.error);
+        const scanResult = scanResultRaw.data as unknown as { lufs_graph: Record<string, LufsSeries> };
 
         // Persist stage state so get_pipeline_state returns 3 on resume.
-        await invoke<void>('mark_dsp_complete', { outputDirectory: workspaceDirectory }).catch(() => {});
+        await commands.markDspComplete(workspaceDirectory).catch(() => {});
 
         const nextCount = Math.max(completedStageCount, DSP_STAGE_INDEX + 1);
         setCompletedStageCount((prev) => Math.max(prev, DSP_STAGE_INDEX + 1));
@@ -336,8 +354,9 @@ function App() {
 
         // Read the payload persisted by Python stages, merge in the Turbo Scan LUFS graph.
         try {
-          const result = await invoke<string>('read_output_payload', { outputDirectory: workspaceDirectory });
-          const parsed = parseMikupPayload(JSON.parse(result));
+          const payloadResult = await commands.readOutputPayload(workspaceDirectory);
+          if (payloadResult.status === 'error') throw new Error(payloadResult.error);
+          const parsed = parseMikupPayload(JSON.parse(payloadResult.data));
 
           const mergedMetrics = {
             pacing_mikups: parsed.metrics?.pacing_mikups ?? [],
@@ -401,13 +420,14 @@ function App() {
     }
 
     try {
-      await invoke<string>('run_pipeline_stage', {
+      const runResult = await commands.runPipelineStage(
         inputPath,
-        outputDirectory: workspaceDirectory,
-        stage: stage.id,
+        workspaceDirectory,
+        stage.id,
         fastMode,
         force,
-      });
+      );
+      if (runResult.status === 'error') throw new Error(runResult.error);
 
       const nextCompletedCount = force
         ? stageIndex + 1
@@ -418,10 +438,9 @@ function App() {
 
       if (nextCompletedCount >= PIPELINE_STAGES.length) {
         setWorkflowMessage('All stages complete. Loading analysis payload...');
-        const result = await invoke<string>('read_output_payload', {
-          outputDirectory: workspaceDirectory,
-        });
-        const parsed = parseMikupPayload(JSON.parse(result));
+        const finalPayloadResult = await commands.readOutputPayload(workspaceDirectory);
+        if (finalPayloadResult.status === 'error') throw new Error(finalPayloadResult.error);
+        const parsed = parseMikupPayload(JSON.parse(finalPayloadResult.data));
         setPayload(parsed);
         setView('analysis');
         return;
@@ -438,12 +457,12 @@ function App() {
     }
   };
 
-  const handleRunNextStage = async () => {
-    await runStage(completedStageCount);
+  const handleRunNextStage = () => {
+    void dispatchRunStage({ stageIndex: completedStageCount });
   };
 
-  const handleRerunStage = async (stageIndex: number) => {
-    await runStage(stageIndex, true);
+  const handleRerunStage = (stageIndex: number) => {
+    void dispatchRunStage({ stageIndex, force: true });
   };
 
   const handleRedoStage = async (stage: PipelineStageDefinition): Promise<void> => {
@@ -451,11 +470,12 @@ function App() {
 
     setIsRedoing(true);
     try {
-      await invoke<string>('redo_pipeline_stage', {
-        outputDirectory: workspaceDirectory,
-        stage: stage.id.toLowerCase(),
+      const redoResult = await commands.redoPipelineStage(
+        workspaceDirectory,
+        stage.id.toLowerCase(),
         inputPath,
-      });
+      );
+      if (redoResult.status === 'error') throw new Error(redoResult.error);
 
       const stageIndex = PIPELINE_STAGES.findIndex((s) => s.id === stage.id);
       // Reset completed count to the redo target so processing view re-runs from there.
@@ -491,7 +511,7 @@ function App() {
       setStorageLastUpdated(Date.now());
       setView('processing');
       // Auto-start re-run from the redo target stage.
-      void runStage(stageIndex);
+      void dispatchRunStage({ stageIndex });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -517,11 +537,6 @@ function App() {
     setView('analysis');
   };
 
-  // Show nothing until config is resolved to avoid a flash of landing page.
-  if (!config && !showFirstRunModal) {
-    return null;
-  }
-
   if (showFirstRunModal) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center z-50">
@@ -542,9 +557,10 @@ function App() {
           <button
             type="button"
             onClick={handleFirstRunSave}
-            className="w-full border border-accent text-accent px-4 py-3 text-sm font-medium hover:bg-accent/5 transition-colors"
+            disabled={isFirstRunSaving}
+            className="w-full border border-accent text-accent px-4 py-3 text-sm font-medium hover:bg-accent/5 transition-colors disabled:opacity-50"
           >
-            Choose Folder…
+            {isFirstRunSaving ? 'Saving…' : 'Choose Folder…'}
           </button>
         </div>
       </div>
@@ -599,7 +615,7 @@ function App() {
               type="checkbox"
               checked={fastMode}
               onChange={(e) => setFastMode(e.target.checked)}
-              disabled={runningStageIndex !== null}
+              disabled={isRunningStage}
               className="h-4 w-4 accent-[var(--color-accent)]"
             />
             Fast Mode
@@ -615,13 +631,7 @@ function App() {
                   return (
                     <div key={stage.id} className="flex items-center gap-1.5">
                       <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{
-                          backgroundColor:
-                            isComplete || isRunning || isReady
-                              ? 'var(--color-accent)'
-                              : 'var(--color-panel-border)',
-                        }}
+                        className={`w-1.5 h-1.5 rounded-full ${isComplete || isRunning || isReady ? 'bg-accent' : 'bg-panel-border'}`}
                       />
                       <span className={`text-[10px] font-mono ${isRunning || isReady ? 'text-text-main' : 'text-text-muted opacity-50'}`}>
                         {stage.label}
@@ -630,7 +640,7 @@ function App() {
                         <button
                           type="button"
                           onClick={() => handleRerunStage(i)}
-                          disabled={runningStageIndex !== null}
+                          disabled={isRunningStage}
                           className="text-[9px] font-mono text-text-muted hover:text-accent transition-colors disabled:opacity-40 ml-1"
                         >
                           re-run
@@ -651,15 +661,15 @@ function App() {
             <button
               type="button"
               onClick={handleRunNextStage}
-              disabled={runningStageIndex !== null || !nextStage}
+              disabled={isRunningStage || !nextStage}
               className={clsx(
                 'w-full border px-4 py-3 text-sm font-medium transition-colors',
-                runningStageIndex !== null || !nextStage
+                isRunningStage || !nextStage
                   ? 'border-panel-border text-text-muted cursor-not-allowed'
                   : 'border-accent text-accent hover:bg-accent/5'
               )}
             >
-              {runningStageIndex !== null
+              {isRunningStage && runningStageIndex !== null
                 ? `Running ${PIPELINE_STAGES[runningStageIndex].label}...`
                 : nextStage
                   ? `Run ${nextStage.label}`
@@ -778,7 +788,7 @@ function App() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
         <div className="lg:col-span-8 flex flex-col border-r border-panel-border">
-          <section className="flex flex-col px-6 py-5 border-b border-panel-border" style={{ height: '360px' }}>
+          <section className="flex flex-col px-6 py-5 border-b border-panel-border h-[--height-timeline]">
             <div className="flex items-center justify-between mb-4">
               <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Timeline</span>
               <span className="text-[10px] font-mono text-text-muted">
@@ -789,7 +799,7 @@ function App() {
               <WaveformVisualizer
                 pacing={payload?.metrics?.pacing_mikups}
                 duration={payload?.metrics?.spatial_metrics?.total_duration}
-                audioSources={resolveStemAudioSources(payload, config?.project_root ?? undefined)}
+                audioSources={audioSources}
                 outputDir={payload?.artifacts?.output_dir}
                 diagnosticEvents={payload?.metrics?.diagnostic_events}
                 ghostStemPaths={ghostStemPaths}
@@ -797,12 +807,13 @@ function App() {
                 currentTimeSecs={dspStream.currentFrame?.timestamp_secs}
                 onPlay={(time) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time, inputPath ?? '');
                 }}
                 onPause={() => stopDspStream()}
+                onScrub={(time) => dspStream.seekStream(time)}
                 onSeek={(time) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time, inputPath ?? '');
                 }}
               />
             </div>
@@ -884,7 +895,7 @@ function App() {
                       inputPath,
                       workspaceDirectory,
                     );
-                    if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
+                    if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time, inputPath ?? '');
                   }}
                 />
               </div>
@@ -902,7 +913,7 @@ function App() {
                 workspaceDir={workspaceDirectory}
                 onSeek={(timeSecs) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
-                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, timeSecs);
+                  if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, timeSecs, inputPath ?? '');
                 }}
                 onHighlight={(timeSecs) => {
                   setHighlightAtSecs(null);
@@ -932,4 +943,10 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Suspense fallback={null}>
+      <AppContent />
+    </Suspense>
+  );
+}

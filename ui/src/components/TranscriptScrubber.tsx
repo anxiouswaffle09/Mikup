@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import type { TranscriptionSegment, WordSegment } from '../types';
 
@@ -18,23 +18,17 @@ export function TranscriptScrubber({
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Determine which segment is currently active
-  const activeSegmentIdx = useMemo(
-    () => segments.findIndex((seg) => currentTime >= seg.start && currentTime <= seg.end),
-    [segments, currentTime],
-  );
+  const activeSegmentIdx = segments.findIndex((seg) => currentTime >= seg.start && currentTime <= seg.end);
 
   // Pre-bucket word segments by segment index for O(1) lookup per render
-  const wordsBySegment = useMemo(() => {
-    const map = new Map<number, WordSegment[]>();
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      map.set(
-        i,
-        wordSegments.filter((w) => w.start >= seg.start && w.start < seg.end),
-      );
-    }
-    return map;
-  }, [segments, wordSegments]);
+  const wordsBySegment = new Map<number, WordSegment[]>();
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    wordsBySegment.set(
+      i,
+      wordSegments.filter((w) => w.start >= seg.start && w.start < seg.end),
+    );
+  }
 
   // Auto-scroll active segment into view
   useEffect(() => {

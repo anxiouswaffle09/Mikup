@@ -226,6 +226,8 @@ pub struct AudioFrame {
     pub music_raw: Vec<f32>,
     /// Individual gain-applied effects stem — used by LoudnessAnalyzer.
     pub effects_raw: Vec<f32>,
+    /// Original master source audio — used for high-fidelity playback routing.
+    pub source_raw: Vec<f32>,
     pub stem_flags: AudioFrameStemFlags,
     pub static_loudness: Option<AudioFrameStaticLoudness>,
 }
@@ -238,6 +240,7 @@ impl Default for AudioFrame {
             background_raw: Vec::new(),
             music_raw: Vec::new(),
             effects_raw: Vec::new(),
+            source_raw: Vec::new(),
             stem_flags: AudioFrameStemFlags::default(),
             static_loudness: None,
         }
@@ -548,8 +551,7 @@ fn decode_to_normalized_mono(decoded: AudioBufferRef<'_>) -> Vec<f32> {
         .chunks_exact(channels)
         .map(|frame| {
             let sum: f32 = frame.iter().copied().sum();
-            let mono = sum / channels as f32;
-            mono.clamp(-1.0, 1.0)
+            sum.clamp(-1.0, 1.0)
         })
         .collect()
 }
@@ -568,6 +570,8 @@ pub struct MikupAudioDecoder {
     dx: StemStreamDecoder,
     music: StemStreamDecoder,
     effects: StemStreamDecoder,
+    /// Optional original master file decoder — used for high-fidelity playback routing.
+    source: Option<StemStreamDecoder>,
     frame_size: usize,
     target_sample_rate: u32,
     stem_states: SharedStemStates,
@@ -583,6 +587,7 @@ impl MikupAudioDecoder {
         dx_path: impl AsRef<Path>,
         music_path: impl AsRef<Path>,
         effects_path: impl AsRef<Path>,
+        source_path: Option<impl AsRef<Path>>,
         stem_states: SharedStemStates,
         target_sample_rate: u32,
         frame_size: usize,
@@ -609,6 +614,14 @@ impl MikupAudioDecoder {
             ));
         }
 
+        // Source decoder is optional — failure to open is non-fatal; playback falls back to
+        // the summed stem mix.
+        let source = source_path.and_then(|p| {
+            StemStreamDecoder::open("source", p, target_sample_rate)
+                .map_err(|e| eprintln!("[mikup] Source decoder unavailable: {e}"))
+                .ok()
+        });
+
         let fade_samples = ((target_sample_rate as f32 * STEM_FADE_MS) / 1000.0)
             .round()
             .max(1.0);
@@ -617,6 +630,7 @@ impl MikupAudioDecoder {
             dx,
             music,
             effects,
+            source,
             frame_size,
             target_sample_rate,
             stem_states,
@@ -635,6 +649,7 @@ impl MikupAudioDecoder {
             dx_path,
             music_path,
             effects_path,
+            None::<&Path>,
             shared_default_stem_states(),
             DEFAULT_TARGET_SAMPLE_RATE,
             DEFAULT_FRAME_SIZE,
@@ -655,6 +670,9 @@ impl MikupAudioDecoder {
         self.dx.fill_until(self.frame_size)?;
         self.music.fill_until(self.frame_size)?;
         self.effects.fill_until(self.frame_size)?;
+        if let Some(ref mut src) = self.source {
+            src.fill_until(self.frame_size)?;
+        }
 
         if self.dx.is_finished() && self.music.is_finished() && self.effects.is_finished() {
             return Ok(None);
@@ -688,7 +706,15 @@ impl MikupAudioDecoder {
         music.resize(max_len, 0.0);
         effects.resize(max_len, 0.0);
 
-        Ok(Some(self.process_frame(dx, music, effects)))
+        let source = if let Some(ref mut src) = self.source {
+            let mut s = src.pop_frame(self.frame_size);
+            s.resize(max_len, 0.0);
+            s
+        } else {
+            Vec::new()
+        };
+
+        Ok(Some(self.process_frame(dx, music, effects, source)))
     }
 
     pub fn drain_tail(&mut self) -> SyncedAudioFrame {
@@ -701,7 +727,15 @@ impl MikupAudioDecoder {
         music.resize(max_len, 0.0);
         effects.resize(max_len, 0.0);
 
-        self.process_frame(dx, music, effects)
+        let source = if let Some(ref mut src) = self.source {
+            let mut s = src.drain_remaining();
+            s.resize(max_len, 0.0);
+            s
+        } else {
+            Vec::new()
+        };
+
+        self.process_frame(dx, music, effects, source)
     }
 
     pub fn seek(&mut self, seconds: f32) -> Result<(), AudioDecodeError> {
@@ -713,6 +747,12 @@ impl MikupAudioDecoder {
         self.dx.seek(seconds)?;
         self.music.seek(seconds)?;
         self.effects.seek(seconds)?;
+        if let Some(ref mut src) = self.source {
+            // Non-fatal: source seek failure degrades playback quality but not analysis.
+            if let Err(e) = src.seek(seconds) {
+                eprintln!("[mikup] Source decoder seek failed: {e}");
+            }
+        }
         Ok(())
     }
 
@@ -721,6 +761,7 @@ impl MikupAudioDecoder {
         mut dx: Vec<f32>,
         mut music: Vec<f32>,
         mut effects: Vec<f32>,
+        source: Vec<f32>,
     ) -> SyncedAudioFrame {
         let stem_flags = self.snapshot_stem_flags();
         let target_gains = StemTargetGains::from_flags(stem_flags);
@@ -747,6 +788,7 @@ impl MikupAudioDecoder {
             background_raw: background,
             music_raw: music,
             effects_raw: effects,
+            source_raw: source,
             stem_flags,
             static_loudness: None,
         }

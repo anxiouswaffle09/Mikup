@@ -1,4 +1,5 @@
-import os
+from pathlib import Path
+
 import torch
 import librosa
 import logging
@@ -7,10 +8,7 @@ from transformers import AutoProcessor, ClapModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_MODELS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "models",
-)
+_MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
 class MikupSemanticTagger:
     """
@@ -26,7 +24,7 @@ class MikupSemanticTagger:
             self.device = device
         self.model_dtype = torch.float16 if self.device in {"cuda", "mps"} else torch.float32
 
-        clap_cache = os.path.join(_MODELS_DIR, "clap")
+        clap_cache = str(_MODELS_DIR / "clap")
         logger.info(f"Loading CLAP model {model_id} on {self.device}...")
         self.model = ClapModel.from_pretrained(
             model_id,
@@ -78,9 +76,9 @@ class MikupSemanticTagger:
         
         # Prepare inputs
         raw_inputs = self.processor(
-            text=candidate_labels, 
-            audios=y, 
-            return_tensors="pt", 
+            text=candidate_labels,
+            audio=y,
+            return_tensors="pt",
             padding=True,
             sampling_rate=48000
         )
@@ -112,7 +110,6 @@ class MikupSemanticTagger:
 
 if __name__ == "__main__":
     import sys
-    import os
 
     if len(sys.argv) > 1:
         tagger = MikupSemanticTagger()

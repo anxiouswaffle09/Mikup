@@ -1,7 +1,7 @@
 import { Check, ClipboardCopy, Loader2, SendHorizontal, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { commands } from '@bindings';
 import type { MikupPayload } from '../types';
 import { clsx } from 'clsx';
 
@@ -192,10 +192,9 @@ export function AIBridge({ payload, workspaceDir, onSeek, onHighlight }: AIBridg
     pendingActionsRef.current = [];
 
     try {
-      const responseText = await invoke<string>('send_agent_message', {
-        text,
-        workspaceDir,
-      });
+      const result = await commands.sendAgentMessage(text, workspaceDir);
+      if (result.status === "error") throw new Error(result.error);
+      const responseText = result.data;
 
       const capturedActions = [...pendingActionsRef.current];
       pendingActionsRef.current = [];

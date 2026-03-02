@@ -80,3 +80,25 @@ Projects/
 
 `data/processed/`, `data/raw/`, `data/output/` are legacy paths; do not create
 new artifacts there.
+
+## 6. Versioned Iteration & Invalidation Protocol
+
+To support non-destructive iteration and error correction, Mikup implements a "Redo" mechanism with strict downstream invalidation rules.
+
+### 6.1 Dependency Waterfall
+The pipeline is a linear dependency chain. Redoing any stage automatically invalidates all subsequent stages:
+1. **Separation** (Root)
+2. **Transcription** (Depends on DX stem)
+3. **Semantics** (Depends on Background stems)
+4. **AI Director** (Depends on All Metadata)
+
+### 6.2 Invalidation Rules
+- **Destructive Overwrite:** To save disk space, a "Redo" operation overwrites existing artifacts for that stage. Branching (v1, v2) is currently not supported to prevent storage bloat.
+- **Model Locking:** Once a project is initialized, it is "locked" to the models and parameters defined at creation. Rerunning a stage uses these locked settings to ensure deterministic results.
+- **Downstream Purge:** When `--redo-stage <STAGE>` is invoked, the system:
+    1. Deletes artifacts for `<STAGE>`.
+    2. Deletes artifacts for all stages appearing later in the Waterfall.
+    3. Resets `stage_state.json` for those stages.
+
+### 6.3 Storage Awareness
+The UI must provide a real-time **Storage Gauge** (available vs. used) to prevent pipeline failures during heavy separation tasks.

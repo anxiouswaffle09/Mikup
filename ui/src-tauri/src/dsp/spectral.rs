@@ -46,6 +46,11 @@ impl SpectralAnalyzer {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.dialogue_buffer.fill(Complex32::new(0.0, 0.0));
+        self.background_buffer.fill(Complex32::new(0.0, 0.0));
+    }
+
     pub fn process_frame(&mut self, frame: &SyncedAudioFrame) -> SpectralMetrics {
         if frame.sample_rate != self.sample_rate || self.frame_size == 0 {
             return SpectralMetrics::default();

@@ -1,15 +1,15 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample};
-use crossbeam_queue::ArrayQueue;
+use rtrb::{Consumer, Producer, RingBuffer};
 
 const BACKPRESSURE_SLEEP: Duration = Duration::from_millis(1);
 
 pub struct AudioOutputPlayer {
-    queue: Arc<ArrayQueue<f32>>,
+    producer: Mutex<Producer<f32>>,
     stream: cpal::Stream,
     hardware_sample_rate: u32,
     channels: usize,
@@ -17,6 +17,7 @@ pub struct AudioOutputPlayer {
     producer_finished: Arc<AtomicBool>,
     drained: Arc<AtomicBool>,
     underrun_samples: Arc<AtomicU64>,
+    clear_requested: Arc<AtomicBool>,
 }
 
 impl AudioOutputPlayer {
@@ -46,41 +47,45 @@ impl AudioOutputPlayer {
             as usize)
             .max(channels * 512);
 
-        let queue = Arc::new(ArrayQueue::new(capacity));
+        let (producer, consumer) = RingBuffer::new(capacity);
         let producer_finished = Arc::new(AtomicBool::new(false));
         let drained = Arc::new(AtomicBool::new(false));
         let underrun_samples = Arc::new(AtomicU64::new(0));
+        let clear_requested = Arc::new(AtomicBool::new(false));
 
         let stream = match sample_format {
             SampleFormat::F32 => Self::build_stream::<f32>(
                 &device,
                 &config,
-                Arc::clone(&queue),
+                consumer,
                 Arc::clone(&producer_finished),
                 Arc::clone(&drained),
                 Arc::clone(&underrun_samples),
+                Arc::clone(&clear_requested),
             ),
             SampleFormat::I16 => Self::build_stream::<i16>(
                 &device,
                 &config,
-                Arc::clone(&queue),
+                consumer,
                 Arc::clone(&producer_finished),
                 Arc::clone(&drained),
                 Arc::clone(&underrun_samples),
+                Arc::clone(&clear_requested),
             ),
             SampleFormat::U16 => Self::build_stream::<u16>(
                 &device,
                 &config,
-                Arc::clone(&queue),
+                consumer,
                 Arc::clone(&producer_finished),
                 Arc::clone(&drained),
                 Arc::clone(&underrun_samples),
+                Arc::clone(&clear_requested),
             ),
             other => Err(format!("Unsupported output sample format: {other:?}")),
         }?;
 
         Ok(Self {
-            queue,
+            producer: Mutex::new(producer),
             stream,
             hardware_sample_rate,
             channels,
@@ -88,16 +93,18 @@ impl AudioOutputPlayer {
             producer_finished,
             drained,
             underrun_samples,
+            clear_requested,
         })
     }
 
     fn build_stream<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
-        queue: Arc<ArrayQueue<f32>>,
+        mut consumer: Consumer<f32>,
         producer_finished: Arc<AtomicBool>,
         drained: Arc<AtomicBool>,
         underrun_samples: Arc<AtomicU64>,
+        clear_requested: Arc<AtomicBool>,
     ) -> Result<cpal::Stream, String>
     where
         T: SizedSample + Sample + FromSample<f32>,
@@ -110,15 +117,24 @@ impl AudioOutputPlayer {
             .build_output_stream(
                 config,
                 move |data: &mut [T], _info: &cpal::OutputCallbackInfo| {
+                    // Handle clear request: drain all pending samples, output silence
+                    if clear_requested.load(Ordering::Relaxed) {
+                        while consumer.pop().is_ok() {}
+                        clear_requested.store(false, Ordering::Release);
+                    }
+
                     for sample in data.iter_mut() {
-                        let value = queue.pop().unwrap_or_else(|| {
-                            underrun_samples.fetch_add(1, Ordering::Relaxed);
-                            0.0
-                        });
+                        let value = match consumer.pop() {
+                            Ok(v) => v,
+                            Err(_) => {
+                                underrun_samples.fetch_add(1, Ordering::Relaxed);
+                                0.0
+                            }
+                        };
                         *sample = T::from_sample(value);
                     }
 
-                    if producer_finished.load(Ordering::Relaxed) && queue.is_empty() {
+                    if producer_finished.load(Ordering::Relaxed) && consumer.slots() == 0 {
                         drained.store(true, Ordering::Relaxed);
                     }
                 },
@@ -137,7 +153,18 @@ impl AudioOutputPlayer {
     }
 
     pub fn free_slots(&self) -> usize {
-        self.capacity.saturating_sub(self.queue.len())
+        self.producer.lock().unwrap().slots()
+    }
+
+    pub fn clear(&self) {
+        self.clear_requested.store(true, Ordering::Release);
+        // Spin briefly for the audio thread to process the clear request
+        for _ in 0..100 {
+            if !self.clear_requested.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(Duration::from_micros(100));
+        }
     }
 
     pub fn start(&self) -> Result<(), String> {
@@ -150,8 +177,9 @@ impl AudioOutputPlayer {
     /// the DSP thread. Acceptable for the combined telemetry+audio use case where
     /// backpressure under heavy load is preferable to blocking analysis.
     pub fn push_interleaved_nonblocking(&self, interleaved_samples: &[f32]) {
+        let mut producer = self.producer.lock().unwrap();
         for &sample in interleaved_samples {
-            let _ = self.queue.push(sample); // ignore Err (full queue) → sample dropped
+            let _ = producer.push(sample); // ignore PushError (full) → sample dropped
         }
     }
 
@@ -160,16 +188,32 @@ impl AudioOutputPlayer {
         interleaved_samples: &[f32],
         cancel: &AtomicBool,
     ) -> Result<(), String> {
-        for mut sample in interleaved_samples.iter().copied() {
+        self.push_interleaved_blocking_with_cancel(interleaved_samples, || {
+            cancel.load(Ordering::Relaxed)
+        })
+    }
+
+    pub fn push_interleaved_blocking_with_cancel<F>(
+        &self,
+        interleaved_samples: &[f32],
+        is_cancelled: F,
+    ) -> Result<(), String>
+    where
+        F: Fn() -> bool,
+    {
+        let mut producer = self.producer.lock().unwrap();
+        for &sample in interleaved_samples {
             loop {
-                if cancel.load(Ordering::Relaxed) {
+                if is_cancelled() {
                     return Ok(());
                 }
-                match self.queue.push(sample) {
+                match producer.push(sample) {
                     Ok(()) => break,
-                    Err(returned) => {
-                        sample = returned;
+                    Err(_) => {
+                        // Drop the lock while sleeping to avoid blocking other operations
+                        drop(producer);
                         std::thread::sleep(BACKPRESSURE_SLEEP);
+                        producer = self.producer.lock().unwrap();
                     }
                 }
             }
@@ -179,9 +223,11 @@ impl AudioOutputPlayer {
     }
 
     pub fn mark_producer_finished(&self) {
-        self.producer_finished.store(true, Ordering::Relaxed);
-        if self.queue.is_empty() {
-            self.drained.store(true, Ordering::Relaxed);
+        self.producer_finished.store(true, Ordering::Release);
+        // Check if the buffer is already empty (all slots free = nothing to consume)
+        let producer = self.producer.lock().unwrap();
+        if producer.slots() == self.capacity {
+            self.drained.store(true, Ordering::Release);
         }
     }
 
@@ -249,6 +295,11 @@ impl MonoResampler {
         }
 
         output
+    }
+
+    pub fn reset(&mut self) {
+        self.position = 0.0;
+        self.source.clear();
     }
 }
 

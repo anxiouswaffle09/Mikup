@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 
 interface VectorscopeProps {
   /** Lissajous X/Y pairs in [-1, 1] range. Max 128 points per frame from Rust. */
@@ -10,9 +10,7 @@ interface VectorscopeProps {
 const NEON_GREEN = '#39ff14';
 const GUIDE_COLOR = 'rgba(255, 255, 255, 0.06)';
 const CROSS_COLOR = 'rgba(255, 255, 255, 0.10)';
-const BACKGROUND = '#0a0a0a';
-
-export function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
+export const Vectorscope = memo(function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -88,7 +86,7 @@ export function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
       width={size}
       height={size}
       aria-label="Vectorscope goniometer"
-      style={{ display: 'block', background: BACKGROUND }}
+      className="block bg-console-bg"
     />
   );
-}
+});

@@ -17,6 +17,15 @@ from tests._pipeline_test_utils import _install_dependency_stubs
 # tracking stub for all tests in this file.
 _install_dependency_stubs()
 
+# Pre-import numpy BEFORE any test runs. Tests use mock.patch.dict(sys.modules, ...)
+# which snapshots sys.modules on entry and restores it on exit — removing any modules
+# imported during the context. If numpy is first imported inside such a context, its
+# C extension (_multiarray_umath) loads into the process, then the sys.modules entries
+# get stripped on context exit. The next `import numpy` tries to re-initialize the
+# C extension, hitting "cannot load module more than once per process".
+# By importing here, all numpy entries exist in sys.modules before any snapshot.
+import numpy as np  # noqa: E402
+
 
 def _reload_bootstrap():
     """Remove cached src.bootstrap so its module-level code re-runs."""
@@ -34,22 +43,8 @@ class TestTorchSecurityRegistry(unittest.TestCase):
         _reload_bootstrap()
 
     def tearDown(self):
-        """Remove TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD so it doesn't leak into other tests."""
-        os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
-
-    def test_env_var_set_by_bootstrap(self):
-        """TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD must be '1' after bootstrap runs."""
-        # Remove from env so setdefault() actually sets it.
-        os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
-
-        from src import bootstrap
-        bootstrap._register_torch_safe_globals()
-
-        self.assertEqual(
-            os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"),
-            "1",
-            "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD must be '1' after bootstrap runs",
-        )
+        """Re-install stubs for isolation after each test."""
+        _install_dependency_stubs()
 
     def test_htdemucs_in_safe_globals(self):
         """HTDemucs must appear in the safe globals after bootstrap runs."""

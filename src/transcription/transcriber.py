@@ -1,9 +1,9 @@
 import logging
 import json
-import os
 import platform
 import inspect
 import tempfile
+from pathlib import Path
 
 import librosa
 import numpy as np
@@ -12,10 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Project-local model directory (populated by scripts/download_models.py)
-_MODELS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "models",
-)
+_MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
 
 def _detect_devices():
@@ -134,9 +131,9 @@ class MikupTranscriber:
         return transcription_result
 
     def _mlx_model_ref(self):
-        local_path = os.path.join(_MODELS_DIR, f"whisper-{self.model_size}-mlx")
-        if os.path.isdir(local_path):
-            return local_path
+        local_path = _MODELS_DIR / f"whisper-{self.model_size}-mlx"
+        if local_path.is_dir():
+            return str(local_path)
 
         known_models = {
             "tiny": "mlx-community/whisper-tiny-mlx",
@@ -154,6 +151,26 @@ class MikupTranscriber:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _should_skip_hallucinated_segment(
+        text,
+        seg_start,
+        seg_end,
+        no_speech_prob=None,
+        avg_logprob=None,
+    ):
+        duration = max(0.0, float(seg_end) - float(seg_start))
+        normalized_text = str(text or "").strip().lower()
+        short_noise_phrases = {"you", "you.", "you!", "thank you.", "thank you"}
+
+        if no_speech_prob is not None and float(no_speech_prob) > 0.6:
+            return True
+        if avg_logprob is not None and float(avg_logprob) < -1.0:
+            return True
+        if normalized_text in short_noise_phrases and duration < 1.5:
+            return True
+        return False
 
     @staticmethod
     def _merge_intervals(intervals, max_gap=0.15):
@@ -186,7 +203,7 @@ class MikupTranscriber:
         if y.size == 0:
             return [], y, sr
 
-        top_db = 25 if fast_mode else 30
+        top_db = 38 if fast_mode else 35
         min_speech_seconds = 0.5 if fast_mode else 0.2
         raw_intervals = librosa.effects.split(
             y,
@@ -226,6 +243,17 @@ class MikupTranscriber:
             start = self._safe_float(segment.get("start"), 0.0) + time_offset
             end = self._safe_float(segment.get("end"), (start - time_offset) + 0.5) + time_offset
             text = str(segment.get("text") or "").strip()
+            no_speech_prob = segment.get("no_speech_prob")
+            avg_logprob = segment.get("avg_logprob")
+
+            if self._should_skip_hallucinated_segment(
+                text=text,
+                seg_start=start,
+                seg_end=end,
+                no_speech_prob=no_speech_prob,
+                avg_logprob=avg_logprob,
+            ):
+                continue
 
             segments.append({
                 "start": start,
@@ -297,8 +325,9 @@ class MikupTranscriber:
                 sf.write(tmp_path, audio_input, sample_rate)
                 return transcribe_fn(tmp_path, **kwargs)
             finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                tmp = Path(tmp_path)
+                if tmp.exists():
+                    tmp.unlink()
 
     def _transcribe_with_mlx(
         self,
@@ -362,10 +391,19 @@ class MikupTranscriber:
         for seg in fw_segments:
             seg_start = float(seg.start) + offset_seconds
             seg_end = float(seg.end) + offset_seconds
+            seg_text = seg.text.strip()
+            if MikupTranscriber._should_skip_hallucinated_segment(
+                text=seg_text,
+                seg_start=seg_start,
+                seg_end=seg_end,
+                no_speech_prob=getattr(seg, "no_speech_prob", None),
+                avg_logprob=getattr(seg, "avg_logprob", None),
+            ):
+                continue
             segments.append({
                 "start": seg_start,
                 "end": seg_end,
-                "text": seg.text.strip(),
+                "text": seg_text,
                 "speaker": "Dialogue",
             })
             if seg.words:
@@ -379,7 +417,13 @@ class MikupTranscriber:
     @staticmethod
     def _call_fw_transcribe(model, audio_input, sample_rate):
         try:
-            return model.transcribe(audio_input, word_timestamps=True)
+            return model.transcribe(
+                audio_input,
+                word_timestamps=True,
+                no_speech_threshold=0.6,
+                log_prob_threshold=-1.0,
+                condition_on_previous_text=False,
+            )
         except Exception:
             if isinstance(audio_input, str):
                 raise
@@ -389,10 +433,17 @@ class MikupTranscriber:
                 tmp_path = tmp_file.name
             try:
                 sf.write(tmp_path, audio_input, sample_rate)
-                return model.transcribe(tmp_path, word_timestamps=True)
+                return model.transcribe(
+                    tmp_path,
+                    word_timestamps=True,
+                    no_speech_threshold=0.6,
+                    log_prob_threshold=-1.0,
+                    condition_on_previous_text=False,
+                )
             finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                tmp = Path(tmp_path)
+                if tmp.exists():
+                    tmp.unlink()
 
     def _transcribe_with_faster_whisper(
         self,
@@ -403,8 +454,8 @@ class MikupTranscriber:
     ):
         from faster_whisper import WhisperModel
 
-        local_path = os.path.join(_MODELS_DIR, "whisper-small")
-        model_id = local_path if os.path.exists(os.path.join(local_path, "model.bin")) else self.model_size
+        local_path = _MODELS_DIR / "whisper-small"
+        model_id = str(local_path) if (local_path / "model.bin").exists() else self.model_size
         logger.info(
             "Loading WhisperModel (%s) on %s / %s...",
             model_id, self.ct2_device, self.ct2_compute,
@@ -452,7 +503,7 @@ class MikupTranscriber:
         speech_audio = None
         speech_sr = 16000
 
-        if os.path.exists(audio_path):
+        if Path(audio_path).exists():
             speech_intervals, speech_audio, speech_sr = self._detect_speech_intervals(
                 audio_path,
                 fast_mode=fast_mode,
@@ -534,7 +585,7 @@ class MikupTranscriber:
             pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-3.1",
                 use_auth_token=hf_token,
-                cache_dir=os.path.join(_MODELS_DIR, "pyannote"),
+                cache_dir=str(_MODELS_DIR / "pyannote"),
             )
             pipeline.to(torch.device(self.torch_device))
             self._coerce_diarization_pipeline_dtype(pipeline, torch)

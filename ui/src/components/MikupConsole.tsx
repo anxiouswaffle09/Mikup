@@ -86,8 +86,7 @@ export function MikupConsole() {
 
   return (
     <div
-      className="w-full h-full overflow-y-auto rounded select-text"
-      style={{ background: '#0a0a0a', fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace" }}
+      className="w-full h-full overflow-y-auto rounded select-text bg-console-bg font-mono"
     >
       {entries.length === 0 ? (
         <div className="flex items-center justify-center h-full">

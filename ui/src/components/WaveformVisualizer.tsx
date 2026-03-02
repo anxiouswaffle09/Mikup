@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, RefreshCcw } from 'lucide-react';
@@ -13,11 +13,14 @@ interface WaveformVisualizerProps {
   onPlay?: (time: number) => void;
   onPause?: () => void;
   onSeek?: (time: number) => void;
+  /** Called repeatedly during a drag-scrub gesture (RAF-throttled). Use seekStream, not startStream. */
+  onScrub?: (time: number) => void;
   ghostStemPaths?: {
     musicPath?: string;
     effectsPath?: string;
   };
   highlightAtSecs?: number | null;
+  currentTimeSecs?: number;
 }
 
 const SEVERITY_STYLE: Record<string, { border: string; bg: string; label: string }> = {
@@ -88,15 +91,49 @@ export function WaveformVisualizer({
   onPlay,
   onPause,
   onSeek,
+  onScrub,
   ghostStemPaths,
   highlightAtSecs,
+  currentTimeSecs,
 }: WaveformVisualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const loadSequenceRef = useRef(0);
+  // Tracks a user-initiated seek target so the sync effect doesn't snap the
+  // playhead back to stale Rust DSP timestamps while the engine catches up.
+  const pendingSeekRef = useRef<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [localTime, setLocalTime] = useState(0);
+
+  // Sync internal time display to either external dsp-frame or local wavesurfer progression
+  const displayTime = currentTimeSecs ?? localTime;
+
+  // Effect to sync wavesurfer seeker with external Rust timestamp
+  useEffect(() => {
+    const ws = wavesurferRef.current;
+    if (!ws || currentTimeSecs == null || !isReady) return;
+
+    // Suppress corrections while the Rust engine is still catching up to a
+    // user-initiated seek. Stale DSP frames arriving before the engine reaches
+    // the seek target would otherwise snap the playhead back.
+    if (pendingSeekRef.current !== null) {
+      // Stay gated until the Rust timestamp is within 0.5s of our target.
+      // Math.abs handles both forward and backward seeks.
+      if (Math.abs(currentTimeSecs - pendingSeekRef.current) > 0.5) return;
+      pendingSeekRef.current = null; // Engine has caught up, open the gate
+    }
+
+    // Only sync if they've drifted by more than 100ms to avoid jitter
+    const wsTime = ws.getCurrentTime();
+    if (Math.abs(wsTime - currentTimeSecs) > 0.1) {
+      const dur = ws.getDuration();
+      if (dur > 0) {
+        // Use setTime for precise seeking without triggering an interaction loop
+        ws.setTime(currentTimeSecs);
+      }
+    }
+  }, [currentTimeSecs, isReady]);
 
   // Ghost wavesurfer refs
   const ghostWsRefs = useRef<(WaveSurfer | null)[]>([null, null, null, null]);
@@ -107,22 +144,27 @@ export function WaveformVisualizer({
   const onPlayRef = useRef(onPlay);
   const onPauseRef = useRef(onPause);
   const onSeekRef = useRef(onSeek);
+  const onScrubRef = useRef(onScrub);
   // Sync to latest props before any effects run this render.
   useLayoutEffect(() => {
     onPlayRef.current = onPlay;
     onPauseRef.current = onPause;
     onSeekRef.current = onSeek;
+    onScrubRef.current = onScrub;
   });
 
-  const localSources = useMemo(() => {
-    const uniqueSources = new Set<string>();
-    for (const source of audioSources ?? []) {
-      const trimmed = source.trim();
-      if (!trimmed || /^https?:\/\//i.test(trimmed)) continue;
-      uniqueSources.add(trimmed);
-    }
-    return Array.from(uniqueSources);
-  }, [audioSources]);
+  // Drag-scrub tracking: isDraggingRef gates whether interaction events route to
+  // onScrub (throttled, no state reset) vs onSeek (start/restart stream).
+  const isDraggingRef = useRef(false);
+  const scrubRafRef = useRef<number | null>(null);
+
+  const localSourceSet = new Set<string>();
+  for (const source of audioSources ?? []) {
+    const trimmed = source.trim();
+    if (!trimmed || /^https?:\/\//i.test(trimmed)) continue;
+    localSourceSet.add(trimmed);
+  }
+  const localSources = Array.from(localSourceSet);
 
   const effectiveDuration = duration > 0 ? duration : 10;
 
@@ -143,20 +185,18 @@ export function WaveformVisualizer({
     };
   });
 
-  const eventMarkers = useMemo(() => {
-    return (diagnosticEvents ?? []).map((evt, index) => {
-      const startSecs = clamp(evt.timestamp_secs, 0, effectiveDuration);
-      const durationSecs = clamp(evt.duration_secs, 0, effectiveDuration);
-      const leftPercent = (startSecs / effectiveDuration) * 100;
-      const widthPercent = clamp(
-        (durationSecs / effectiveDuration) * 100,
-        0.2,
-        100 - leftPercent,
-      );
-      const style = SEVERITY_STYLE[evt.severity] ?? SEVERITY_STYLE.LOW;
-      return { key: `${evt.timestamp_secs}-${evt.event_type}-${index}`, leftPercent, widthPercent, style, evt };
-    });
-  }, [diagnosticEvents, effectiveDuration]);
+  const eventMarkers = (diagnosticEvents ?? []).map((evt, index) => {
+    const startSecs = clamp(evt.timestamp_secs, 0, effectiveDuration);
+    const durationSecs = clamp(evt.duration_secs, 0, effectiveDuration);
+    const leftPercent = (startSecs / effectiveDuration) * 100;
+    const widthPercent = clamp(
+      (durationSecs / effectiveDuration) * 100,
+      0.2,
+      100 - leftPercent,
+    );
+    const style = SEVERITY_STYLE[evt.severity] ?? SEVERITY_STYLE.LOW;
+    return { key: `${evt.timestamp_secs}-${evt.event_type}-${index}`, leftPercent, widthPercent, style, evt };
+  });
 
   // Main wavesurfer setup
   useEffect(() => {
@@ -174,7 +214,6 @@ export function WaveformVisualizer({
       height: 140,
       hideScrollbar: true,
       normalize: true,
-      pixelRatio: 1,
     });
 
     // Mute: Rust cpal handles audio output; wavesurfer is visual-only.
@@ -188,21 +227,36 @@ export function WaveformVisualizer({
       setIsPlaying(false);
       onPauseRef.current?.();
     });
-    ws.on('ready', () => setIsReady(true));
+    ws.on('ready', () => {
+      console.log('[mikup] WaveSurfer Ready');
+      setIsReady(true);
+    });
     ws.on('timeupdate', (time) => {
-      setCurrentTime(time);
+      setLocalTime(time);
     });
     ws.on('interaction', () => {
-      onSeekRef.current?.(ws.getCurrentTime());
-      // Sync ghosts on seek interaction
       const t = ws.getCurrentTime();
+      // Always gate stale Rust-frame corrections regardless of gesture type.
+      pendingSeekRef.current = t;
+      // Sync ghost waveforms to the new position.
       const dur = ws.getDuration();
       if (dur > 0) {
         for (const ghostWs of ghostWsRefs.current) {
-          if (ghostWs) {
-            ghostWs.seekTo(t / dur);
-          }
+          if (ghostWs) ghostWs.seekTo(t / dur);
         }
+      }
+      if (isDraggingRef.current) {
+        // During a drag: route through onScrub (seekStream) — RAF-throttled so we
+        // don't flood the Tauri bridge faster than the renderer can tick.
+        if (scrubRafRef.current !== null) cancelAnimationFrame(scrubRafRef.current);
+        const capturedT = t;
+        scrubRafRef.current = requestAnimationFrame(() => {
+          scrubRafRef.current = null;
+          onScrubRef.current?.(capturedT);
+        });
+      } else {
+        // Single click (non-drag): delegate to onSeek which starts/restarts the stream.
+        onSeekRef.current?.(t);
       }
     });
 
@@ -221,7 +275,32 @@ export function WaveformVisualizer({
 
     wavesurferRef.current = ws;
 
+    // Capture-phase pointerdown fires BEFORE WaveSurfer's bubble-phase handler so
+    // isDraggingRef is already true when the first `interaction` event fires.
+    const container = containerRef.current!;
+    const onPointerDown = () => { isDraggingRef.current = true; };
+    const onPointerUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      // Cancel any pending RAF scrub tick.
+      if (scrubRafRef.current !== null) {
+        cancelAnimationFrame(scrubRafRef.current);
+        scrubRafRef.current = null;
+      }
+      // Commit the final scrub position by delegating to onSeek (starts/re-anchors stream).
+      const finalT = ws.getCurrentTime();
+      onSeekRef.current?.(finalT);
+    };
+    container.addEventListener('pointerdown', onPointerDown, { capture: true });
+    document.addEventListener('pointerup', onPointerUp);
+
     return () => {
+      container.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      document.removeEventListener('pointerup', onPointerUp);
+      if (scrubRafRef.current !== null) {
+        cancelAnimationFrame(scrubRafRef.current);
+        scrubRafRef.current = null;
+      }
       ws.destroy();
       wavesurferRef.current = null;
     };
@@ -263,7 +342,6 @@ export function WaveformVisualizer({
         hideScrollbar: true,
         normalize: true,
         interact: false,
-        pixelRatio: 1,
       });
 
       ghostWs.setVolume(0);
@@ -287,7 +365,10 @@ export function WaveformVisualizer({
     const loadSequence = ++loadSequenceRef.current;
 
     const loadNextSource = (sourceIndex: number) => {
-      if (sourceIndex >= localSources.length) return;
+      if (sourceIndex >= localSources.length) {
+        console.warn('[mikup] WaveSurfer: All audio sources failed to load.');
+        return;
+      }
 
       const selectedSource = toWaveSurferSource(localSources[sourceIndex], outputDir);
 
@@ -297,6 +378,7 @@ export function WaveformVisualizer({
         if (handled) return;
         handled = true;
         if (loadSequence !== loadSequenceRef.current) return;
+        setIsReady(true);
       });
 
       wavesurfer.once('error', (error) => {
@@ -315,7 +397,16 @@ export function WaveformVisualizer({
     loadNextSource(0);
   }, [localSources, outputDir]);
 
-  const togglePlay = () => wavesurferRef.current?.playPause();
+  const togglePlay = () => {
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+
+    if (ws.isPlaying()) {
+      ws.pause();
+    } else {
+      ws.play();
+    }
+  };
   const handleReset = () => {
     wavesurferRef.current?.stop();
     wavesurferRef.current?.seekTo(0);
@@ -334,8 +425,8 @@ export function WaveformVisualizer({
               className="absolute top-0 bottom-0 w-0.5 pointer-events-none z-20"
               style={{
                 left: `${Math.max(0, Math.min(100, (highlightAtSecs / effectiveDuration) * 100))}%`,
-                backgroundColor: 'oklch(0.75 0.16 65)',
-                boxShadow: '0 0 8px oklch(0.75 0.16 65)',
+                backgroundColor: 'var(--color-effects)',
+                boxShadow: '0 0 8px var(--color-effects)',
                 animation: 'flare-fade 1.5s ease-out forwards',
               }}
             />
@@ -388,19 +479,18 @@ export function WaveformVisualizer({
 
         {/* Ghost waveforms */}
         {ghostStemPaths && (
-          <div className="flex flex-col gap-0.5 mt-1 absolute left-0 right-0" style={{ top: 'calc(100% - 0.25rem)' }}>
+          <div className="flex flex-col gap-0.5 mt-1 absolute left-0 right-0 top-[calc(100%-0.25rem)]">
             {GHOST_STEMS.map(({ key, label, color }, i) => {
               const path = ghostStemPaths[key];
               if (!path) return null;
               return (
-                <div key={key} className="relative" style={{ opacity: 0.4 }}>
+                <div key={key} className="relative opacity-40">
                   <div className="absolute left-0 top-0 z-10 px-1">
                     <span className="text-[8px] font-bold" style={{ color }}>{label}</span>
                   </div>
                   <div
                     ref={(el) => { ghostContainerRefs.current[i] = el; }}
-                    className="w-full"
-                    style={{ height: '30px' }}
+                    className="w-full h-[30px]"
                   />
                 </div>
               );
@@ -437,7 +527,7 @@ export function WaveformVisualizer({
         <div className="flex items-center gap-10">
           <div className="flex flex-col items-end">
             <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Elapsed</span>
-            <span className="text-sm text-text-main font-bold tabular-nums">{formatTime(currentTime)}</span>
+            <span className="text-sm text-text-main font-bold tabular-nums">{formatTime(displayTime)}</span>
           </div>
           <div className="flex flex-col items-end">
             <span className="text-[10px] text-text-muted uppercase font-bold tracking-wider mb-1">Events</span>

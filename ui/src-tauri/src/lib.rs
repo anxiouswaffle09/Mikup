@@ -14,6 +14,8 @@ use crate::dsp::scanner::{OfflineLoudnessScanner, ScanEvent};
 use crate::dsp::spatial::SpatialAnalyzer;
 use crate::dsp::spectral::SpectralAnalyzer;
 use crate::dsp::{shared_default_stem_states, MikupAudioDecoder, StemState};
+use specta_typescript::{BigIntExportBehavior, Typescript};
+use tauri_specta::{Builder, collect_commands};
 
 pub mod dsp;
 
@@ -24,6 +26,10 @@ const LISSAJOUS_MAX_POINTS: usize = 128;
 /// Minimum wall-clock interval between emitted frames; guards against render-cycle flooding
 /// if a caller ever uses a smaller frame size than the default 2048/48kHz (~42 ms/frame).
 const MIN_EMIT_INTERVAL_MS: u64 = 16;
+const NO_PENDING_SEEK_BITS: u64 = u64::MAX;
+
+struct StreamGenerationState(Arc<AtomicU64>);
+struct PendingSeekState(Arc<AtomicU64>);
 
 #[derive(Clone, serde::Serialize)]
 struct ProgressPayload {
@@ -34,7 +40,7 @@ struct ProgressPayload {
 
 /// Per-frame payload streamed via the `dsp-frame` Tauri event.
 /// All float fields use f32 for compact JSON; the frontend rounds as needed.
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, specta::Type)]
 struct DspFramePayload {
     /// Monotonic counter (1-based) of frames processed so far.
     frame_index: u64,
@@ -81,7 +87,7 @@ struct DspCompletePayload {
     effects_loudness_range_lu: f32,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 struct AppConfig {
     default_projects_dir: String,
     #[serde(default)]
@@ -97,13 +103,13 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, specta::Type)]
 struct WorkspaceSetupResult {
     workspace_dir: String,
     copied_input_path: String,
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, specta::Type)]
 struct DiskInfo {
     total_bytes: u64,
     available_bytes: u64,
@@ -111,6 +117,7 @@ struct DiskInfo {
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
     use sysinfo::Disks;
 
@@ -144,6 +151,27 @@ async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
         }
         None => Err(format!("No disk found for path: {path}")),
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn open_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let status = std::process::Command::new("explorer")
+        .arg(&path)
+        .status();
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("open")
+        .arg(&path)
+        .status();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let status = std::process::Command::new("xdg-open")
+        .arg(&path)
+        .status();
+
+    status
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open path: {e}"))
 }
 
 fn contains_unsafe_shell_tokens(value: &str) -> bool {
@@ -327,6 +355,7 @@ async fn run_python_pipeline(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let project_root =
         find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
@@ -406,6 +435,7 @@ async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String>
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_app_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
     let project_root =
         find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
@@ -424,6 +454,7 @@ async fn get_app_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn set_default_projects_dir(
     app: tauri::AppHandle,
     path: String,
@@ -455,6 +486,7 @@ async fn set_default_projects_dir(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn setup_project_workspace(
     input_path: String,
     base_directory: String,
@@ -504,6 +536,7 @@ async fn setup_project_workspace(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn process_audio(
     app: tauri::AppHandle,
     input_path: String,
@@ -533,6 +566,7 @@ async fn process_audio(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn run_pipeline_stage(
     app: tauri::AppHandle,
     input_path: String,
@@ -581,6 +615,7 @@ async fn run_pipeline_stage(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn read_output_payload(output_directory: String) -> Result<String, String> {
     let (_output_directory_path, _output_directory_arg, output_path, _output_path_arg) =
         resolve_output_paths(&output_directory)?;
@@ -590,6 +625,7 @@ async fn read_output_payload(output_directory: String) -> Result<String, String>
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_stems(output_directory: String) -> Result<serde_json::Value, String> {
     let stems_path = resolve_data_artifact_path(&output_directory, "stems.json")?;
 
@@ -605,6 +641,7 @@ async fn get_stems(output_directory: String) -> Result<serde_json::Value, String
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
     let state_path = resolve_data_artifact_path(&output_directory, "stage_state.json")?;
 
@@ -614,14 +651,12 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
         Err(e) => return Err(e.to_string()),
     };
 
-    let state: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return Ok(0),
+    let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Ok(0);
     };
 
-    let stages_map = match state.get("stages").and_then(|s| s.as_object()) {
-        Some(m) => m,
-        None => return Ok(0),
+    let Some(stages_map) = state.get("stages").and_then(|s| s.as_object()) else {
+        return Ok(0);
     };
 
     let canonical_order = [
@@ -652,6 +687,7 @@ async fn get_pipeline_state(output_directory: String) -> Result<u32, String> {
 /// Written to `{output_directory}/data/dsp_metrics.json` so the Python backend can
 /// read it during Stage 5 (AI Director report generation).
 #[tauri::command]
+#[specta::specta]
 async fn write_dsp_metrics(
     output_directory: String,
     dialogue_integrated_lufs: f32,
@@ -692,6 +728,7 @@ async fn write_dsp_metrics(
 /// `payload.metrics`. We additionally persist compatibility flat fields in `dsp_metrics.json`
 /// so existing Stage 5 readers can continue reading integrated LUFS values.
 #[tauri::command]
+#[specta::specta]
 async fn generate_static_map(
     app: tauri::AppHandle,
     output_directory: String,
@@ -827,6 +864,7 @@ async fn generate_static_map(
 /// Called by the frontend after the Rust `stream_audio_metrics` stream ends naturally.
 /// This allows `get_pipeline_state` to correctly report 3 completed stages on resume.
 #[tauri::command]
+#[specta::specta]
 async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
     let state_path = resolve_data_artifact_path(&output_directory, "stage_state.json")?;
 
@@ -886,6 +924,7 @@ async fn clear_dsp_stage_state(output_directory: &str) -> Result<(), String> {
 /// When redoing `separation` or `transcription`, DSP artifacts are also cleared since DSP runs
 /// after both in the UI pipeline order: separation → transcription → DSP → semantics → director.
 #[tauri::command]
+#[specta::specta]
 async fn redo_pipeline_stage(
     app: tauri::AppHandle,
     output_directory: String,
@@ -948,14 +987,28 @@ async fn redo_pipeline_stage(
 
 /// Signal a running `stream_audio_metrics` call to stop after the current frame.
 #[tauri::command]
-async fn stop_dsp_stream(stream_generation: tauri::State<'_, Arc<AtomicU64>>) -> Result<(), String> {
+#[specta::specta]
+async fn stop_dsp_stream(
+    stream_generation: tauri::State<'_, StreamGenerationState>,
+) -> Result<(), String> {
     // Increment the generation counter — the current blocking task will see its captured
     // generation no longer matches and will exit on the next loop iteration.
-    stream_generation.fetch_add(1, Ordering::SeqCst);
+    stream_generation.0.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 
 #[tauri::command]
+#[specta::specta]
+async fn seek_audio_stream(
+    pending_seek: tauri::State<'_, PendingSeekState>,
+    time: f64,
+) -> Result<(), String> {
+    pending_seek.0.store(time.to_bits(), Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 async fn set_stem_state(
     stem_states: tauri::State<'_, Arc<RwLock<HashMap<String, StemState>>>>,
     stem_id: String,
@@ -979,21 +1032,25 @@ async fn set_stem_state(
 
 /// Stream DSP metrics from the 3-stem WAV set (DX, Music, Effects) to the frontend.
 ///
-/// Emits:
-/// - `dsp-frame`    — `DspFramePayload` at up to 60 FPS during processing.
-/// - `dsp-complete` — `DspCompletePayload` once when the file finishes naturally.
-/// - `dsp-error`    — `String` if a decode or analysis error occurs.
+/// Sends:
+/// - `channel`      — `DspFramePayload` at up to 60 FPS during processing (IPC channel).
+/// - `dsp-complete` — `DspCompletePayload` once when the file finishes naturally (global event).
+/// - `dsp-error`    — `String` if a decode or analysis error occurs (global event).
 ///
 /// Calling this command while a previous stream is in progress automatically cancels
 /// the previous stream (the shared `cancel_flag` is reset to `false` then re-used).
 #[tauri::command]
+#[specta::specta]
 async fn stream_audio_metrics(
+    channel: tauri::ipc::Channel<DspFramePayload>,
     app: tauri::AppHandle,
-    stream_generation: tauri::State<'_, Arc<AtomicU64>>,
+    stream_generation: tauri::State<'_, StreamGenerationState>,
+    pending_seek: tauri::State<'_, PendingSeekState>,
     stem_states: tauri::State<'_, Arc<RwLock<HashMap<String, StemState>>>>,
     dx_path: String,
     music_path: String,
     effects_path: String,
+    source_path: String,
     start_time: f64,
 ) -> Result<(), String> {
     ensure_safe_argument("DX path", &dx_path)?;
@@ -1007,15 +1064,24 @@ async fn stream_audio_metrics(
     // of the counter and its own captured generation value. When we increment here the
     // old task sees a mismatch on the next loop iteration and exits cleanly — no
     // shared-flag reset race, no need to await the old task's handle.
-    let my_gen = stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let stream_gen_arc = Arc::clone(&*stream_generation);
+    let my_gen = stream_generation.0.fetch_add(1, Ordering::SeqCst) + 1;
+    let stream_gen_arc = Arc::clone(&stream_generation.0);
+    // Clear any stale pending seek from a previous stream instance.
+    pending_seek.0.store(NO_PENDING_SEEK_BITS, Ordering::SeqCst);
+    let pending_seek_arc = Arc::clone(&pending_seek.0);
     let shared_stem_states = Arc::clone(&*stem_states);
 
     tokio::task::spawn_blocking(move || {
+        let source_opt: Option<&str> = if source_path.trim().is_empty() {
+            None
+        } else {
+            Some(source_path.as_str())
+        };
         let mut decoder = MikupAudioDecoder::new(
             &dx_path,
             &music_path,
             &effects_path,
+            source_opt,
             shared_stem_states,
             DSP_SAMPLE_RATE,
             DSP_FRAME_SIZE,
@@ -1058,6 +1124,35 @@ async fn stream_audio_metrics(
                 break;
             }
 
+            let seek_bits = pending_seek_arc.load(Ordering::SeqCst);
+            if seek_bits != NO_PENDING_SEEK_BITS
+                && pending_seek_arc
+                    .compare_exchange(
+                        seek_bits,
+                        NO_PENDING_SEEK_BITS,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    )
+                    .is_ok()
+            {
+                let time_secs = f64::from_bits(seek_bits);
+                decoder
+                    .seek(time_secs as f32)
+                    .map_err(|e| format!("Failed to seek decoder: {e}"))?;
+                if let Some(ref player) = audio_player {
+                    player.clear();
+                }
+                if let Some(ref mut resampler) = audio_resampler {
+                    resampler.reset();
+                }
+                loudness.reset();
+                spectral.reset();
+                frame_index = ((time_secs.max(0.0) * sample_rate as f64) / frame_size as f64)
+                    .floor() as u64;
+                last_emit = None;
+                continue;
+            }
+
             let frame = match decoder.read_frame() {
                 Ok(Some(f)) => f,
                 Ok(None) => {
@@ -1083,17 +1178,22 @@ async fn stream_audio_metrics(
             let spatial_metrics = spatial.process_frame(&frame);
             let spectral_metrics = spectral.process_frame(&frame);
 
-            // Push mixed audio (dialogue + background) to cpal output player.
-            if let (Some(ref player), Some(ref mut resampler)) =
+            // Push original source audio to cpal output player for high-fidelity playback.
+            // Falls back to the summed stem mix when no source decoder was opened.
+            if let (Some(player), Some(resampler)) =
                 (&audio_player, &mut audio_resampler)
             {
-                let mixed: Vec<f32> = frame
-                    .dialogue_raw
-                    .iter()
-                    .zip(frame.background_raw.iter())
-                    .map(|(d, b)| (d + b).clamp(-1.0, 1.0))
-                    .collect();
-                let resampled = resampler.process(&mixed);
+                let playback: Vec<f32> = if !frame.source_raw.is_empty() {
+                    frame.source_raw.clone()
+                } else {
+                    frame
+                        .dialogue_raw
+                        .iter()
+                        .zip(frame.background_raw.iter())
+                        .map(|(d, b)| (d + b).clamp(-1.0, 1.0))
+                        .collect()
+                };
+                let resampled = resampler.process(&playback);
                 let interleaved = interleave_mono(&resampled, player.channels());
                 player.push_interleaved_blocking_with_cancel(&interleaved, || {
                     stream_gen_arc.load(Ordering::Relaxed) != my_gen
@@ -1147,7 +1247,7 @@ async fn stream_audio_metrics(
                 snr_db: spectral_metrics.snr_db,
             };
 
-            let _ = app.emit("dsp-frame", payload);
+            let _ = channel.send(payload);
         }
 
         if let Some(ref player) = audio_player {
@@ -1212,6 +1312,7 @@ struct AgentActionPayload {
 /// `WORKSPACE_DIR` environment variable so Python's `_is_path_safe` can correctly
 /// sandbox file access to the project workspace.
 #[tauri::command]
+#[specta::specta]
 async fn send_agent_message(
     app: tauri::AppHandle,
     text: String,
@@ -1399,14 +1500,14 @@ mod lib_tests {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .manage(Arc::new(AtomicU64::new(0)))
-        .manage(shared_default_stem_states())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
+/// Exports TypeScript bindings for all Tauri commands to `ui/src/bindings.ts`.
+/// Run with: `cargo test export_ts_bindings -- --ignored`
+#[test]
+#[ignore]
+fn export_ts_bindings() {
+    let out = "../src/bindings.ts";
+    Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
             process_audio,
             run_pipeline_stage,
             read_output_payload,
@@ -1420,12 +1521,87 @@ pub fn run() {
             generate_static_map,
             stream_audio_metrics,
             stop_dsp_stream,
+            seek_audio_stream,
             set_stem_state,
             mark_dsp_complete,
             redo_pipeline_stage,
             send_agent_message,
             get_disk_info,
+            open_path,
         ])
+        .export(Typescript::default().bigint(BigIntExportBehavior::Number), out)
+        .expect("Failed to export TypeScript bindings");
+    // Prepend @ts-nocheck so TypeScript strict checks ignore the generated file.
+    let existing = std::fs::read_to_string(out).expect("Failed to read bindings.ts");
+    std::fs::write(out, format!("// @ts-nocheck\n{existing}"))
+        .expect("Failed to prepend @ts-nocheck to bindings.ts");
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(debug_assertions)]
+    {
+        Builder::<tauri::Wry>::new()
+            .commands(collect_commands![
+                process_audio,
+                run_pipeline_stage,
+                read_output_payload,
+                get_stems,
+                get_history,
+                get_app_config,
+                set_default_projects_dir,
+                setup_project_workspace,
+                get_pipeline_state,
+                write_dsp_metrics,
+                generate_static_map,
+                stream_audio_metrics,
+                stop_dsp_stream,
+                seek_audio_stream,
+                set_stem_state,
+                mark_dsp_complete,
+                redo_pipeline_stage,
+                send_agent_message,
+                get_disk_info,
+                open_path,
+            ])
+            .export(Typescript::default().bigint(BigIntExportBehavior::Number), "../src/bindings.ts")
+            .expect("Failed to export TypeScript bindings");
+        // Prepend @ts-nocheck so TypeScript strict checks ignore the generated file.
+        if let Ok(existing) = std::fs::read_to_string("../src/bindings.ts") {
+            let _ = std::fs::write("../src/bindings.ts", format!("// @ts-nocheck\n{existing}"));
+        }
+    }
+
+    let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+        process_audio,
+        run_pipeline_stage,
+        read_output_payload,
+        get_stems,
+        get_history,
+        get_app_config,
+        set_default_projects_dir,
+        setup_project_workspace,
+        get_pipeline_state,
+        write_dsp_metrics,
+        generate_static_map,
+        stream_audio_metrics,
+        stop_dsp_stream,
+        seek_audio_stream,
+        set_stem_state,
+        mark_dsp_complete,
+        redo_pipeline_stage,
+        send_agent_message,
+        get_disk_info,
+        open_path,
+    ]);
+
+    tauri::Builder::default()
+        .manage(StreamGenerationState(Arc::new(AtomicU64::new(0))))
+        .manage(PendingSeekState(Arc::new(AtomicU64::new(NO_PENDING_SEEK_BITS))))
+        .manage(shared_default_stem_states())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(builder.invoke_handler())
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

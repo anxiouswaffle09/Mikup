@@ -1,0 +1,37 @@
+{
+  "project": "Mikup",
+  "version": "1.2.0-alpha",
+  "last_synced": "2026-03-02",
+  "tech_stack_standard": "March 2026 Stable",
+  "engines": {
+    "node": ">=22.0.0",
+    "python": "3.14.0-t (Free-threaded)",
+    "rust": "1.86.0"
+  },
+  "frontend": {
+    "react": "19.1.0",
+    "tailwindcss": "4.2.1",
+    "vite": "7.3.1",
+    "tauri_client": "2.1.0"
+  },
+  "backend_desktop": {
+    "tauri_core": "2.10.4",
+    "cpal": "0.15.3",
+    "rodio": "0.20.1",
+    "rtrb": "0.3.1"
+  },
+  "backend_ml": {
+    "pytorch": "2.10.0",
+    "numpy": "2.4.2",
+    "audio-separator": "0.41.1",
+    "google-genai": "1.65.0",
+    "whisperx": "3.8.1"
+  },
+  "ml_models": {
+    "dialogue_separator": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+    "cinematic_separator": "h_demucs_cdx23",
+    "transcription": "openai/whisper-small",
+    "alignment": "WAV2VEC2_ASR_LARGE_LV60K_960H",
+    "semantic_tagger": "laion/clap-htsat-fused"
+  }
+}

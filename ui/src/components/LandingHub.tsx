@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FileAudio, ChevronRight, Search } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { commands } from '@bindings';
 import { parseHistoryEntry } from '../types';
 import type { AppConfig, HistoryEntry, MikupPayload } from '../types';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -30,9 +30,11 @@ export const LandingHub: React.FC<LandingHubProps> = ({
 
   const loadHistory = async () => {
     try {
-      const data = await invoke<unknown[]>('get_history');
+      const result = await commands.getHistory();
+      if (result.status === "error") throw new Error(result.error);
+      const data = result.data;
       const parsed = Array.isArray(data)
-        ? data.map(parseHistoryEntry).filter((e): e is HistoryEntry => e !== null)
+        ? (data as unknown[]).map(parseHistoryEntry).filter((e): e is HistoryEntry => e !== null)
         : [];
       setHistory(parsed);
     } catch (err) {
@@ -160,8 +162,7 @@ export const LandingHub: React.FC<LandingHubProps> = ({
             className="flex items-center gap-1.5 text-[10px] font-mono text-text-muted hover:text-accent transition-colors select-none"
           >
             <span
-              className="transition-transform duration-150"
-              style={{ display: 'inline-block', transform: showAdvanced ? 'rotate(90deg)' : 'none' }}
+              className={`inline-block transition-transform duration-150 ${showAdvanced ? 'rotate-90' : ''}`}
             >
               ▸
             </span>
