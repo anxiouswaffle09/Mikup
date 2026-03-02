@@ -45,6 +45,7 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
 Run the pipeline on a raw audio file:
 ```bash
 python src/main.py --input "path/to/audio/file.wav"
+# Results appear in Projects/<stem>_<YYYYMMDD_HHMMSS>/
 ```
 
 ## Directory Structure
@@ -53,4 +54,5 @@ python src/main.py --input "path/to/audio/file.wav"
 - `src/transcription`: WhisperX and Pyannote integration
 - `src/semantics`: CLAP semantic audio tagging
 - `src/llm`: The AI Director (Gemini/Claude integration)
-- `data/`: Raw audio, processed stems, and output reports
+- `data/`: Global state only — `history.json` (project index) and `config.json` (settings)
+- `Projects/`: Per-run workspaces auto-created by the pipeline (stems, payload, report)
