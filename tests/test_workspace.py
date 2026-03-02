@@ -1,9 +1,7 @@
 # tests/test_workspace.py
-import importlib
 import json
 import re
 import sys
-import tempfile
 import types
 from pathlib import Path
 
