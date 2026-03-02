@@ -34,9 +34,32 @@ def _install_dependency_stubs() -> None:
     class _Backends:
         mps = _Mps()
 
+    # Stateful serialization stub so get_safe_globals() reflects what
+    # _register_torch_safe_globals() registered via add_safe_globals().
+    _safe_globals_registry: list = []
+
+    def _add_safe_globals(classes: list) -> None:
+        _safe_globals_registry.extend(classes)
+
+    def _get_safe_globals() -> list:
+        return list(_safe_globals_registry)
+
     torch_mod.cuda = _Cuda()
     torch_mod.backends = _Backends()
-    torch_mod.serialization = types.SimpleNamespace(add_safe_globals=lambda x: None)
+    torch_mod.serialization = types.SimpleNamespace(
+        add_safe_globals=_add_safe_globals,
+        get_safe_globals=_get_safe_globals,
+    )
+
+    # torch.amp submodule — satisfies `import torch.amp.autocast_mode` in
+    # audio_separator.separator (line 21 of that file).
+    amp_mod = types.ModuleType("torch.amp")
+    autocast_mod = types.ModuleType("torch.amp.autocast_mode")
+    amp_mod.autocast_mode = autocast_mod
+    torch_mod.amp = amp_mod
+    sys.modules["torch.amp"] = amp_mod
+    sys.modules["torch.amp.autocast_mode"] = autocast_mod
+
     sys.modules["torch"] = torch_mod
 
     separator_mod = types.ModuleType("src.ingestion.separator")
