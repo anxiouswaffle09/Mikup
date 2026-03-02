@@ -23,7 +23,7 @@ use symphonia::default::{get_codecs, get_probe};
 const DEFAULT_TARGET_SAMPLE_RATE: u32 = 48_000;
 const DEFAULT_FRAME_SIZE: usize = 2048;
 const STEM_FADE_MS: f32 = 5.0;
-const STEM_IDS: [&str; 5] = ["dx", "music", "sfx", "foley", "ambience"];
+const STEM_IDS: [&str; 3] = ["dx", "music", "effects"];
 
 #[derive(Debug)]
 pub enum AudioDecodeError {
@@ -127,9 +127,7 @@ pub struct StemState {
 pub struct AudioFrameStemFlags {
     pub dx: StemState,
     pub music: StemState,
-    pub foley: StemState,
-    pub sfx: StemState,
-    pub ambience: StemState,
+    pub effects: StemState,
 }
 
 impl AudioFrameStemFlags {
@@ -137,18 +135,12 @@ impl AudioFrameStemFlags {
         Self {
             dx: *map.get("dx").unwrap_or(&StemState::default()),
             music: *map.get("music").unwrap_or(&StemState::default()),
-            sfx: *map.get("sfx").unwrap_or(&StemState::default()),
-            foley: *map.get("foley").unwrap_or(&StemState::default()),
-            ambience: *map.get("ambience").unwrap_or(&StemState::default()),
+            effects: *map.get("effects").unwrap_or(&StemState::default()),
         }
     }
 
     fn any_solo(self) -> bool {
-        self.dx.is_solo
-            || self.music.is_solo
-            || self.sfx.is_solo
-            || self.foley.is_solo
-            || self.ambience.is_solo
+        self.dx.is_solo || self.music.is_solo || self.effects.is_solo
     }
 }
 
@@ -169,9 +161,7 @@ pub fn shared_default_stem_states() -> SharedStemStates {
 struct StemRuntimeGains {
     dx: f32,
     music: f32,
-    foley: f32,
-    sfx: f32,
-    ambience: f32,
+    effects: f32,
 }
 
 impl Default for StemRuntimeGains {
@@ -179,9 +169,7 @@ impl Default for StemRuntimeGains {
         Self {
             dx: 1.0,
             music: 1.0,
-            foley: 1.0,
-            sfx: 1.0,
-            ambience: 1.0,
+            effects: 1.0,
         }
     }
 }
@@ -190,9 +178,7 @@ impl Default for StemRuntimeGains {
 struct StemTargetGains {
     dx: f32,
     music: f32,
-    foley: f32,
-    sfx: f32,
-    ambience: f32,
+    effects: f32,
 }
 
 impl StemTargetGains {
@@ -215,9 +201,7 @@ impl StemTargetGains {
         Self {
             dx: gain_for(flags.dx),
             music: gain_for(flags.music),
-            foley: gain_for(flags.foley),
-            sfx: gain_for(flags.sfx),
-            ambience: gain_for(flags.ambience),
+            effects: gain_for(flags.effects),
         }
     }
 }
@@ -226,20 +210,22 @@ impl StemTargetGains {
 pub struct AudioFrameStaticLoudness {
     pub dialogue_momentary_lufs: f32,
     pub dialogue_short_term_lufs: f32,
-    pub background_momentary_lufs: f32,
-    pub background_short_term_lufs: f32,
+    pub music_momentary_lufs: f32,
+    pub music_short_term_lufs: f32,
+    pub effects_momentary_lufs: f32,
+    pub effects_short_term_lufs: f32,
 }
 
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
     pub sample_rate: u32,
     pub dialogue_raw: Vec<f32>,
+    /// Summed music+effects mix — retained for spatial/spectral analysis.
     pub background_raw: Vec<f32>,
-    pub dx_raw: Vec<f32>,
+    /// Individual gain-applied music stem — used by LoudnessAnalyzer.
     pub music_raw: Vec<f32>,
-    pub foley_raw: Vec<f32>,
-    pub sfx_raw: Vec<f32>,
-    pub ambience_raw: Vec<f32>,
+    /// Individual gain-applied effects stem — used by LoudnessAnalyzer.
+    pub effects_raw: Vec<f32>,
     pub stem_flags: AudioFrameStemFlags,
     pub static_loudness: Option<AudioFrameStaticLoudness>,
 }
@@ -250,11 +236,8 @@ impl Default for AudioFrame {
             sample_rate: 0,
             dialogue_raw: Vec::new(),
             background_raw: Vec::new(),
-            dx_raw: Vec::new(),
             music_raw: Vec::new(),
-            foley_raw: Vec::new(),
-            sfx_raw: Vec::new(),
-            ambience_raw: Vec::new(),
+            effects_raw: Vec::new(),
             stem_flags: AudioFrameStemFlags::default(),
             static_loudness: None,
         }
@@ -584,9 +567,7 @@ fn looks_like_wav(path: &Path) -> Result<bool, AudioDecodeError> {
 pub struct MikupAudioDecoder {
     dx: StemStreamDecoder,
     music: StemStreamDecoder,
-    foley: StemStreamDecoder,
-    sfx: StemStreamDecoder,
-    ambience: StemStreamDecoder,
+    effects: StemStreamDecoder,
     frame_size: usize,
     target_sample_rate: u32,
     stem_states: SharedStemStates,
@@ -601,9 +582,7 @@ impl MikupAudioDecoder {
     pub fn new(
         dx_path: impl AsRef<Path>,
         music_path: impl AsRef<Path>,
-        foley_path: impl AsRef<Path>,
-        sfx_path: impl AsRef<Path>,
-        ambience_path: impl AsRef<Path>,
+        effects_path: impl AsRef<Path>,
         stem_states: SharedStemStates,
         target_sample_rate: u32,
         frame_size: usize,
@@ -617,17 +596,13 @@ impl MikupAudioDecoder {
             return Err(AudioDecodeError::InvalidConfig("frame_size must be > 0"));
         }
 
-        let dx = StemStreamDecoder::open("dx_raw", dx_path, target_sample_rate)?;
-        let music = StemStreamDecoder::open("music_raw", music_path, target_sample_rate)?;
-        let foley = StemStreamDecoder::open("foley_raw", foley_path, target_sample_rate)?;
-        let sfx = StemStreamDecoder::open("sfx_raw", sfx_path, target_sample_rate)?;
-        let ambience = StemStreamDecoder::open("ambience_raw", ambience_path, target_sample_rate)?;
+        let dx = StemStreamDecoder::open("dx", dx_path, target_sample_rate)?;
+        let music = StemStreamDecoder::open("music", music_path, target_sample_rate)?;
+        let effects = StemStreamDecoder::open("effects", effects_path, target_sample_rate)?;
 
         let resolved_sample_rate = dx.target_sample_rate();
         if music.target_sample_rate() != resolved_sample_rate
-            || foley.target_sample_rate() != resolved_sample_rate
-            || sfx.target_sample_rate() != resolved_sample_rate
-            || ambience.target_sample_rate() != resolved_sample_rate
+            || effects.target_sample_rate() != resolved_sample_rate
         {
             return Err(AudioDecodeError::InvalidConfig(
                 "stems resolved to mismatched output sample rates",
@@ -641,9 +616,7 @@ impl MikupAudioDecoder {
         Ok(Self {
             dx,
             music,
-            foley,
-            sfx,
-            ambience,
+            effects,
             frame_size,
             target_sample_rate,
             stem_states,
@@ -656,16 +629,12 @@ impl MikupAudioDecoder {
     pub fn with_defaults(
         dx_path: impl AsRef<Path>,
         music_path: impl AsRef<Path>,
-        foley_path: impl AsRef<Path>,
-        sfx_path: impl AsRef<Path>,
-        ambience_path: impl AsRef<Path>,
+        effects_path: impl AsRef<Path>,
     ) -> Result<Self, AudioDecodeError> {
         Self::new(
             dx_path,
             music_path,
-            foley_path,
-            sfx_path,
-            ambience_path,
+            effects_path,
             shared_default_stem_states(),
             DEFAULT_TARGET_SAMPLE_RATE,
             DEFAULT_FRAME_SIZE,
@@ -685,95 +654,54 @@ impl MikupAudioDecoder {
     pub fn read_frame(&mut self) -> Result<Option<SyncedAudioFrame>, AudioDecodeError> {
         self.dx.fill_until(self.frame_size)?;
         self.music.fill_until(self.frame_size)?;
-        self.foley.fill_until(self.frame_size)?;
-        self.sfx.fill_until(self.frame_size)?;
-        self.ambience.fill_until(self.frame_size)?;
+        self.effects.fill_until(self.frame_size)?;
 
-        if self.dx.is_finished()
-            && self.music.is_finished()
-            && self.foley.is_finished()
-            && self.sfx.is_finished()
-            && self.ambience.is_finished()
-        {
+        if self.dx.is_finished() && self.music.is_finished() && self.effects.is_finished() {
             return Ok(None);
         }
 
         let mut dx = self.dx.pop_frame(self.frame_size);
         let mut music = self.music.pop_frame(self.frame_size);
-        let mut foley = self.foley.pop_frame(self.frame_size);
-        let mut sfx = self.sfx.pop_frame(self.frame_size);
-        let mut ambience = self.ambience.pop_frame(self.frame_size);
+        let mut effects = self.effects.pop_frame(self.frame_size);
 
-        if dx.is_empty()
-            && music.is_empty()
-            && foley.is_empty()
-            && sfx.is_empty()
-            && ambience.is_empty()
-        {
-            if self.dx.is_finished()
-                && self.music.is_finished()
-                && self.foley.is_finished()
-                && self.sfx.is_finished()
-                && self.ambience.is_finished()
-            {
+        if dx.is_empty() && music.is_empty() && effects.is_empty() {
+            if self.dx.is_finished() && self.music.is_finished() && self.effects.is_finished() {
                 return Ok(None);
             }
 
             // If one stem has no decodable data for this step, keep stream alignment with silence.
             dx = vec![0.0; self.frame_size];
             music = vec![0.0; self.frame_size];
-            foley = vec![0.0; self.frame_size];
-            sfx = vec![0.0; self.frame_size];
-            ambience = vec![0.0; self.frame_size];
+            effects = vec![0.0; self.frame_size];
         }
 
-        let max_len = dx
-            .len()
-            .max(music.len())
-            .max(foley.len())
-            .max(sfx.len())
-            .max(ambience.len());
+        let max_len = dx.len().max(music.len()).max(effects.len());
 
         // Detect stems that ran out of data before others — indicates mismatched durations.
         if max_len > 0
-            && (dx.len() < max_len
-                || music.len() < max_len
-                || foley.len() < max_len
-                || sfx.len() < max_len
-                || ambience.len() < max_len)
+            && (dx.len() < max_len || music.len() < max_len || effects.len() < max_len)
         {
             self.alignment_mismatch_detected = true;
         }
 
         dx.resize(max_len, 0.0);
         music.resize(max_len, 0.0);
-        foley.resize(max_len, 0.0);
-        sfx.resize(max_len, 0.0);
-        ambience.resize(max_len, 0.0);
+        effects.resize(max_len, 0.0);
 
-        Ok(Some(self.process_frame(dx, music, foley, sfx, ambience)))
+        Ok(Some(self.process_frame(dx, music, effects)))
     }
 
     pub fn drain_tail(&mut self) -> SyncedAudioFrame {
         let mut dx = self.dx.drain_remaining();
         let mut music = self.music.drain_remaining();
-        let mut foley = self.foley.drain_remaining();
-        let mut sfx = self.sfx.drain_remaining();
-        let mut ambience = self.ambience.drain_remaining();
+        let mut effects = self.effects.drain_remaining();
 
-        let max_len = dx
-            .len()
-            .max(music.len())
-            .max(foley.len())
-            .max(sfx.len())
-            .max(ambience.len());
+        let max_len = dx.len().max(music.len()).max(effects.len());
         dx.resize(max_len, 0.0);
         music.resize(max_len, 0.0);
-        foley.resize(max_len, 0.0);
-        sfx.resize(max_len, 0.0);
-        ambience.resize(max_len, 0.0);
+        effects.resize(max_len, 0.0);
 
-        self.process_frame(dx, music, foley, sfx, ambience)
+        self.process_frame(dx, music, effects)
     }
 
     pub fn seek(&mut self, seconds: f32) -> Result<(), AudioDecodeError> {
@@ -784,9 +712,7 @@ impl MikupAudioDecoder {
         }
         self.dx.seek(seconds)?;
         self.music.seek(seconds)?;
-        self.foley.seek(seconds)?;
-        self.sfx.seek(seconds)?;
-        self.ambience.seek(seconds)?;
+        self.effects.seek(seconds)?;
         Ok(())
     }
 
@@ -794,9 +720,7 @@ impl MikupAudioDecoder {
         &mut self,
         mut dx: Vec<f32>,
         mut music: Vec<f32>,
-        mut foley: Vec<f32>,
-        mut sfx: Vec<f32>,
-        mut ambience: Vec<f32>,
+        mut effects: Vec<f32>,
     ) -> SyncedAudioFrame {
         let stem_flags = self.snapshot_stem_flags();
         let target_gains = StemTargetGains::from_flags(stem_flags);
@@ -809,23 +733,20 @@ impl MikupAudioDecoder {
         );
         let background = sum_background_stems(
             &mut music,
-            &mut foley,
-            &mut sfx,
-            &mut ambience,
+            &mut effects,
             &mut self.stem_runtime_gains,
             target_gains,
             self.gain_step_per_sample,
         );
 
+        // After sum_background_stems, `music` and `effects` hold the individual
+        // gain-applied samples; capture them for per-stem loudness metering.
         SyncedAudioFrame {
             sample_rate: self.target_sample_rate,
-            dialogue_raw: dx.clone(),
+            dialogue_raw: dx,
             background_raw: background,
-            dx_raw: dx,
             music_raw: music,
-            foley_raw: foley,
-            sfx_raw: sfx,
-            ambience_raw: ambience,
+            effects_raw: effects,
             stem_flags,
             static_loudness: None,
         }
@@ -859,18 +780,12 @@ fn apply_gain_ramp(buffer: &mut [f32], current_gain: &mut f32, target_gain: f32,
 
 fn sum_background_stems(
     music: &mut [f32],
-    foley: &mut [f32],
-    sfx: &mut [f32],
-    ambience: &mut [f32],
+    effects: &mut [f32],
     runtime_gains: &mut StemRuntimeGains,
     target_gains: StemTargetGains,
     gain_step_per_sample: f32,
 ) -> Vec<f32> {
-    let len = music
-        .len()
-        .max(foley.len())
-        .max(sfx.len())
-        .max(ambience.len());
+    let len = music.len().max(effects.len());
     let mut mixed = vec![0.0; len];
 
     for (i, mixed_sample) in mixed.iter_mut().enumerate() {
@@ -884,37 +799,17 @@ fn sum_background_stems(
             *slot = music_sample;
         }
 
-        let foley_sample = apply_gain_step(
-            foley.get(i).copied().unwrap_or(0.0),
-            &mut runtime_gains.foley,
-            target_gains.foley,
+        let effects_sample = apply_gain_step(
+            effects.get(i).copied().unwrap_or(0.0),
+            &mut runtime_gains.effects,
+            target_gains.effects,
             gain_step_per_sample,
         );
-        if let Some(slot) = foley.get_mut(i) {
-            *slot = foley_sample;
+        if let Some(slot) = effects.get_mut(i) {
+            *slot = effects_sample;
         }
 
-        let sfx_sample = apply_gain_step(
-            sfx.get(i).copied().unwrap_or(0.0),
-            &mut runtime_gains.sfx,
-            target_gains.sfx,
-            gain_step_per_sample,
-        );
-        if let Some(slot) = sfx.get_mut(i) {
-            *slot = sfx_sample;
-        }
-
-        let ambience_sample = apply_gain_step(
-            ambience.get(i).copied().unwrap_or(0.0),
-            &mut runtime_gains.ambience,
-            target_gains.ambience,
-            gain_step_per_sample,
-        );
-        if let Some(slot) = ambience.get_mut(i) {
-            *slot = ambience_sample;
-        }
-
-        *mixed_sample = music_sample + foley_sample + sfx_sample + ambience_sample;
+        *mixed_sample = music_sample + effects_sample;
     }
 
     mixed
@@ -942,26 +837,16 @@ mod tests {
                 is_solo: false,
                 is_muted: false,
             },
-            foley: StemState {
-                is_solo: false,
-                is_muted: false,
-            },
-            sfx: StemState {
+            effects: StemState {
                 is_solo: true,
                 is_muted: true,
-            },
-            ambience: StemState {
-                is_solo: false,
-                is_muted: false,
             },
         };
         let gains = StemTargetGains::from_flags(flags);
 
         assert_eq!(gains.music, 0.0);
-        assert_eq!(gains.foley, 0.0);
-        assert_eq!(gains.ambience, 0.0);
         // Solo wins for the selected stem even if it is also muted.
-        assert_eq!(gains.sfx, 1.0);
+        assert_eq!(gains.effects, 1.0);
     }
 
     #[test]

@@ -145,6 +145,68 @@ interface LiveMetersProps {
   lra?: number;
 }
 
+// Canonical stem OKLCH colors
+const STEM_COLORS = {
+  dx:      'oklch(0.72 0.14 155)',
+  music:   'oklch(0.70 0.10 290)',
+  effects: 'oklch(0.75 0.16 65)',
+} as const;
+
+interface StemLufsRowProps {
+  label: string;
+  color: string;
+  momentaryLufs: number;
+  truePeakDbtp: number;
+}
+
+const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, momentaryLufs, truePeakDbtp }) => {
+  const LUFS_MIN = -48;
+  const LUFS_MAX = 0;
+  const TP_CEILING = -1;
+
+  const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+  const tpDanger = truePeakDbtp > TP_CEILING;
+
+  const [peakLufs, setPeakLufs] = useState(momentaryLufs);
+  if (momentaryLufs > peakLufs) setPeakLufs(momentaryLufs);
+  const peakPct = Math.max(0, Math.min(1, (peakLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex justify-between items-baseline">
+        <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color }}>{label}</span>
+        <span
+          className="text-[9px] font-mono tabular-nums"
+          style={{ color: tpDanger ? 'oklch(0.65 0.2 25)' : 'var(--color-text-muted)' }}
+        >
+          TP {truePeakDbtp > -120 ? truePeakDbtp.toFixed(1) : '--'}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className="font-mono text-base font-semibold tabular-nums leading-none w-14 shrink-0"
+          style={{ color: momentaryLufs <= -48 ? 'var(--color-text-muted)' : 'var(--color-text-main)' }}
+        >
+          {momentaryLufs <= -48 ? '--' : momentaryLufs.toFixed(1)}
+          <span className="text-[9px] font-normal text-text-muted ml-0.5">M</span>
+        </span>
+        <div className="h-1.5 flex-1 bg-panel-border rounded-sm relative overflow-hidden">
+          {/* Peak hold tick */}
+          <div
+            className="absolute top-0 h-full w-px opacity-50 transition-all duration-300"
+            style={{ left: `${peakPct * 100}%`, backgroundColor: color }}
+          />
+          {/* Live bar */}
+          <div
+            className="absolute top-0 left-0 h-full rounded-sm transition-all duration-150"
+            style={{ width: `${lufsPct * 100}%`, backgroundColor: color, opacity: 0.8 }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const LiveMeters: React.FC<LiveMetersProps> = ({ frame, lra }) => {
   return (
     <div className="space-y-4">
@@ -153,16 +215,28 @@ export const LiveMeters: React.FC<LiveMetersProps> = ({ frame, lra }) => {
         <SemiCircleGauge value={frame.snr_db} min={0} max={40} />
       </div>
       <StereoHeatbar value={frame.phase_correlation} isPhaseIssue={frame.phase_correlation < 0} label="Phase" />
-      <LiveStatCell
-        label="True Peak"
-        value={frame.dialogue_true_peak_dbtp}
-        unit="dBTP"
-        min={-24}
-        max={0}
-        targets={[-1]}
-        targetLabel="Ceiling −1 dBTP"
-        dangerAbove={-1}
-      />
+      {/* 3-Stem Loudness */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Loudness — Momentary</span>
+        <StemLufsRow
+          label="DX"
+          color={STEM_COLORS.dx}
+          momentaryLufs={frame.dialogue_momentary_lufs}
+          truePeakDbtp={frame.dialogue_true_peak_dbtp}
+        />
+        <StemLufsRow
+          label="Music"
+          color={STEM_COLORS.music}
+          momentaryLufs={frame.music_momentary_lufs}
+          truePeakDbtp={frame.music_true_peak_dbtp}
+        />
+        <StemLufsRow
+          label="Effects"
+          color={STEM_COLORS.effects}
+          momentaryLufs={frame.effects_momentary_lufs}
+          truePeakDbtp={frame.effects_true_peak_dbtp}
+        />
+      </div>
       <div className="flex flex-col gap-1">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Centroid</span>
         <span className="font-mono text-xl font-semibold text-text-main tabular-nums leading-none">

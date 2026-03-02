@@ -74,11 +74,16 @@ export interface DspFramePayload {
   dialogue_short_term_lufs: number;
   dialogue_true_peak_dbtp: number;
   dialogue_crest_factor: number;
-  // Loudness — background stem
-  background_momentary_lufs: number;
-  background_short_term_lufs: number;
-  background_true_peak_dbtp: number;
-  background_crest_factor: number;
+  // Loudness — music stem
+  music_momentary_lufs: number;
+  music_short_term_lufs: number;
+  music_true_peak_dbtp: number;
+  music_crest_factor: number;
+  // Loudness — effects stem
+  effects_momentary_lufs: number;
+  effects_short_term_lufs: number;
+  effects_true_peak_dbtp: number;
+  effects_crest_factor: number;
   // Spatial
   phase_correlation: number;
   lissajous_points: [number, number][]; // [x, y] pairs, max 128 per frame
@@ -99,8 +104,10 @@ export interface DspCompletePayload {
   total_frames: number;
   dialogue_integrated_lufs: number;
   dialogue_loudness_range_lu: number;
-  background_integrated_lufs: number;
-  background_loudness_range_lu: number;
+  music_integrated_lufs: number;
+  music_loudness_range_lu: number;
+  effects_integrated_lufs: number;
+  effects_loudness_range_lu: number;
 }
 
 export interface MikupPayload {

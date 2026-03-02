@@ -147,7 +147,7 @@ function App() {
           workspaceDirectory,
         );
         if (dxPath) {
-          dspStream.startStream(dxPath, musicPath, effectsPath, event.payload.time_secs);
+          startDspStream(dxPath, musicPath, effectsPath, event.payload.time_secs);
         }
       }
     });

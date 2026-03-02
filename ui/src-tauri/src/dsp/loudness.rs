@@ -16,7 +16,8 @@ pub struct StemFinalMetrics {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FinalLoudnessMetrics {
     pub dialogue: StemFinalMetrics,
-    pub background: StemFinalMetrics,
+    pub music: StemFinalMetrics,
+    pub effects: StemFinalMetrics,
 }
 
 #[derive(Debug)]
@@ -62,14 +63,16 @@ pub struct StemLoudnessMetrics {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LoudnessMetrics {
     pub dialogue: StemLoudnessMetrics,
-    pub background: StemLoudnessMetrics,
+    pub music: StemLoudnessMetrics,
+    pub effects: StemLoudnessMetrics,
 }
 
 #[derive(Debug)]
 pub struct LoudnessAnalyzer {
     sample_rate: u32,
     dialogue_meter: EbuR128,
-    background_meter: EbuR128,
+    music_meter: EbuR128,
+    effects_meter: EbuR128,
 }
 
 impl LoudnessAnalyzer {
@@ -80,12 +83,14 @@ impl LoudnessAnalyzer {
 
         let mode = Mode::M | Mode::S | Mode::I | Mode::LRA;
         let dialogue_meter = EbuR128::new(1, sample_rate, mode)?;
-        let background_meter = EbuR128::new(1, sample_rate, mode)?;
+        let music_meter = EbuR128::new(1, sample_rate, mode)?;
+        let effects_meter = EbuR128::new(1, sample_rate, mode)?;
 
         Ok(Self {
             sample_rate,
             dialogue_meter,
-            background_meter,
+            music_meter,
+            effects_meter,
         })
     }
 
@@ -99,9 +104,13 @@ impl LoudnessAnalyzer {
                 integrated_lufs: read_lufs(self.dialogue_meter.loudness_global()),
                 loudness_range_lu: read_lu(self.dialogue_meter.loudness_range()),
             },
-            background: StemFinalMetrics {
-                integrated_lufs: read_lufs(self.background_meter.loudness_global()),
-                loudness_range_lu: read_lu(self.background_meter.loudness_range()),
+            music: StemFinalMetrics {
+                integrated_lufs: read_lufs(self.music_meter.loudness_global()),
+                loudness_range_lu: read_lu(self.music_meter.loudness_range()),
+            },
+            effects: StemFinalMetrics {
+                integrated_lufs: read_lufs(self.effects_meter.loudness_global()),
+                loudness_range_lu: read_lu(self.effects_meter.loudness_range()),
             },
         }
     }
@@ -115,8 +124,8 @@ impl LoudnessAnalyzer {
         }
 
         self.dialogue_meter.add_frames_f32(&frame.dialogue_raw)?;
-        self.background_meter
-            .add_frames_f32(&frame.background_raw)?;
+        self.music_meter.add_frames_f32(&frame.music_raw)?;
+        self.effects_meter.add_frames_f32(&frame.effects_raw)?;
 
         Ok(LoudnessMetrics {
             dialogue: StemLoudnessMetrics {
@@ -125,11 +134,17 @@ impl LoudnessAnalyzer {
                 true_peak_dbtp: true_peak_dbtp_4x_cubic(&frame.dialogue_raw),
                 crest_factor: crest_factor(&frame.dialogue_raw),
             },
-            background: StemLoudnessMetrics {
-                momentary_lufs: read_lufs(self.background_meter.loudness_momentary()),
-                short_term_lufs: read_lufs(self.background_meter.loudness_shortterm()),
-                true_peak_dbtp: true_peak_dbtp_4x_cubic(&frame.background_raw),
-                crest_factor: crest_factor(&frame.background_raw),
+            music: StemLoudnessMetrics {
+                momentary_lufs: read_lufs(self.music_meter.loudness_momentary()),
+                short_term_lufs: read_lufs(self.music_meter.loudness_shortterm()),
+                true_peak_dbtp: true_peak_dbtp_4x_cubic(&frame.music_raw),
+                crest_factor: crest_factor(&frame.music_raw),
+            },
+            effects: StemLoudnessMetrics {
+                momentary_lufs: read_lufs(self.effects_meter.loudness_momentary()),
+                short_term_lufs: read_lufs(self.effects_meter.loudness_shortterm()),
+                true_peak_dbtp: true_peak_dbtp_4x_cubic(&frame.effects_raw),
+                crest_factor: crest_factor(&frame.effects_raw),
             },
         })
     }

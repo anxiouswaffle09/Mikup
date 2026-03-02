@@ -15,9 +15,7 @@ interface WaveformVisualizerProps {
   onSeek?: (time: number) => void;
   ghostStemPaths?: {
     musicPath?: string;
-    sfxPath?: string;
-    foleyPath?: string;
-    ambiencePath?: string;
+    effectsPath?: string;
   };
   highlightAtSecs?: number | null;
 }
@@ -30,10 +28,8 @@ const SEVERITY_STYLE: Record<string, { border: string; bg: string; label: string
 };
 
 const GHOST_STEMS = [
-  { key: 'musicPath',    label: 'Music',    color: 'oklch(0.70 0.10 290)' },
-  { key: 'sfxPath',      label: 'SFX',      color: 'oklch(0.75 0.16 65)'  },
-  { key: 'foleyPath',    label: 'Foley',    color: 'oklch(0.70 0.14 22)'  },
-  { key: 'ambiencePath', label: 'Ambience', color: 'oklch(0.55 0.06 220)' },
+  { key: 'musicPath',   label: 'Music',   color: 'oklch(0.70 0.10 290)' },
+  { key: 'effectsPath', label: 'Effects', color: 'oklch(0.75 0.16 65)'  },
 ] as const;
 
 function clamp(value: number, min: number, max: number): number {
@@ -53,14 +49,19 @@ function toWaveSurferSource(path: string, outputDir?: string): string {
   if (!trimmed) return trimmed;
   if (trimmed.startsWith('file://') || trimmed.startsWith('asset://') || trimmed.startsWith('https://')) return trimmed;
 
+  // WSL2 hardening: normalize Windows-style backslashes to forward slashes before
+  // any path logic runs. Mixed separators (e.g. C:\Users/foo\bar.wav) are common
+  // when paths originate from the Windows FS side of a WSL2 mount.
+  const normalized = trimmed.replace(/\\/g, '/');
+
   // Resolve relative paths to absolute using outputDir
-  let resolved = trimmed;
-  if (!resolved.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(resolved) && outputDir) {
+  let resolved = normalized;
+  if (!resolved.startsWith('/') && !/^[a-zA-Z]:\//.test(resolved) && outputDir) {
     resolved = `${outputDir}/${resolved}`;
   }
 
   // Convert any absolute local path to a Tauri-safe asset URL
-  if (resolved.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(resolved)) {
+  if (resolved.startsWith('/') || /^[a-zA-Z]:\//.test(resolved)) {
     try {
       const assetUrl = convertFileSrc(resolved);
       // convertFileSrc can return a non-throwing but malformed/empty string —
@@ -173,6 +174,7 @@ export function WaveformVisualizer({
       height: 140,
       hideScrollbar: true,
       normalize: true,
+      pixelRatio: 1,
     });
 
     // Mute: Rust cpal handles audio output; wavesurfer is visual-only.
@@ -261,14 +263,16 @@ export function WaveformVisualizer({
         hideScrollbar: true,
         normalize: true,
         interact: false,
+        pixelRatio: 1,
       });
 
       ghostWs.setVolume(0);
-      // Ghost stems are cosmetic overlays — a load failure must never surface or
-      // interfere with the primary DX waveform.
-      ghostWs.on('error', () => { /* fail silently */ });
+      // Ghost stems are cosmetic overlays — a load failure must never block the
+      // primary DX waveform. Log errors for diagnostics only.
+      ghostWs.on('error', (error) => { console.error('[mikup] WaveSurfer Error (ghost):', error); });
 
       const resolvedPath = toWaveSurferSource(path, outputDir);
+      console.log('[mikup] Loading waveform (ghost):', resolvedPath);
       ghostWs.load(resolvedPath);
 
       ghostWsRefs.current[i] = ghostWs;
@@ -295,14 +299,16 @@ export function WaveformVisualizer({
         if (loadSequence !== loadSequenceRef.current) return;
       });
 
-      wavesurfer.once('error', () => {
+      wavesurfer.once('error', (error) => {
         if (handled) return;
         handled = true;
+        console.error('[mikup] WaveSurfer Error:', error, '— source:', selectedSource);
         if (loadSequence === loadSequenceRef.current) {
           loadNextSource(sourceIndex + 1);
         }
       });
 
+      console.log('[mikup] Loading waveform:', selectedSource);
       wavesurfer.load(selectedSource);
     };
 

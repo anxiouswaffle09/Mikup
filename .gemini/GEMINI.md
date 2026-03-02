@@ -21,8 +21,8 @@ We have pivoted from a "Headless Report Generator" to a **Real-Time Interactive 
 
 ### Team Roles
 - **Gemini (Architect):** Lead Architecture, strategy, and planning. (Hands-off by default).
-- **Claude (Frontend Specialist):** Owner of the React/Tauri UI.
-- **Codex (Backend Specialist):** Owner of the Python DSP pipeline and ML infrastructure.
+- **Claude (Implementation Specialist):** Owner of React/Tauri UI and cross-layer integration. **Preferred Model: Claude 4.6 Sonnet.**
+- **Codex (Systems Specialist):** Owner of Python DSP pipeline and ML infrastructure. **Preferred Model: Claude 4.6 Opus.**
 
 ## Operational Constraints
 - **Source of Truth:** All technical standards (stems, models, platform specifics) are defined in `docs/SPEC.md`.
@@ -38,6 +38,7 @@ We have pivoted from a "Headless Report Generator" to a **Real-Time Interactive 
 
 ## Key Files
 - `docs/SPEC.md`: Technical Source of Truth.
+- `PROGRESS.md`: Project roadmap, milestones, and decision log.
 - `idea.md`: Foundational philosophy and complete architecture.
 - `AGENTS.md`: Development lifecycle and coding standards.
 - `.mikup_context.md`: Current session/project state.

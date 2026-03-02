@@ -24,9 +24,7 @@ interface GraphDataPoint {
   diagST: number;
   bgM: number;
   bgST: number;
-  sfxST: number;
-  foleyST: number;
-  ambienceST: number;
+  effectsST: number;
 }
 
 interface BrushRange {
@@ -40,7 +38,7 @@ function formatTime(seconds: number): string {
 }
 
 export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTarget }) => {
-  const [activeStreams, setActiveStreams] = useState<Set<string>>(new Set(['diagST', 'bgST', 'sfxST', 'foleyST', 'ambienceST']));
+  const [activeStreams, setActiveStreams] = useState<Set<string>>(new Set(['diagST', 'bgST', 'effectsST']));
   const [flags, setFlags] = useState<{ time: number; label: string }[]>([]);
   const [brushRange, setBrushRange] = useState<BrushRange>({
     startIndex: 0,
@@ -53,17 +51,13 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
 
     const diag = lufs.DX || lufs.dialogue_raw;
     const bg = lufs.Music || lufs.background_raw;
-    const sfx = lufs.SFX;
-    const foley = lufs.Foley;
-    const ambience = lufs.Ambience;
-    if (!diag && !bg && !sfx && !foley && !ambience) return [];
+    const effects = lufs.Effects;
+    if (!diag && !bg && !effects) return [];
 
     const maxLen = Math.max(
       diag?.momentary?.length ?? 0,
       bg?.momentary?.length ?? 0,
-      sfx?.momentary?.length ?? 0,
-      foley?.momentary?.length ?? 0,
-      ambience?.momentary?.length ?? 0,
+      effects?.momentary?.length ?? 0,
     );
     const data: GraphDataPoint[] = [];
 
@@ -76,9 +70,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
         diagST: diag?.short_term[i] ?? -70,
         bgM: bg?.momentary[i] ?? -70,
         bgST: bg?.short_term[i] ?? -70,
-        sfxST: sfx?.short_term[i] ?? -70,
-        foleyST: foley?.short_term[i] ?? -70,
-        ambienceST: ambience?.short_term[i] ?? -70,
+        effectsST: effects?.short_term[i] ?? -70,
       });
     }
     return data;
@@ -167,22 +159,10 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
             onClick={() => toggleStream('bgST')}
           />
           <StreamToggle
-            label="SFX"
-            color="oklch(0.7 0.12 30)"
-            isActive={activeStreams.has('sfxST')}
-            onClick={() => toggleStream('sfxST')}
-          />
-          <StreamToggle
-            label="Foley"
-            color="oklch(0.7 0.12 320)"
-            isActive={activeStreams.has('foleyST')}
-            onClick={() => toggleStream('foleyST')}
-          />
-          <StreamToggle
-            label="Ambience"
-            color="oklch(0.7 0.12 200)"
-            isActive={activeStreams.has('ambienceST')}
-            onClick={() => toggleStream('ambienceST')}
+            label="Effects"
+            color="oklch(0.75 0.16 65)"
+            isActive={activeStreams.has('effectsST')}
+            onClick={() => toggleStream('effectsST')}
           />
           <StreamToggle
             label="Momentary"
@@ -241,17 +221,9 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
                 <stop offset="5%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0.15} />
                 <stop offset="95%" stopColor="oklch(0.7 0.12 150)" stopOpacity={0} />
               </linearGradient>
-              <linearGradient id="colorSfx" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="oklch(0.7 0.12 30)" stopOpacity={0.12} />
-                <stop offset="95%" stopColor="oklch(0.7 0.12 30)" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorFoley" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="oklch(0.7 0.12 320)" stopOpacity={0.12} />
-                <stop offset="95%" stopColor="oklch(0.7 0.12 320)" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorAmbience" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="oklch(0.7 0.12 200)" stopOpacity={0.12} />
-                <stop offset="95%" stopColor="oklch(0.7 0.12 200)" stopOpacity={0} />
+              <linearGradient id="colorEffects" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="oklch(0.75 0.16 65)" stopOpacity={0.12} />
+                <stop offset="95%" stopColor="oklch(0.75 0.16 65)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(0.9 0.01 250)" />
@@ -299,36 +271,14 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ payload, loudnessTar
               />
             )}
 
-            {activeStreams.has('sfxST') && graphData.some((d) => d.sfxST > -70) && (
+            {activeStreams.has('effectsST') && graphData.some((d) => d.effectsST > -70) && (
               <Area
                 type="monotone"
-                dataKey="sfxST"
-                stroke="oklch(0.7 0.12 30)"
+                dataKey="effectsST"
+                stroke="oklch(0.75 0.16 65)"
                 strokeWidth={1.5}
                 fillOpacity={1}
-                fill="url(#colorSfx)"
-                animationDuration={1500}
-              />
-            )}
-            {activeStreams.has('foleyST') && graphData.some((d) => d.foleyST > -70) && (
-              <Area
-                type="monotone"
-                dataKey="foleyST"
-                stroke="oklch(0.7 0.12 320)"
-                strokeWidth={1.5}
-                fillOpacity={1}
-                fill="url(#colorFoley)"
-                animationDuration={1500}
-              />
-            )}
-            {activeStreams.has('ambienceST') && graphData.some((d) => d.ambienceST > -70) && (
-              <Area
-                type="monotone"
-                dataKey="ambienceST"
-                stroke="oklch(0.7 0.12 200)"
-                strokeWidth={1.5}
-                fillOpacity={1}
-                fill="url(#colorAmbience)"
+                fill="url(#colorEffects)"
                 animationDuration={1500}
               />
             )}
@@ -446,9 +396,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
         <div className="space-y-2">
           <TooltipRow label="DX" value={data.diagST} color="oklch(0.7 0.12 260)" />
           <TooltipRow label="Music" value={data.bgST} color="oklch(0.7 0.12 150)" />
-          {data.sfxST > -70 && <TooltipRow label="SFX" value={data.sfxST} color="oklch(0.7 0.12 30)" />}
-          {data.foleyST > -70 && <TooltipRow label="Foley" value={data.foleyST} color="oklch(0.7 0.12 320)" />}
-          {data.ambienceST > -70 && <TooltipRow label="Ambience" value={data.ambienceST} color="oklch(0.7 0.12 200)" />}
+          {data.effectsST > -70 && <TooltipRow label="Effects" value={data.effectsST} color="oklch(0.75 0.16 65)" />}
         </div>
       </div>
     );

@@ -22,22 +22,10 @@ const STEMS: StemConfig[] = [
     glow: "0 0 8px rgba(150,110,230,0.7)",
   },
   {
-    id: "sfx",
-    label: "SFX",
+    id: "effects",
+    label: "Effects",
     color: "oklch(0.75 0.16 65)",
     glow: "0 0 8px rgba(230,170,40,0.7)",
-  },
-  {
-    id: "foley",
-    label: "Foley",
-    color: "oklch(0.70 0.14 22)",
-    glow: "0 0 8px rgba(230,100,70,0.7)",
-  },
-  {
-    id: "ambience",
-    label: "Amb",
-    color: "oklch(0.55 0.06 220)",
-    glow: "0 0 8px rgba(90,120,160,0.7)",
   },
 ];
 

@@ -45,11 +45,16 @@ struct DspFramePayload {
     dialogue_short_term_lufs: f32,
     dialogue_true_peak_dbtp: f32,
     dialogue_crest_factor: f32,
-    // --- Loudness (background stem) ---
-    background_momentary_lufs: f32,
-    background_short_term_lufs: f32,
-    background_true_peak_dbtp: f32,
-    background_crest_factor: f32,
+    // --- Loudness (music stem) ---
+    music_momentary_lufs: f32,
+    music_short_term_lufs: f32,
+    music_true_peak_dbtp: f32,
+    music_crest_factor: f32,
+    // --- Loudness (effects stem) ---
+    effects_momentary_lufs: f32,
+    effects_short_term_lufs: f32,
+    effects_true_peak_dbtp: f32,
+    effects_crest_factor: f32,
     // --- Spatial ---
     phase_correlation: f32,
     /// Subsampled Lissajous coordinates [[x, y], ...] for vectorscope rendering.
@@ -70,8 +75,10 @@ struct DspCompletePayload {
     total_frames: u64,
     dialogue_integrated_lufs: f32,
     dialogue_loudness_range_lu: f32,
-    background_integrated_lufs: f32,
-    background_loudness_range_lu: f32,
+    music_integrated_lufs: f32,
+    music_loudness_range_lu: f32,
+    effects_integrated_lufs: f32,
+    effects_loudness_range_lu: f32,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -537,16 +544,20 @@ async fn write_dsp_metrics(
     output_directory: String,
     dialogue_integrated_lufs: f32,
     dialogue_loudness_range_lu: f32,
-    background_integrated_lufs: f32,
-    background_loudness_range_lu: f32,
+    music_integrated_lufs: f32,
+    music_loudness_range_lu: f32,
+    effects_integrated_lufs: f32,
+    effects_loudness_range_lu: f32,
 ) -> Result<(), String> {
     let metrics_path = resolve_data_artifact_path(&output_directory, "dsp_metrics.json")?;
 
     let metrics = serde_json::json!({
         "dialogue_integrated_lufs": dialogue_integrated_lufs,
         "dialogue_loudness_range_lu": dialogue_loudness_range_lu,
-        "background_integrated_lufs": background_integrated_lufs,
-        "background_loudness_range_lu": background_loudness_range_lu,
+        "music_integrated_lufs": music_integrated_lufs,
+        "music_loudness_range_lu": music_loudness_range_lu,
+        "effects_integrated_lufs": effects_integrated_lufs,
+        "effects_loudness_range_lu": effects_loudness_range_lu,
     });
 
     let serialized = serde_json::to_string_pretty(&metrics).map_err(|e| e.to_string())?;
@@ -660,8 +671,10 @@ async fn generate_static_map(
             "lufs_graph": lufs_graph,
             "dialogue_integrated_lufs": dx.integrated,
             "dialogue_loudness_range_lu": dx.loudness_range_lu,
-            "background_integrated_lufs": music.integrated,
-            "background_loudness_range_lu": music.loudness_range_lu,
+            "music_integrated_lufs": music.integrated,
+            "music_loudness_range_lu": music.loudness_range_lu,
+            "effects_integrated_lufs": effects.integrated,
+            "effects_loudness_range_lu": effects.loudness_range_lu,
         });
 
         let metrics_path = PathBuf::from(output_directory_for_write)
@@ -906,10 +919,14 @@ async fn stream_audio_metrics(
                 dialogue_short_term_lufs: loudness_metrics.dialogue.short_term_lufs,
                 dialogue_true_peak_dbtp: loudness_metrics.dialogue.true_peak_dbtp,
                 dialogue_crest_factor: loudness_metrics.dialogue.crest_factor,
-                background_momentary_lufs: loudness_metrics.background.momentary_lufs,
-                background_short_term_lufs: loudness_metrics.background.short_term_lufs,
-                background_true_peak_dbtp: loudness_metrics.background.true_peak_dbtp,
-                background_crest_factor: loudness_metrics.background.crest_factor,
+                music_momentary_lufs: loudness_metrics.music.momentary_lufs,
+                music_short_term_lufs: loudness_metrics.music.short_term_lufs,
+                music_true_peak_dbtp: loudness_metrics.music.true_peak_dbtp,
+                music_crest_factor: loudness_metrics.music.crest_factor,
+                effects_momentary_lufs: loudness_metrics.effects.momentary_lufs,
+                effects_short_term_lufs: loudness_metrics.effects.short_term_lufs,
+                effects_true_peak_dbtp: loudness_metrics.effects.true_peak_dbtp,
+                effects_crest_factor: loudness_metrics.effects.crest_factor,
                 phase_correlation: spatial_metrics.phase_correlation,
                 lissajous_points,
                 dialogue_centroid_hz: spectral_metrics.dialogue_centroid_hz,
@@ -948,8 +965,10 @@ async fn stream_audio_metrics(
                     total_frames: frame_index,
                     dialogue_integrated_lufs: final_metrics.dialogue.integrated_lufs,
                     dialogue_loudness_range_lu: final_metrics.dialogue.loudness_range_lu,
-                    background_integrated_lufs: final_metrics.background.integrated_lufs,
-                    background_loudness_range_lu: final_metrics.background.loudness_range_lu,
+                    music_integrated_lufs: final_metrics.music.integrated_lufs,
+                    music_loudness_range_lu: final_metrics.music.loudness_range_lu,
+                    effects_integrated_lufs: final_metrics.effects.integrated_lufs,
+                    effects_loudness_range_lu: final_metrics.effects.loudness_range_lu,
                 },
             );
         }
