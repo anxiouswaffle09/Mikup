@@ -3,7 +3,6 @@ safe globals and sets the required env var before any Mikup imports happen."""
 import importlib
 import os
 import sys
-import types
 import unittest
 
 
@@ -15,6 +14,10 @@ class TestTorchSecurityRegistry(unittest.TestCase):
         for key in list(sys.modules.keys()):
             if key == "src.main" or key.startswith("src."):
                 del sys.modules[key]
+
+        # Note: TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD is intentionally NOT cleaned up
+        # after this test. It represents desired global process state and should
+        # persist for the remainder of the Python interpreter's lifetime.
 
         import src.main  # noqa: F401 — side-effects are what we test
 
