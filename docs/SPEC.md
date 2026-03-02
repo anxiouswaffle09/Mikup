@@ -49,3 +49,34 @@ The project officially deprecates the 5-stem "Cinematic Trinity" split in favor 
 - **Mikup Console:** A real-time, autoscrolling terminal log in the "Processing" view.
 - **Visuals:** Minimalist Light / Pastel (`oklch()`).
 - **Telemetry:** 60fps live metering (LUFS, Phase, Vectorscope) via Rust/Tauri bridge.
+
+## 5. Workspace Layout
+
+Every pipeline run produces a self-contained project directory.
+
+### Auto-Generated Workspace (default)
+When `--output-dir` is not passed, `main.py` reads `default_projects_dir` from
+`data/config.json` (fallback: `<repo_root>/Projects/`) and generates:
+
+```
+Projects/
+  <input_stem>_<YYYYMMDD_HHMMSS>/
+    stems/           ← raw separator WAV outputs
+    data/
+      stage_state.json
+      stems.json
+      transcription.json
+      dsp_metrics.json
+      semantics.json
+      .mikup_context.md
+    mikup_payload.json
+    mikup_report.md     ← written only if AI Director runs
+```
+
+### Global State (`data/`)
+`data/` is reserved for machine-level state only:
+- `data/history.json` — ordered index of all processed projects (last 50).
+- `data/config.json` — settings: `default_projects_dir`, future preferences.
+
+`data/processed/`, `data/raw/`, `data/output/` are legacy paths; do not create
+new artifacts there.
