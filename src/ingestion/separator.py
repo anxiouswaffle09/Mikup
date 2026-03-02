@@ -86,7 +86,10 @@ class MikupSeparator:
             for attr in ("device", "torch_device"):
                 if hasattr(separator, attr):
                     try:
-                        setattr(separator, attr, self.device)
+                        if self.device == "mps":
+                            setattr(separator, attr, "cpu")
+                        else:
+                            setattr(separator, attr, self.device)
                     except Exception:
                         pass
 
