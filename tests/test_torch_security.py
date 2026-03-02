@@ -33,6 +33,10 @@ class TestTorchSecurityRegistry(unittest.TestCase):
         _install_dependency_stubs()
         _reload_bootstrap()
 
+    def tearDown(self):
+        """Remove TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD so it doesn't leak into other tests."""
+        os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
+
     def test_env_var_set_by_bootstrap(self):
         """TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD must be '1' after bootstrap runs."""
         # Remove from env so setdefault() actually sets it.
@@ -125,6 +129,9 @@ class TestTorchSecurityRegistry(unittest.TestCase):
             "demucs.htdemucs": demucs_htdemucs_mod,
         }
 
+        # A real file must exist on disk so os.path.isfile(model_path) passes
+        # inside _pass2_cdx23_instrumental, preventing it from branching into
+        # the model-download path before reaching load_model().
         with tempfile.NamedTemporaryFile(suffix=".th", delete=False) as tmp:
             fake_model_path = tmp.name
 
@@ -151,11 +158,16 @@ class TestTorchSecurityRegistry(unittest.TestCase):
 
             self.assertIn("security gate", str(ctx.exception).lower())
         finally:
-            os.unlink(fake_model_path)
-            # Restore stub separator so other tests aren't polluted
+            # Restore stub separator first so other tests aren't polluted,
+            # then clean up the temp file (unlink last so a failure there
+            # doesn't skip the sys.modules restore).
             sys.modules.pop("src.ingestion.separator", None)
             sys.modules.pop("src.ingestion", None)
             _install_dependency_stubs()
+            try:
+                os.unlink(fake_model_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
