@@ -384,6 +384,7 @@ function App() {
           });
         }
 
+        setStorageLastUpdated(Date.now());
         if (nextCount >= PIPELINE_STAGES.length) {
           setWorkflowMessage('All stages complete. Loading analysis...');
           setView('analysis');
@@ -413,6 +414,7 @@ function App() {
         : Math.max(completedStageCount, stageIndex + 1);
       setCompletedStageCount((prev) => (force ? stageIndex + 1 : Math.max(prev, stageIndex + 1)));
       setRunningStageIndex(null);
+      setStorageLastUpdated(Date.now());
 
       if (nextCompletedCount >= PIPELINE_STAGES.length) {
         setWorkflowMessage('All stages complete. Loading analysis payload...');
@@ -488,6 +490,8 @@ function App() {
       setShowRedoMenu(false);
       setStorageLastUpdated(Date.now());
       setView('processing');
+      // Auto-start re-run from the redo target stage.
+      void runStage(stageIndex);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
