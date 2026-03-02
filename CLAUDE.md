@@ -39,6 +39,8 @@ source .venv/bin/activate
 pip install -r requirements-mac.txt
 
 # Linux/Windows (NVIDIA GPU/CUDA):
+# IMPORTANT: Ensure you get the CUDA-enabled PyTorch 2.10.0. 
+# Check 'requirements-cuda.txt' for the manual --extra-index-url command if your GPU isn't detected.
 pip install -r requirements-cuda.txt
 
 # FFmpeg must be installed separately (e.g. `brew install ffmpeg`)
@@ -47,11 +49,14 @@ pip install -r requirements-cuda.txt
 
 ### Running the Pipeline
 ```bash
-# Run on a real audio file (runs all 5 stages)
+# Run on a real audio file — workspace auto-created under Projects/
 python src/main.py --input "path/to/audio.wav"
 
 # Run in mock mode (no real audio/ML needed — uses pre-built test stems)
 python src/main.py --input dummy --mock
+
+# Override the auto-generated workspace location
+python src/main.py --input "path/to/audio.wav" --output-dir "Projects/my_custom_workspace"
 
 # Run only the DSP stage against mock data
 python src/dsp/processor.py
@@ -153,7 +158,9 @@ Refer to `docs/SPEC.md` for the 3-pass separation logic. `MikupSeparator.run_sur
 ## Key Architecture Notes
 
 - **VRAM management**: `flush_vram()` in `main.py` runs `gc.collect()` + `torch.cuda.empty_cache()` between stages to avoid OOM on GPU. Each stage's model is explicitly `del`-ed after use.
-- **Mock mode**: Pass `--mock` to skip Stages 1 and 2 entirely and use pre-built WAVs from `data/processed/`. Use `python tests/mock_generator.py` to regenerate those files.
+- **Mock mode**: Pass `--mock` to skip Stages 1 and 2 entirely and use pre-built WAVs. Use `python tests/mock_generator.py` to regenerate those files.
 - **Stage 4 sampling**: CLAP only loads a 5-second window from the middle of the audio file (not the full file) to keep memory low.
 - **Stage 5 (AI Director)** is interactive. The system prompt lives in `src/llm/director_prompt.md`.
 - **Python path**: `src/main.py` uses package-style imports (`from src.ingestion.separator import ...`), so it must be run from the repo root, not from inside `src/`.
+- **Project-First Workspaces**: Each CLI run auto-creates a timestamped project directory under `Projects/<stem>_<YYYYMMDD_HHMMSS>/`. All stems, transcripts, metrics, and `mikup_payload.json` live there. Pass `--output-dir` to override.
+- **Global data/**: `data/` strictly holds `history.json` (project index) and `config.json` (app settings including `default_projects_dir`). No per-run artifacts are written there.
