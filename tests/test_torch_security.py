@@ -52,6 +52,33 @@ class TestTorchSecurityRegistry(unittest.TestCase):
         self.assertIn(np.ndarray, safe, "np.ndarray must be in safe globals")
         self.assertIn(np.dtype, safe, "np.dtype must be in safe globals")
 
+    def test_pass2_raises_runtime_error_on_load_failure(self):
+        """_pass2_cdx23_instrumental wraps load_model failures in a RuntimeError with guidance."""
+        import _pickle
+        import unittest.mock as mock
+
+        from src.ingestion.separator import MikupSeparator
+
+        sep = MikupSeparator.__new__(MikupSeparator)
+        sep.output_dir = "/tmp"
+        sep.device = "cpu"
+
+        fake_model_path = "/tmp/fake_model.th"
+        # Create an empty file so the "file exists" check passes
+        with open(fake_model_path, "wb"):
+            pass
+
+        with mock.patch(
+            "src.ingestion.separator.load_model",
+            side_effect=_pickle.UnpicklingError("weights_only load failed"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                sep._pass2_cdx23_instrumental(
+                    "/tmp/fake_instrumental.wav", "fake_source", fast_mode=True
+                )
+
+        self.assertIn("security gate", str(ctx.exception).lower())
+
 
 if __name__ == "__main__":
     unittest.main()

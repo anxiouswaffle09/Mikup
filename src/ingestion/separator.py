@@ -11,6 +11,11 @@ import soundfile as sf
 import torch
 from audio_separator.separator import Separator
 
+try:
+    from demucs.states import load_model  # noqa: F401 — enables mock patching in tests
+except ImportError:
+    load_model = None  # type: ignore[assignment]
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -272,7 +277,15 @@ class MikupSeparator:
         import numpy as np
         import torch
         from demucs.apply import apply_model
-        from demucs.states import load_model
+        # load_model is imported at module level to allow mock patching in tests;
+        # use the module-level binding rather than re-importing locally.
+
+        # Guard: register HTDemucs for callers that bypass src/main.py bootstrap
+        try:
+            from demucs.htdemucs import HTDemucs as _HTDemucs
+            torch.serialization.add_safe_globals([_HTDemucs])
+        except ImportError:
+            pass
 
         logger.info("Pass 2: CDX23 instrumental split...")
         models_dir = self._cdx23_models_dir()
@@ -289,7 +302,15 @@ class MikupSeparator:
                 torch.hub.download_url_to_file(
                     self.CDX23_DOWNLOAD_BASE + model_id, model_path
                 )
-            model = load_model(model_path)
+            try:
+                model = load_model(model_path)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Security gate blocked loading CDX23 model '{model_path}'. "
+                    f"Ensure TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 is set or HTDemucs "
+                    f"is registered via torch.serialization.add_safe_globals(). "
+                    f"Original error: {exc}"
+                ) from exc
             model.to(device)
             models.append(model)
 
