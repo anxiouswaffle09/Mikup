@@ -1,6 +1,5 @@
 """Verify that running the main module's security bootstrap registers the expected
 safe globals and sets the required env var before any Mikup imports happen."""
-import importlib
 import os
 import sys
 import unittest

@@ -294,6 +294,12 @@ class MikupSeparator:
         # to CPU internally, all other ops use Metal. No need to override to CPU.
         device = self.device
 
+        if load_model is None:
+            raise ImportError(
+                "demucs is required for Pass 2 CDX23 separation. "
+                "Install it with: pip install demucs"
+            )
+
         models = []
         for model_id in model_ids:
             model_path = os.path.join(models_dir, model_id)
