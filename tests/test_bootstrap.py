@@ -50,6 +50,7 @@ class TestBootstrapModule(unittest.TestCase):
 
     def test_env_var_set_after_call(self):
         import os
+        os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
         bootstrap_mod._register_torch_safe_globals()
         self.assertEqual(os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"), "1")
 
