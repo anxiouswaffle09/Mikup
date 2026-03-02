@@ -12,6 +12,8 @@ import { MikupConsole } from './components/MikupConsole';
 import { StatsBar, LiveMeters } from './components/DiagnosticMeters';
 import { Vectorscope } from './components/Vectorscope';
 import { StemControlStrip } from './components/StemControlStrip';
+import { StorageGauge } from './components/StorageGauge';
+import { RedoStageModal } from './components/RedoStageModal';
 import { useDspStream } from './hooks/useDspStream';
 import {
   parseMikupPayload,
@@ -103,6 +105,10 @@ function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [showFirstRunModal, setShowFirstRunModal] = useState(false);
   const [highlightAtSecs, setHighlightAtSecs] = useState<number | null>(null);
+  const [redoTargetStage, setRedoTargetStage] = useState<PipelineStageDefinition | null>(null);
+  const [isRedoing, setIsRedoing] = useState(false);
+  const [showRedoMenu, setShowRedoMenu] = useState(false);
+  const [storageLastUpdated, setStorageLastUpdated] = useState(0);
 
   const loudnessTarget = LOUDNESS_TARGETS[loudnessTargetId];
 
@@ -438,6 +444,57 @@ function App() {
     await runStage(stageIndex, true);
   };
 
+  const handleRedoStage = async (stage: PipelineStageDefinition): Promise<void> => {
+    if (!inputPath || !workspaceDirectory) return;
+
+    setIsRedoing(true);
+    try {
+      await invoke<string>('redo_pipeline_stage', {
+        outputDirectory: workspaceDirectory,
+        stage: stage.id.toLowerCase(),
+        inputPath,
+      });
+
+      const stageIndex = PIPELINE_STAGES.findIndex((s) => s.id === stage.id);
+      // Reset completed count to the redo target so processing view re-runs from there.
+      setCompletedStageCount(Math.min(completedStageCount, stageIndex));
+
+      // Clear in-memory payload data for the invalidated stages.
+      if (stage.id === 'SEPARATION') {
+        setPayload(null);
+      } else if (stage.id === 'TRANSCRIPTION' || stage.id === 'DSP') {
+        setPayload((prev) =>
+          prev
+            ? {
+                ...prev,
+                transcription: undefined,
+                metrics: {
+                  pacing_mikups: [],
+                  spatial_metrics: { total_duration: 0 },
+                  impact_metrics: {},
+                },
+              }
+            : null,
+        );
+      } else if (stage.id === 'SEMANTICS') {
+        setPayload((prev) => (prev ? { ...prev, semantics: undefined } : null));
+      } else if (stage.id === 'DIRECTOR') {
+        setPayload((prev) =>
+          prev ? { ...prev, ai_report: undefined, is_complete: false } : null,
+        );
+      }
+
+      setRedoTargetStage(null);
+      setShowRedoMenu(false);
+      setStorageLastUpdated(Date.now());
+      setView('processing');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRedoing(false);
+    }
+  };
+
   const handleSelectProject = (projectPayload: MikupPayload) => {
     setError(null);
     setPayload(projectPayload);
@@ -500,6 +557,14 @@ function App() {
           config={config}
           onChangeDefaultFolder={handleChangeDefaultFolder}
         />
+        {config?.default_projects_dir && (
+          <div className="fixed bottom-4 left-4 w-52 shadow-lg">
+            <StorageGauge
+              workspacePath={config.default_projects_dir}
+              lastUpdated={storageLastUpdated}
+            />
+          </div>
+        )}
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -652,6 +717,35 @@ function App() {
         </div>
         <div className="flex items-center gap-6">
           <StemControlStrip />
+          {/* Re-process dropdown — only shown when workspace is available */}
+          {workspaceDirectory && inputPath && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowRedoMenu((v) => !v)}
+                className="text-[10px] font-mono text-text-muted hover:text-text-main border border-panel-border px-3 py-1.5 transition-colors"
+              >
+                Re-process ▾
+              </button>
+              {showRedoMenu && (
+                <div className="absolute right-0 top-full mt-1 border border-panel-border bg-background z-20 min-w-[200px] shadow-lg">
+                  {PIPELINE_STAGES.map((stage) => (
+                    <button
+                      key={stage.id}
+                      type="button"
+                      onClick={() => {
+                        setRedoTargetStage(stage);
+                        setShowRedoMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-[11px] font-mono text-text-muted hover:text-text-main hover:bg-panel-border/30 transition-colors"
+                    >
+                      Redo {stage.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {payload?.is_complete === false && (
             <span className="text-[9px] uppercase tracking-widest font-bold text-amber-500 border border-amber-500/40 px-2 py-0.5">
               Partial Result
@@ -689,6 +783,7 @@ function App() {
                 diagnosticEvents={payload?.metrics?.diagnostic_events}
                 ghostStemPaths={ghostStemPaths}
                 highlightAtSecs={highlightAtSecs}
+                currentTimeSecs={dspStream.currentFrame?.timestamp_secs}
                 onPlay={(time) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
                   if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time);
@@ -814,6 +909,14 @@ function App() {
           {error}
         </div>
       )}
+      <RedoStageModal
+        stage={redoTargetStage}
+        onConfirm={() => {
+          if (redoTargetStage) void handleRedoStage(redoTargetStage);
+        }}
+        onClose={() => setRedoTargetStage(null)}
+        isLoading={isRedoing}
+      />
     </div>
   );
 }
