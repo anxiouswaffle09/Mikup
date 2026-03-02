@@ -331,7 +331,7 @@ function App() {
         await invoke<void>('mark_dsp_complete', { outputDirectory: workspaceDirectory }).catch(() => {});
 
         const nextCount = Math.max(completedStageCount, DSP_STAGE_INDEX + 1);
-        setCompletedStageCount(nextCount);
+        setCompletedStageCount((prev) => Math.max(prev, DSP_STAGE_INDEX + 1));
         setRunningStageIndex(null);
 
         // Read the payload persisted by Python stages, merge in the Turbo Scan LUFS graph.
@@ -411,7 +411,7 @@ function App() {
       const nextCompletedCount = force
         ? stageIndex + 1
         : Math.max(completedStageCount, stageIndex + 1);
-      setCompletedStageCount(nextCompletedCount);
+      setCompletedStageCount((prev) => (force ? stageIndex + 1 : Math.max(prev, stageIndex + 1)));
       setRunningStageIndex(null);
 
       if (nextCompletedCount >= PIPELINE_STAGES.length) {
