@@ -850,6 +850,102 @@ async fn mark_dsp_complete(output_directory: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove the DSP stage entry from stage_state.json so `get_pipeline_state` correctly
+/// reports DSP as incomplete after a redo. Called internally by `redo_pipeline_stage`.
+async fn clear_dsp_stage_state(output_directory: &str) -> Result<(), String> {
+    let state_path = resolve_data_artifact_path(output_directory, "stage_state.json")?;
+
+    let content = match tokio::fs::read_to_string(&state_path).await {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let mut state: serde_json::Value = serde_json::from_str(&content)
+        .unwrap_or_else(|_| serde_json::json!({ "stages": {} }));
+
+    if let Some(stages) = state.get_mut("stages").and_then(|s| s.as_object_mut()) {
+        stages.remove("dsp");
+    }
+
+    let serialized = serde_json::to_string(&state).map_err(|e| e.to_string())?;
+    tokio::fs::write(&state_path, serialized)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Invalidate a pipeline stage and all downstream stages.
+///
+/// For non-DSP stages: delegates to Python `--redo-stage <stage>` which deletes artifacts
+/// for the target stage and all downstream Python stages.
+///
+/// For the DSP stage: deletes `data/dsp_metrics.json` and clears DSP from `stage_state.json`
+/// in Rust only — no Python invocation. The frontend re-runs `generate_static_map` after this.
+///
+/// When redoing `separation` or `transcription`, DSP artifacts are also cleared since DSP runs
+/// after both in the UI pipeline order: separation → transcription → DSP → semantics → director.
+#[tauri::command]
+async fn redo_pipeline_stage(
+    app: tauri::AppHandle,
+    output_directory: String,
+    stage: String,
+    input_path: String,
+) -> Result<String, String> {
+    ensure_safe_argument("Output directory", &output_directory)?;
+    ensure_safe_argument("Stage", &stage)?;
+
+    let stage_lower = stage.trim().to_ascii_lowercase();
+    let valid_stages = ["separation", "transcription", "dsp", "semantics", "director"];
+    if !valid_stages.contains(&stage_lower.as_str()) {
+        return Err(format!(
+            "Invalid stage '{}'. Allowed: separation, transcription, dsp, semantics, director",
+            stage
+        ));
+    }
+
+    let output_path_buf = PathBuf::from(&output_directory);
+    if !output_path_buf.is_absolute() {
+        return Err("Output directory must be an absolute path".to_string());
+    }
+
+    // DSP-only redo: clear Rust artifacts and return — no Python call needed.
+    if stage_lower == "dsp" {
+        let dsp_metrics = resolve_data_artifact_path(&output_directory, "dsp_metrics.json")?;
+        // Ignore not-found: file may already be missing.
+        let _ = tokio::fs::remove_file(&dsp_metrics).await;
+        clear_dsp_stage_state(&output_directory).await?;
+        return Ok("DSP stage cleared. Re-run generate_static_map to regenerate.".to_string());
+    }
+
+    // For stages that precede DSP in pipeline order, also clear DSP Rust artifacts.
+    // Python's --redo-stage does not know about the Rust DSP stage.
+    if matches!(stage_lower.as_str(), "separation" | "transcription") {
+        let dsp_metrics = resolve_data_artifact_path(&output_directory, "dsp_metrics.json")?;
+        let _ = tokio::fs::remove_file(&dsp_metrics).await;
+        // Non-fatal: if this fails, pipeline state may be slightly stale but re-run will fix it.
+        let _ = clear_dsp_stage_state(&output_directory).await;
+    }
+
+    // Python stage redo.
+    ensure_safe_argument("Input path", &input_path)?;
+    let project_root =
+        find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
+
+    let (_, output_directory_arg, _, output_path_arg) = resolve_output_paths(&output_directory)?;
+    let input_path_arg = PathBuf::from(&input_path).to_string_lossy().into_owned();
+    ensure_safe_argument("Input path", &input_path_arg)?;
+
+    let mut args =
+        build_base_pipeline_args(&input_path_arg, &output_directory_arg, &output_path_arg);
+    args.extend(["--redo-stage".to_string(), stage_lower.clone()]);
+
+    run_python_pipeline(&app, &project_root, args, 1200).await?;
+    Ok(format!(
+        "Stage {stage_lower} and all downstream stages have been cleared."
+    ))
+}
+
 /// Signal a running `stream_audio_metrics` call to stop after the current frame.
 #[tauri::command]
 async fn stop_dsp_stream(stream_generation: tauri::State<'_, Arc<AtomicU64>>) -> Result<(), String> {
@@ -1289,6 +1385,18 @@ mod lib_tests {
         let used_clamped = 0_u64.saturating_sub(1_u64);
         assert_eq!(used_clamped, 0);
     }
+
+    #[test]
+    fn clear_dsp_stage_state_removes_dsp_key() {
+        let initial = r#"{"stages":{"separation":{"completed":true},"dsp":{"completed":true},"transcription":{"completed":true}}}"#;
+        let mut state: serde_json::Value = serde_json::from_str(initial).unwrap();
+        if let Some(stages) = state.get_mut("stages").and_then(|s| s.as_object_mut()) {
+            stages.remove("dsp");
+        }
+        assert!(state["stages"].get("dsp").is_none());
+        assert_eq!(state["stages"]["separation"]["completed"].as_bool(), Some(true));
+        assert_eq!(state["stages"]["transcription"]["completed"].as_bool(), Some(true));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1314,6 +1422,7 @@ pub fn run() {
             stop_dsp_stream,
             set_stem_state,
             mark_dsp_complete,
+            redo_pipeline_stage,
             send_agent_message,
             get_disk_info,
         ])
