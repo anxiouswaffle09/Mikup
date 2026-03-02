@@ -20,6 +20,69 @@ if __package__ in (None, ""):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
+# ---------------------------------------------------------------------------
+# PyTorch 2.10+ security: register trusted model classes before any imports
+# that may trigger model loading. This must run before Mikup module imports.
+# ---------------------------------------------------------------------------
+def _register_torch_safe_globals():
+    """
+    Allowlist the exact classes used by our trusted models so that
+    torch.load(weights_only=True) does not raise UnpicklingError.
+    Only our specific model architectures are registered — not a blanket bypass.
+    """
+    # Allow third-party libs (audio-separator) that call torch.load without
+    # weights_only=False explicitly.
+    os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+
+    safe = []
+
+    # numpy — used by virtually every checkpoint's state_dict serialization
+    try:
+        import numpy as np
+        safe.extend([np.ndarray, np.dtype])
+        try:
+            from numpy._core.multiarray import _reconstruct as _np_recon_new
+            safe.append(_np_recon_new)
+        except ImportError:
+            pass
+        try:
+            from numpy.core.multiarray import _reconstruct as _np_recon_legacy
+            safe.append(_np_recon_legacy)
+        except ImportError:
+            pass
+    except ImportError:
+        pass
+
+    # demucs HTDemucs — CDX23 cinematic model architecture
+    try:
+        from demucs.htdemucs import HTDemucs
+        safe.append(HTDemucs)
+    except ImportError:
+        pass
+
+    # omegaconf — used by demucs config serialization
+    try:
+        from omegaconf.dictconfig import DictConfig
+        from omegaconf.listconfig import ListConfig
+        safe.extend([DictConfig, ListConfig])
+    except ImportError:
+        pass
+
+    # pytorch_lightning — used by some BS-Roformer checkpoints
+    try:
+        from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+        safe.append(ModelCheckpoint)
+    except ImportError:
+        pass
+
+    if safe:
+        torch.serialization.add_safe_globals(safe)
+        logger.info("Torch safe globals registered: %d class(es)", len(safe))
+
+
+_register_torch_safe_globals()
+# ---------------------------------------------------------------------------
+
 from src.ingestion.separator import MikupSeparator
 from src.transcription.transcriber import MikupTranscriber
 from src.semantics.tagger import MikupSemanticTagger
