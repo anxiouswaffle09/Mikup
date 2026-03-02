@@ -457,7 +457,7 @@ function App() {
 
       const stageIndex = PIPELINE_STAGES.findIndex((s) => s.id === stage.id);
       // Reset completed count to the redo target so processing view re-runs from there.
-      setCompletedStageCount(Math.min(completedStageCount, stageIndex));
+      setCompletedStageCount((prev) => Math.min(prev, stageIndex));
 
       // Clear in-memory payload data for the invalidated stages.
       if (stage.id === 'SEPARATION') {
@@ -728,21 +728,28 @@ function App() {
                 Re-process ▾
               </button>
               {showRedoMenu && (
-                <div className="absolute right-0 top-full mt-1 border border-panel-border bg-background z-20 min-w-[200px] shadow-lg">
-                  {PIPELINE_STAGES.map((stage) => (
-                    <button
-                      key={stage.id}
-                      type="button"
-                      onClick={() => {
-                        setRedoTargetStage(stage);
-                        setShowRedoMenu(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-[11px] font-mono text-text-muted hover:text-text-main hover:bg-panel-border/30 transition-colors"
-                    >
-                      Redo {stage.label}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  {/* Transparent backdrop to close menu on outside click */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowRedoMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1 border border-panel-border bg-background z-20 min-w-[200px] shadow-lg">
+                    {PIPELINE_STAGES.map((stage) => (
+                      <button
+                        key={stage.id}
+                        type="button"
+                        onClick={() => {
+                          setRedoTargetStage(stage);
+                          setShowRedoMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[11px] font-mono text-text-muted hover:text-text-main hover:bg-panel-border/30 transition-colors"
+                      >
+                        Redo {stage.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
