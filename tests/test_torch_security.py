@@ -55,6 +55,7 @@ class TestTorchSecurityRegistry(unittest.TestCase):
     def test_pass2_raises_runtime_error_on_load_failure(self):
         """_pass2_cdx23_instrumental wraps load_model failures in a RuntimeError with guidance."""
         import _pickle
+        import tempfile
         import unittest.mock as mock
 
         from src.ingestion.separator import MikupSeparator
@@ -63,21 +64,22 @@ class TestTorchSecurityRegistry(unittest.TestCase):
         sep.output_dir = "/tmp"
         sep.device = "cpu"
 
-        fake_model_path = "/tmp/fake_model.th"
-        # Create an empty file so the "file exists" check passes
-        with open(fake_model_path, "wb"):
-            pass
+        with tempfile.NamedTemporaryFile(suffix=".th", delete=False) as tmp:
+            fake_model_path = tmp.name
 
-        with mock.patch(
-            "src.ingestion.separator.load_model",
-            side_effect=_pickle.UnpicklingError("weights_only load failed"),
-        ):
-            with self.assertRaises(RuntimeError) as ctx:
-                sep._pass2_cdx23_instrumental(
-                    "/tmp/fake_instrumental.wav", "fake_source", fast_mode=True
-                )
+        try:
+            with mock.patch(
+                "src.ingestion.separator.load_model",
+                side_effect=_pickle.UnpicklingError("weights_only load failed"),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    sep._pass2_cdx23_instrumental(
+                        "/tmp/fake_instrumental.wav", "fake_source", fast_mode=True
+                    )
 
-        self.assertIn("security gate", str(ctx.exception).lower())
+            self.assertIn("security gate", str(ctx.exception).lower())
+        finally:
+            os.unlink(fake_model_path)
 
 
 if __name__ == "__main__":
