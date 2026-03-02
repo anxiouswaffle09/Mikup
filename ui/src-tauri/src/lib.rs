@@ -124,14 +124,12 @@ async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
 
     let disks = Disks::new_with_refreshed_list();
 
-    // Find the disk whose mount point is the longest matching prefix of our path.
-    // This correctly handles WSL2 (/mnt/c, /mnt/d), macOS (/), and Linux mounts.
+    // Find the disk whose mount point is the longest path-component-aware prefix of our path.
+    // Uses Path::starts_with (not raw string) to avoid false matches on shared name prefixes.
+    // On WSL2, Windows drives appear as /mnt/c, /mnt/d if the kernel exposes them via DrvFs.
     let best = disks
         .iter()
-        .filter(|d| {
-            let mp = d.mount_point().to_string_lossy();
-            probe_path.starts_with(mp.as_ref())
-        })
+        .filter(|d| Path::new(&probe_path).starts_with(d.mount_point()))
         .max_by_key(|d| d.mount_point().to_string_lossy().len());
 
     match best {
