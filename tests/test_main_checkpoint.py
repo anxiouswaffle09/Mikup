@@ -36,7 +36,7 @@ class MainCheckpointSmokeTests(unittest.TestCase):
             self.assertTrue(semantics_path.exists())
 
             stems_payload = _read_json(stems_path)
-            for key in ("DX", "Music", "Foley", "SFX", "Ambience"):
+            for key in ("DX", "Music", "Effects"):
                 self.assertIn(key, stems_payload)
                 self.assertIsInstance(stems_payload[key], str)
                 self.assertTrue(stems_payload[key].strip())

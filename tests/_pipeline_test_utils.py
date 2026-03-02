@@ -36,6 +36,7 @@ def _install_dependency_stubs() -> None:
 
     torch_mod.cuda = _Cuda()
     torch_mod.backends = _Backends()
+    torch_mod.serialization = types.SimpleNamespace(add_safe_globals=lambda x: None)
     sys.modules["torch"] = torch_mod
 
     separator_mod = types.ModuleType("src.ingestion.separator")
