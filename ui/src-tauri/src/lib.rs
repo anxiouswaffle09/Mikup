@@ -103,6 +103,51 @@ struct WorkspaceSetupResult {
     copied_input_path: String,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct DiskInfo {
+    total_bytes: u64,
+    available_bytes: u64,
+    used_bytes: u64,
+}
+
+#[tauri::command]
+async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
+    use sysinfo::Disks;
+
+    let probe_path = if path.trim().is_empty() {
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "/".to_string())
+    } else {
+        path.clone()
+    };
+
+    let disks = Disks::new_with_refreshed_list();
+
+    // Find the disk whose mount point is the longest matching prefix of our path.
+    // This correctly handles WSL2 (/mnt/c, /mnt/d), macOS (/), and Linux mounts.
+    let best = disks
+        .iter()
+        .filter(|d| {
+            let mp = d.mount_point().to_string_lossy();
+            probe_path.starts_with(mp.as_ref())
+        })
+        .max_by_key(|d| d.mount_point().to_string_lossy().len());
+
+    match best {
+        Some(disk) => {
+            let total = disk.total_space();
+            let available = disk.available_space();
+            Ok(DiskInfo {
+                total_bytes: total,
+                available_bytes: available,
+                used_bytes: total.saturating_sub(available),
+            })
+        }
+        None => Err(format!("No disk found for path: {path}")),
+    }
+}
+
 fn contains_unsafe_shell_tokens(value: &str) -> bool {
     value.contains('`') || value.contains('\n') || value.contains('\r')
 }
@@ -293,11 +338,73 @@ async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String>
         return Ok(serde_json::Value::Array(vec![]));
     }
 
-    let content = tokio::fs::read_to_string(history_path)
+    let content = tokio::fs::read_to_string(&history_path)
         .await
         .map_err(|e| e.to_string())?;
     let history: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    Ok(history)
+
+    let Some(entries) = history.as_array() else {
+        return Ok(history);
+    };
+
+    // Resolve the configured projects directory (falls back to <root>/Projects).
+    let config_path = app_config_path(&project_root);
+    let config: AppConfig = match tokio::fs::read_to_string(&config_path).await {
+        Ok(c) => serde_json::from_str::<AppConfig>(&c).unwrap_or_default(),
+        Err(_) => AppConfig::default(),
+    };
+    let projects_dir = if config.default_projects_dir.is_empty() {
+        project_root.join("Projects")
+    } else {
+        PathBuf::from(&config.default_projects_dir)
+    };
+
+    // Directories that always disqualify a path as a valid override.
+    let system_temp = std::env::temp_dir();
+    let legacy_processed = project_root.join("data").join("processed");
+
+    let filtered: Vec<serde_json::Value> = entries
+        .iter()
+        .filter(|entry| {
+            let Some(output_dir_str) = entry
+                .get("payload")
+                .and_then(|p| p.get("artifacts"))
+                .and_then(|a| a.get("output_dir"))
+                .and_then(|v| v.as_str())
+            else {
+                return false;
+            };
+
+            let path = Path::new(output_dir_str);
+
+            // 1. Existence — stale entries are hidden automatically.
+            if !path.exists() {
+                return false;
+            }
+
+            // 2a. Primary location: inside the configured projects directory.
+            if path.starts_with(&projects_dir) {
+                return true;
+            }
+
+            // 2b. Manual override: absolute path that is not a temp or legacy location.
+            if !path.is_absolute() {
+                return false;
+            }
+            if path.starts_with(&system_temp)
+                || path.starts_with("/tmp")
+                || path.starts_with("/var/tmp")
+                || path.starts_with(&legacy_processed)
+            {
+                return false;
+            }
+
+            true
+        })
+        .cloned()
+        .collect();
+
+    Ok(serde_json::Value::Array(filtered))
 }
 
 #[tauri::command]
@@ -894,7 +1001,9 @@ async fn stream_audio_metrics(
                     .collect();
                 let resampled = resampler.process(&mixed);
                 let interleaved = interleave_mono(&resampled, player.channels());
-                player.push_interleaved_nonblocking(&interleaved);
+                player.push_interleaved_blocking_with_cancel(&interleaved, || {
+                    stream_gen_arc.load(Ordering::Relaxed) != my_gen
+                })?;
             }
 
             frame_index += 1;
@@ -1172,6 +1281,16 @@ mod lib_tests {
         // Other stages should not exist (we started from empty)
         assert!(state["stages"]["separation"].is_null());
     }
+
+    #[test]
+    fn disk_info_used_bytes_is_total_minus_available() {
+        let total: u64 = 500_000_000_000;
+        let available: u64 = 200_000_000_000;
+        let used = total.saturating_sub(available);
+        assert_eq!(used, 300_000_000_000);
+        let used_clamped = 0_u64.saturating_sub(1_u64);
+        assert_eq!(used_clamped, 0);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1198,6 +1317,7 @@ pub fn run() {
             set_stem_state,
             mark_dsp_complete,
             send_agent_message,
+            get_disk_info,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
