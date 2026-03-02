@@ -162,6 +162,12 @@ export interface WorkspaceSetupResult {
   copied_input_path: string;
 }
 
+export interface DiskInfo {
+  total_bytes: number;
+  available_bytes: number;
+  used_bytes: number;
+}
+
 type PayloadRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is PayloadRecord {
@@ -426,23 +432,36 @@ export function resolveStemAudioSources(payload: MikupPayload | null, projectRoo
   const outputDir = payload.artifacts?.output_dir;
   const stemPaths = new Set<string>();
 
+  // 1. Prioritize the original source file itself.
+  // In a standard Mikup workspace, payload.metadata.source_file is the absolute path to
+  // the file inside the workspace (set by App.tsx during stage runs).
+  if (payload.metadata?.source_file) {
+    const sourcePath = resolveToAbsolute(payload.metadata.source_file, projectRoot ?? outputDir);
+    stemPaths.add(sourcePath);
+  }
+
+  // 2. Add stem paths from artifacts.
   for (const path of payload.artifacts?.stem_paths ?? []) {
     const trimmed = path.trim();
     if (!trimmed || !isLikelyLocalPath(trimmed)) continue;
-    // stem_paths are relativized against project root by the Python backend;
-    // fall back to outputDir for absolute-path payloads from active runs.
     stemPaths.add(resolveToAbsolute(trimmed, projectRoot ?? outputDir));
   }
 
-  if (stemPaths.size === 0 && payload.metadata?.source_file) {
+  // 3. Fallback: derive stem paths from source_file if none were explicitly listed.
+  if (stemPaths.size <= 1 && payload.metadata?.source_file) {
     const stemsDir = outputDir ? `${outputDir}/stems` : undefined;
     for (const path of deriveStemPathsFromSource(payload.metadata.source_file)) {
       stemPaths.add(resolveToAbsolute(path, stemsDir));
     }
   }
 
-  // DX stem is primary — sort it first so WaveformVisualizer loads it as the default waveform.
+  // Sorting: Original source first, then DX, then others.
   return Array.from(stemPaths).sort((a, b) => {
+    const aIsSource = payload.metadata?.source_file && a.includes(payload.metadata.source_file.replace(/^.*[\\/]/, ''));
+    const bIsSource = payload.metadata?.source_file && b.includes(payload.metadata.source_file.replace(/^.*[\\/]/, ''));
+    if (aIsSource && !bIsSource) return -1;
+    if (!aIsSource && bIsSource) return 1;
+
     const aIsDX = /_DX\./i.test(a);
     const bIsDX = /_DX\./i.test(b);
     if (aIsDX && !bIsDX) return -1;
