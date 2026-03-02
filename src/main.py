@@ -359,6 +359,8 @@ def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_rep
         },
     }
 
+    payload["metrics"]["pacing_mikups"] = transcription_data.get("pacing_mikups", [])
+
     if isinstance(ai_report, str) and ai_report.strip():
         payload["ai_report"] = ai_report
 

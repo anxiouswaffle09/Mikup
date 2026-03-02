@@ -29,6 +29,7 @@ We have pivoted from a "Headless Report Generator" to a **Real-Time Interactive 
 - **WSL2 Rendering:** Always use `npm run tauri:wsl` in the `ui` directory to bypass hardware acceleration issues.
 - **Web Interaction:** Strictly use the **Playwright CLI** (`playwright`) for all web/UI interactions.
 - **Environment:** Use `requirements-cuda.txt` (Linux/WSL2) or `requirements-mac.txt` (macOS) as appropriate.
+- **Cross-Platform Parity:** Always prioritize features and architectural designs that maintain functional parity between macOS (Darwin) and Windows/WSL2. Account for OS-specific nuances (e.g., WebKit sandboxing vs. WebView2 file access) during the planning phase to avoid platform-specific regressions.
 
 ## Core Metrics
 - **Spatial:** Stereo width variance and phase correlation.

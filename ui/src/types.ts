@@ -154,6 +154,7 @@ export interface HistoryEntry {
 
 export interface AppConfig {
   default_projects_dir: string;
+  project_root: string;
 }
 
 export interface WorkspaceSetupResult {
@@ -311,12 +312,16 @@ export function parseMikupPayload(raw: unknown): MikupPayload {
       if (ducking !== undefined) impactMetrics.ducking_intensity = ducking;
     }
 
+    const rawPacingSource = Array.isArray(raw.metrics.pacing_mikups)
+      ? raw.metrics.pacing_mikups
+      : isRecord(raw.transcription) && Array.isArray(raw.transcription.pacing_mikups)
+        ? raw.transcription.pacing_mikups
+        : [];
+
     payload.metrics = {
-      pacing_mikups: Array.isArray(raw.metrics.pacing_mikups)
-        ? raw.metrics.pacing_mikups
-            .map(parsePacingMikup)
-            .filter((item): item is PacingMikup => item !== null)
-        : [],
+      pacing_mikups: rawPacingSource
+        .map(parsePacingMikup)
+        .filter((item): item is PacingMikup => item !== null),
       spatial_metrics: spatialMetrics,
       impact_metrics: impactMetrics,
     };
@@ -415,7 +420,7 @@ function resolveToAbsolute(path: string, outputDir?: string): string {
   return trimmed;
 }
 
-export function resolveStemAudioSources(payload: MikupPayload | null): string[] {
+export function resolveStemAudioSources(payload: MikupPayload | null, projectRoot?: string): string[] {
   if (!payload) return [];
 
   const outputDir = payload.artifacts?.output_dir;
@@ -424,7 +429,9 @@ export function resolveStemAudioSources(payload: MikupPayload | null): string[] 
   for (const path of payload.artifacts?.stem_paths ?? []) {
     const trimmed = path.trim();
     if (!trimmed || !isLikelyLocalPath(trimmed)) continue;
-    stemPaths.add(resolveToAbsolute(trimmed, outputDir));
+    // stem_paths are relativized against project root by the Python backend;
+    // fall back to outputDir for absolute-path payloads from active runs.
+    stemPaths.add(resolveToAbsolute(trimmed, projectRoot ?? outputDir));
   }
 
   if (stemPaths.size === 0 && payload.metadata?.source_file) {

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileAudio, ChevronRight, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { parseHistoryEntry } from '../types';
 import type { AppConfig, HistoryEntry, MikupPayload } from '../types';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { clsx } from 'clsx';
 
 interface LandingHubProps {
@@ -24,7 +25,6 @@ export const LandingHub: React.FC<LandingHubProps> = ({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [dropError, setDropError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manualOverrideDir, setManualOverrideDir] = useState<string | null>(null);
 
@@ -56,17 +56,37 @@ export const LandingHub: React.FC<LandingHubProps> = ({
     loadHistory();
   }, []);
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  // Stable refs so the listener always sees the latest values without re-registering.
+  const isProcessingRef = useRef(isProcessing);
+  const manualOverrideDirRef = useRef(manualOverrideDir);
+  const onStartNewProcessRef = useRef(onStartNewProcess);
+  useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+  useEffect(() => { manualOverrideDirRef.current = manualOverrideDir; }, [manualOverrideDir]);
+  useEffect(() => { onStartNewProcessRef.current = onStartNewProcess; }, [onStartNewProcess]);
 
-  const handleDragLeave = () => setIsDragging(false);
-
-  const isSupportedAudioFile = (name: string) =>
-    name.toLowerCase().endsWith('.wav') ||
-    name.toLowerCase().endsWith('.mp3') ||
-    name.toLowerCase().endsWith('.flac');
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === 'enter' || payload.type === 'over') {
+        setIsDragging(true);
+      } else if (payload.type === 'leave') {
+        setIsDragging(false);
+      } else if (payload.type === 'drop') {
+        setIsDragging(false);
+        if (isProcessingRef.current) return;
+        const audioFilePath = payload.paths.find(p =>
+          p.toLowerCase().endsWith('.wav') ||
+          p.toLowerCase().endsWith('.mp3') ||
+          p.toLowerCase().endsWith('.flac')
+        );
+        if (audioFilePath) {
+          onStartNewProcessRef.current(audioFilePath, manualOverrideDirRef.current ?? undefined);
+        }
+      }
+    }).then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, []);
 
   const handleSelectFile = async () => {
     const selectedPath = await open({
@@ -83,24 +103,6 @@ export const LandingHub: React.FC<LandingHubProps> = ({
     if (typeof selectedPath === 'string') {
       onStartNewProcess(selectedPath, manualOverrideDir ?? undefined);
     }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    const audioFile = files.find(f => isSupportedAudioFile(f.name));
-    if (!audioFile || isProcessing) return;
-
-    const audioFilePath = (audioFile as File & { path?: string }).path;
-    const isAbsolute = audioFilePath && (audioFilePath.includes('/') || audioFilePath.includes('\\'));
-    if (!isAbsolute) {
-      setDropError('Full path unavailable via drag & drop. Use "Click to select" instead.');
-      setTimeout(() => setDropError(null), 4000);
-      return;
-    }
-
-    onStartNewProcess(audioFilePath, manualOverrideDir ?? undefined);
   };
 
   const filteredHistory = history.filter(item =>
@@ -135,9 +137,6 @@ export const LandingHub: React.FC<LandingHubProps> = ({
           Drop an audio file to begin &nbsp;·&nbsp; .wav .mp3 .flac
         </p>
         <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
           onClick={handleSelectFile}
           className={clsx(
             "h-28 border border-dashed flex items-center justify-center transition-colors duration-200 cursor-pointer select-none",
@@ -151,9 +150,6 @@ export const LandingHub: React.FC<LandingHubProps> = ({
             {isProcessing ? 'Processing...' : 'Drag & drop or click to select'}
           </span>
         </div>
-        {dropError && (
-          <p className="mt-2 text-[11px] text-red-400 font-mono">{dropError}</p>
-        )}
         <div className="mt-3">
           <button
             type="button"

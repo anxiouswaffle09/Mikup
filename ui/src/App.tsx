@@ -442,7 +442,16 @@ function App() {
     setError(null);
     setPayload(projectPayload);
     // Restore workspace context so resolvePlaybackStemPaths can resolve relative stem paths.
-    setWorkspaceDirectory(projectPayload.artifacts?.output_dir ?? null);
+    let workspaceDir = projectPayload.artifacts?.output_dir ?? null;
+    if (
+      workspaceDir &&
+      config?.project_root &&
+      !workspaceDir.startsWith('/') &&
+      !/^[a-zA-Z]:[\\/]/.test(workspaceDir)
+    ) {
+      workspaceDir = `${config.project_root}/${workspaceDir}`;
+    }
+    setWorkspaceDirectory(workspaceDir);
     setInputPath(projectPayload.metadata?.source_file ?? null);
     setView('analysis');
   };
@@ -675,7 +684,7 @@ function App() {
               <WaveformVisualizer
                 pacing={payload?.metrics?.pacing_mikups}
                 duration={payload?.metrics?.spatial_metrics?.total_duration}
-                audioSources={resolveStemAudioSources(payload)}
+                audioSources={resolveStemAudioSources(payload, config?.project_root ?? undefined)}
                 outputDir={payload?.artifacts?.output_dir}
                 diagnosticEvents={payload?.metrics?.diagnostic_events}
                 ghostStemPaths={ghostStemPaths}

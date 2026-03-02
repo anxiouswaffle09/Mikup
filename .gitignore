@@ -52,3 +52,7 @@ wheels/
 
 # Git worktrees
 .worktrees/
+Projects/
+*.wav
+data/history.json
+data/config.json

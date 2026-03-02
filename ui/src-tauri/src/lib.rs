@@ -84,12 +84,15 @@ struct DspCompletePayload {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct AppConfig {
     default_projects_dir: String,
+    #[serde(default)]
+    project_root: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             default_projects_dir: String::new(),
+            project_root: String::new(),
         }
     }
 }
@@ -301,15 +304,18 @@ async fn get_history(app: tauri::AppHandle) -> Result<serde_json::Value, String>
 async fn get_app_config(app: tauri::AppHandle) -> Result<AppConfig, String> {
     let project_root =
         find_project_root(&app).ok_or_else(|| "Unable to resolve project root".to_string())?;
+    let project_root_str = project_root.to_string_lossy().into_owned();
     let config_path = app_config_path(&project_root);
 
-    let content = match tokio::fs::read_to_string(config_path).await {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(AppConfig::default()),
+    let mut config = match tokio::fs::read_to_string(config_path).await {
+        Ok(c) => serde_json::from_str::<AppConfig>(&c)
+            .map_err(|e| format!("Invalid app config JSON: {e}"))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
         Err(e) => return Err(format!("Failed to read app config: {e}")),
     };
 
-    serde_json::from_str::<AppConfig>(&content).map_err(|e| format!("Invalid app config JSON: {e}"))
+    config.project_root = project_root_str;
+    Ok(config)
 }
 
 #[tauri::command]
@@ -330,16 +336,17 @@ async fn set_default_projects_dir(
         .map_err(|e| format!("Failed to create config directory: {e}"))?;
 
     let normalized_path = PathBuf::from(path).to_string_lossy().into_owned();
-    let config = AppConfig {
-        default_projects_dir: normalized_path,
-    };
-    let serialized = serde_json::to_string_pretty(&config)
+    let file_config = serde_json::json!({ "default_projects_dir": normalized_path });
+    let serialized = serde_json::to_string_pretty(&file_config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
     tokio::fs::write(config_path, serialized)
         .await
         .map_err(|e| format!("Failed to write app config: {e}"))?;
 
-    Ok(config)
+    Ok(AppConfig {
+        default_projects_dir: normalized_path,
+        project_root: project_root.to_string_lossy().into_owned(),
+    })
 }
 
 #[tauri::command]

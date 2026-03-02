@@ -17,7 +17,7 @@ const LUFS_FLOOR: f32 = -70.0;
 const LUFS_CEILING: f32 = 0.0;
 const STEM_SCAN_PROGRESS_INTERVAL_SECS: f32 = 5.0;
 
-pub const CANONICAL_STEMS: [&str; 5] = ["DX", "Music", "SFX", "Foley", "Ambience"];
+pub const CANONICAL_STEMS: [&str; 3] = ["DX", "Music", "Effects"];
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StemLufsProfile {
@@ -386,9 +386,7 @@ fn lookup_stem_path<'a>(
             let aliases: &[&str] = match stem {
                 "DX" => &["dialogue_raw", "dx_raw", "dialogue"],
                 "Music" => &["music_raw", "background_raw", "music"],
-                "SFX" => &["sfx_raw", "sfx"],
-                "Foley" => &["foley_raw", "foley"],
-                "Ambience" => &["ambience_raw", "ambience"],
+                "Effects" => &["effects_raw", "sfx", "foley", "ambience"],
                 _ => &[],
             };
 
