@@ -429,6 +429,31 @@ def _safe_get_mtime(path):
         return None
 
 
+def _read_config(config_path="data/config.json"):
+    """Read data/config.json and return its contents as a dict."""
+    return _read_json_file(config_path, default={}) or {}
+
+
+def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/config.json"):
+    """
+    Determine the output workspace directory.
+
+    - If output_dir_flag is given (user passed --output-dir), use it verbatim as abspath.
+    - Otherwise, generate a timestamped workspace:
+        <default_projects_dir>/<input_stem>_<YYYYMMDD_HHMMSS>/
+      where default_projects_dir comes from data/config.json, falling back to
+      <repo_root>/Projects/.
+    """
+    if output_dir_flag is not None:
+        return os.path.abspath(output_dir_flag)
+
+    config = _read_config(config_path)
+    base = config.get("default_projects_dir") or os.path.join(project_root, "Projects")
+    stem = os.path.splitext(os.path.basename(input_path))[0] or "project"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(os.path.abspath(base), f"{stem}_{timestamp}")
+
+
 def _timestamps_match(lhs, rhs, tolerance=1e-6):
     if lhs is None or rhs is None:
         return False
@@ -702,7 +727,9 @@ def main():
     parser = argparse.ArgumentParser(description="Project Mikup - Audio Drama Deconstruction Pipeline")
     parser.add_argument("--input", type=str, help="Path to raw audio file", required=True)
     parser.add_argument("--output", type=str, help="Path to output Mikup JSON/Report", default=None)
-    parser.add_argument("--output-dir", type=str, help="Directory for intermediate stage artifacts", default="data/processed")
+    parser.add_argument("--output-dir", type=str,
+        help="Directory for intermediate stage artifacts (default: auto-generated Projects workspace)",
+        default=None)
     parser.add_argument("--stage", choices=STAGE_CHOICES, help="Run only the specified stage and exit")
     parser.add_argument("--fast", action="store_true", help="Quick mode: skip heavy separation/transcription work")
     parser.add_argument("--mock", action="store_true", help="Use mock data for testing")
@@ -710,13 +737,16 @@ def main():
 
     args = parser.parse_args()
     args.input = os.path.abspath(args.input)
-    args.output_dir = os.path.abspath(args.output_dir)
 
     if not os.path.exists(args.input) and not args.mock:
         logger.error(f"Input file {args.input} not found.")
         sys.exit(1)
 
-    output_dir = args.output_dir
+    output_dir = _resolve_output_dir(
+        input_path=args.input,
+        output_dir_flag=args.output_dir,
+    )
+    args.output_dir = output_dir
     args.output = args.output or os.path.join(output_dir, "mikup_payload.json")
 
     try:
