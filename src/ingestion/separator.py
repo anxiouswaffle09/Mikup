@@ -44,7 +44,7 @@ class MikupSeparator:
         "/releases/download/v.1.0.0/"
     )
 
-    def __init__(self, output_dir="data/processed"):
+    def __init__(self, output_dir):
         self.output_dir = os.path.abspath(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
         self.device = self._detect_torch_device()
@@ -86,10 +86,7 @@ class MikupSeparator:
             for attr in ("device", "torch_device"):
                 if hasattr(separator, attr):
                     try:
-                        if self.device == "mps":
-                            setattr(separator, attr, "cpu")
-                        else:
-                            setattr(separator, attr, self.device)
+                        setattr(separator, attr, self.device)
                     except Exception:
                         pass
 
