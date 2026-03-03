@@ -804,7 +804,7 @@ function AppContent() {
                 diagnosticEvents={payload?.metrics?.diagnostic_events}
                 ghostStemPaths={ghostStemPaths}
                 highlightAtSecs={highlightAtSecs}
-                currentTimeSecs={dspStream.currentFrame?.timestamp_secs}
+                currentTimeSecs={dspStream.isStreaming ? dspStream.currentTimeSecs : undefined}
                 onPlay={(time) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
                   if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time, inputPath ?? '');
@@ -848,22 +848,24 @@ function AppContent() {
 
         <aside className="lg:col-span-4 flex flex-col px-6 py-5 gap-6 min-h-0">
           {/* Live DSP meters — visible whenever a DSP stream is active */}
-          {dspStream.currentFrame && (
+          {dspStream.isStreaming && (
             <div className="space-y-3 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Live Meters</span>
                 <span className="text-[10px] font-mono text-text-muted tabular-nums">
-                  {dspStream.currentFrame.timestamp_secs.toFixed(1)}s
+                  {dspStream.currentTimeSecs.toFixed(1)}s
                 </span>
               </div>
               <div className="flex gap-4">
                 <Vectorscope
-                  lissajousPoints={dspStream.currentFrame.lissajous_points}
+                  latestFrameRef={dspStream.latestFrameRef}
+                  isStreaming={dspStream.isStreaming}
                   size={140}
                 />
                 <div className="flex-1 min-w-0">
                   <LiveMeters
-                    frame={dspStream.currentFrame}
+                    latestFrameRef={dspStream.latestFrameRef}
+                    isStreaming={dspStream.isStreaming}
                     lra={dspStream.completePayload?.dialogue_loudness_range_lu}
                   />
                 </div>
@@ -878,9 +880,9 @@ function AppContent() {
                 <span className="text-[10px] uppercase tracking-widest font-bold text-text-muted">
                   Transcript
                 </span>
-                {dspStream.currentFrame && (
+                {dspStream.isStreaming && (
                   <span className="text-[10px] font-mono text-text-muted tabular-nums">
-                    {dspStream.currentFrame.timestamp_secs.toFixed(1)}s
+                    {dspStream.currentTimeSecs.toFixed(1)}s
                   </span>
                 )}
               </div>
@@ -888,7 +890,7 @@ function AppContent() {
                 <TranscriptScrubber
                   segments={payload.transcription.segments}
                   wordSegments={payload.transcription.word_segments}
-                  currentTime={dspStream.currentFrame?.timestamp_secs ?? 0}
+                  currentTime={dspStream.currentTimeSecs}
                   onSeek={(time) => {
                     const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(
                       payload,
