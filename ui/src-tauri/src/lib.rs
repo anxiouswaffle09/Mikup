@@ -178,6 +178,48 @@ fn contains_unsafe_shell_tokens(value: &str) -> bool {
     value.contains('`') || value.contains('\n') || value.contains('\r')
 }
 
+/// Returns true only for stderr lines that represent real errors the user should see.
+/// Filters out tqdm progress bars, verbose library logging (INFO/DEBUG), and blank lines
+/// that would otherwise flood the IPC channel and saturate the JS event loop.
+fn is_stderr_worth_surfacing(chunk: &str) -> bool {
+    // Iterate line by line; a chunk may contain multiple lines separated by \n or \r\n.
+    chunk.lines().any(|raw| {
+        let line = raw.trim();
+        if line.is_empty() {
+            return false;
+        }
+        // Carriage returns indicate in-place tqdm overwrites — never user-visible errors.
+        if raw.contains('\r') {
+            return false;
+        }
+        // tqdm rate suffixes: "it/s]", "s/it]"
+        if line.contains("it/s]") || line.contains("s/it]") {
+            return false;
+        }
+        // tqdm-style progress bar block characters
+        if line.contains('█') || line.contains('▏') || line.contains('▎') {
+            return false;
+        }
+        let lower = line.to_lowercase();
+        // Common library INFO/DEBUG log prefixes that are not user-facing errors.
+        if lower.starts_with("info ")
+            || lower.starts_with("debug ")
+            || lower.contains("| info |")
+            || lower.contains("| debug |")
+        {
+            return false;
+        }
+        // Only surface lines that indicate actual failures.
+        lower.contains("error")
+            || lower.contains("traceback")
+            || lower.contains("exception")
+            || lower.contains("warning")
+            || lower.contains("critical")
+            || lower.contains("failed")
+            || lower.contains("assert")
+    })
+}
+
 fn ensure_safe_argument(name: &str, value: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         return Err(format!("{name} must not be empty"));
@@ -332,8 +374,13 @@ async fn run_python_pipeline(
             }
             Some(CommandEvent::Stderr(line)) => {
                 let msg = String::from_utf8_lossy(&line).to_string();
-                eprintln!("Python Error: {}", msg);
-                let _ = app.emit("process-error", msg);
+                // Always log to process stderr for local debugging.
+                eprint!("Python stderr: {}", msg);
+                // Only forward to the frontend if it looks like a real error —
+                // not tqdm progress bars or verbose INFO/DEBUG library output.
+                if is_stderr_worth_surfacing(&msg) {
+                    let _ = app.emit("process-error", msg.trim().to_string());
+                }
             }
             Some(CommandEvent::Terminated(status)) => {
                 if status.code != Some(0) {

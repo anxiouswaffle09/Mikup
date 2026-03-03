@@ -147,7 +147,10 @@ function AppContent() {
 
   useEffect(() => {
     const unlisten = listen<string>('process-error', (event) => {
-      setPipelineErrors((prev) => [...prev, event.payload]);
+      setPipelineErrors((prev) => {
+        const next = [...prev, event.payload];
+        return next.length > 100 ? next.slice(-100) : next;
+      });
     });
 
     return () => {
@@ -804,7 +807,8 @@ function AppContent() {
                 diagnosticEvents={payload?.metrics?.diagnostic_events}
                 ghostStemPaths={ghostStemPaths}
                 highlightAtSecs={highlightAtSecs}
-                currentTimeSecs={dspStream.isStreaming ? dspStream.currentTimeSecs : undefined}
+                currentTimeSecs={dspStream.currentTimeSecs}
+                isStreaming={dspStream.isStreaming}
                 onPlay={(time) => {
                   const [dxPath, musicPath, effectsPath] = resolvePlaybackStemPaths(payload, inputPath, workspaceDirectory);
                   if (dxPath) dspStream.startStream(dxPath, musicPath, effectsPath, time, inputPath ?? '');

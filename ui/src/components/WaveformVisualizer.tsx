@@ -21,6 +21,7 @@ interface WaveformVisualizerProps {
   };
   highlightAtSecs?: number | null;
   currentTimeSecs?: number;
+  isStreaming?: boolean;
 }
 
 const SEVERITY_STYLE: Record<string, { border: string; bg: string; label: string }> = {
@@ -95,6 +96,7 @@ export function WaveformVisualizer({
   ghostStemPaths,
   highlightAtSecs,
   currentTimeSecs,
+  isStreaming = false,
 }: WaveformVisualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -109,10 +111,44 @@ export function WaveformVisualizer({
   // Sync internal time display to either external dsp-frame or local wavesurfer progression
   const displayTime = currentTimeSecs ?? localTime;
 
-  // Effect to sync wavesurfer seeker with external Rust timestamp
+  // --- RAF-driven GPU playhead overlay ---
+  const playheadRef = useRef<HTMLDivElement>(null);
+  // Refs for RAF loop to read without triggering re-renders
+  const rafCurrentTimeRef = useRef(currentTimeSecs ?? 0);
+  const rafDurationRef = useRef(duration > 0 ? duration : 10);
+
+  // Keep RAF refs in sync with props (no state update overhead)
+  useEffect(() => {
+    rafCurrentTimeRef.current = currentTimeSecs ?? 0;
+  }, [currentTimeSecs]);
+
+  useEffect(() => {
+    rafDurationRef.current = duration > 0 ? duration : 10;
+  }, [duration]);
+
+  // Single RAF loop: positions the playhead element at 60fps via translate3d (compositor-only)
+  useEffect(() => {
+    let rafId: number;
+    const tick = () => {
+      rafId = requestAnimationFrame(tick);
+      const ph = playheadRef.current;
+      const container = containerRef.current;
+      if (!ph || !container) return;
+      const dur = rafDurationRef.current;
+      if (dur <= 0) return;
+      const x = (rafCurrentTimeRef.current / dur) * container.offsetWidth;
+      ph.style.transform = `translate3d(${x}px, 0, 0)`;
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  // Effect to sync wavesurfer seeker with external Rust timestamp.
+  // During streaming the RAF playhead handles position — skip ws.setTime() to
+  // avoid redundant seeks that trigger WaveSurfer re-renders every frame.
   useEffect(() => {
     const ws = wavesurferRef.current;
-    if (!ws || currentTimeSecs == null || !isReady) return;
+    if (!ws || currentTimeSecs == null || !isReady || isStreaming) return;
 
     // Suppress corrections while the Rust engine is still catching up to a
     // user-initiated seek. Stale DSP frames arriving before the engine reaches
@@ -133,7 +169,7 @@ export function WaveformVisualizer({
         ws.setTime(currentTimeSecs);
       }
     }
-  }, [currentTimeSecs, isReady]);
+  }, [currentTimeSecs, isReady, isStreaming]);
 
   // Ghost wavesurfer refs
   const ghostWsRefs = useRef<(WaveSurfer | null)[]>([null, null, null, null]);
@@ -416,7 +452,20 @@ export function WaveformVisualizer({
     <div className="relative w-full h-full flex flex-col">
       <div className="flex-1 relative flex items-center group">
         <div className="w-full relative py-8">
-          <div ref={containerRef} className="w-full" />
+          <div className="relative">
+            <div ref={containerRef} className="w-full" />
+            {/* GPU playhead overlay — positioned by RAF loop via translate3d, stays on compositor layer */}
+            <div
+              ref={playheadRef}
+              className="absolute top-0 bottom-0 w-0.5 pointer-events-none z-30"
+              style={{
+                left: 0,
+                backgroundColor: 'var(--color-accent)',
+                willChange: 'transform',
+                transform: 'translate3d(0px, 0, 0)',
+              }}
+            />
+          </div>
 
           {/* Attention flare — key forces remount (animation restart) on each new timestamp */}
           {highlightAtSecs != null && (

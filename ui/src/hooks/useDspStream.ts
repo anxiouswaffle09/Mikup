@@ -8,7 +8,7 @@ import type { DspFramePayload } from '@bindings';
 export interface UseDspStreamReturn {
   /** Ref to the most recent frame — mutated at 60Hz, never causes re-renders. */
   latestFrameRef: React.MutableRefObject<DspFramePayload | null>;
-  /** Throttled timestamp (~15Hz) — safe to use as React state for the playhead. */
+  /** Throttled timestamp (~10Hz) — drives text display; RAF playhead handles smooth visual. */
   currentTimeSecs: number;
   completePayload: DspCompletePayload | null;
   isStreaming: boolean;
@@ -82,7 +82,7 @@ export function useDspStream(): UseDspStreamReturn {
       latestFrameRef.current = payload;
       // Throttle: update currentTimeSecs at ~15Hz only.
       const now = Date.now();
-      if (now - lastTimeUpdateRef.current > 66) {
+      if (now - lastTimeUpdateRef.current > 100) {
         lastTimeUpdateRef.current = now;
         setCurrentTimeSecs(payload.timestamp_secs);
       }

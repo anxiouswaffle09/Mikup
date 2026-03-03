@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { clsx } from 'clsx';
 import type { TranscriptionSegment, WordSegment } from '../types';
 
@@ -16,23 +16,29 @@ export function TranscriptScrubber({
   onSeek,
 }: TranscriptScrubberProps) {
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const prevActiveIdxRef = useRef(-1);
 
   // Determine which segment is currently active
   const activeSegmentIdx = segments.findIndex((seg) => currentTime >= seg.start && currentTime <= seg.end);
 
-  // Pre-bucket word segments by segment index for O(1) lookup per render
-  const wordsBySegment = new Map<number, WordSegment[]>();
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    wordsBySegment.set(
-      i,
-      wordSegments.filter((w) => w.start >= seg.start && w.start < seg.end),
-    );
-  }
+  // Word bucketing is O(n*m) — memoize so it only recomputes when data changes, not on every time tick
+  const wordsBySegment = useMemo(() => {
+    const map = new Map<number, WordSegment[]>();
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      map.set(
+        i,
+        wordSegments.filter((w) => w.start >= seg.start && w.start < seg.end),
+      );
+    }
+    return map;
+  }, [segments, wordSegments]);
 
-  // Auto-scroll active segment into view
+  // Auto-scroll active segment into view — only fires when the index actually changes
   useEffect(() => {
     if (activeSegmentIdx < 0) return;
+    if (activeSegmentIdx === prevActiveIdxRef.current) return;
+    prevActiveIdxRef.current = activeSegmentIdx;
     segmentRefs.current[activeSegmentIdx]?.scrollIntoView({
       behavior: 'smooth',
       block: 'center',
