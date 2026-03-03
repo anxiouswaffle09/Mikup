@@ -276,6 +276,39 @@ const BAR_H = 6;
 const CANVAS_H = 32;
 const BAR_Y = (CANVAS_H - BAR_H) / 2;
 
+/** Paints the LUFS bar + peak-hold tick onto an already-scaled canvas context. */
+function paintStemBar(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  lufsPct: number,
+  peakPct: number,
+  color: string,
+): void {
+  ctx.clearRect(0, 0, width, CANVAS_H);
+
+  const borderColor =
+    getComputedStyle(ctx.canvas).getPropertyValue('--color-panel-border').trim() ||
+    'oklch(0.25 0.02 250)';
+  ctx.fillStyle = borderColor;
+  fillRoundRect(ctx, 0, BAR_Y, width, BAR_H, 2);
+
+  if (lufsPct > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = color;
+    fillRoundRect(ctx, 0, BAR_Y, lufsPct * width, BAR_H, 2);
+    ctx.restore();
+  }
+
+  if (peakPct > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(peakPct * width), BAR_Y, 1, BAR_H);
+    ctx.restore();
+  }
+}
+
 const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
   const TP_CEILING = -1;
 
@@ -328,32 +361,9 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
         ctx.scale(dpr, dpr);
       }
 
-      ctx.clearRect(0, 0, width, CANVAS_H);
-
       const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
       const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
-
-      const borderColor =
-        getComputedStyle(canvas).getPropertyValue('--color-panel-border').trim() ||
-        'oklch(0.25 0.02 250)';
-      ctx.fillStyle = borderColor;
-      fillRoundRect(ctx, 0, BAR_Y, width, BAR_H, 2);
-
-      if (lufsPct > 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = color;
-        fillRoundRect(ctx, 0, BAR_Y, lufsPct * width, BAR_H, 2);
-        ctx.restore();
-      }
-
-      if (peakPct > 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        ctx.fillStyle = color;
-        ctx.fillRect(Math.round(peakPct * width), BAR_Y, 1, BAR_H);
-        ctx.restore();
-      }
+      paintStemBar(ctx, width, lufsPct, peakPct, color);
     },
   }), [color]);
 
@@ -382,20 +392,9 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
           ctx.scale(dpr, dpr);
         }
 
-        ctx.clearRect(0, 0, width, CANVAS_H);
         const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
         const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
-        const borderColor = getComputedStyle(canvas).getPropertyValue('--color-panel-border').trim() || 'oklch(0.25 0.02 250)';
-        ctx.fillStyle = borderColor;
-        fillRoundRect(ctx, 0, BAR_Y, width, BAR_H, 2);
-        if (lufsPct > 0) {
-          ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = color;
-          fillRoundRect(ctx, 0, BAR_Y, lufsPct * width, BAR_H, 2); ctx.restore();
-        }
-        if (peakPct > 0) {
-          ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = color;
-          ctx.fillRect(Math.round(peakPct * width), BAR_Y, 1, BAR_H); ctx.restore();
-        }
+        paintStemBar(ctx, width, lufsPct, peakPct, color);
       }
     });
     ro.observe(container);
