@@ -1,4 +1,5 @@
 use atomic_float::AtomicF32;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub static VOLUME: AtomicF32 = AtomicF32::new(1.0);
 
@@ -39,28 +40,50 @@ impl PreAllocBuffers {
 pub struct AudioController {
     pub cmd_tx:       rtrb::Producer<AudioCmd>,
     pub telemetry_rx: rtrb::Consumer<Telemetry>,
+    _stream:          cpal::Stream,
 }
 
 const CHUNK_SIZE: usize = 1024;
 const SOURCE_RATE: f64 = 44100.0;
 
 impl AudioController {
-    /// Spawns the background DSP thread.
-    /// All DSP buffers are pre-allocated here — the process loop has zero allocations.
+    /// Spawns the background DSP thread and wires the cpal output stream.
+    /// All DSP buffers are pre-allocated here — the process loop and cpal callback
+    /// have zero allocations.
     pub fn new(hw_rate: f64) -> Self {
         use rtrb::RingBuffer;
-        let (cmd_tx, cmd_rx) = RingBuffer::<AudioCmd>::new(32);
+        let (cmd_tx, cmd_rx)             = RingBuffer::<AudioCmd>::new(32);
         let (telemetry_tx, telemetry_rx) = RingBuffer::<Telemetry>::new(128);
-        let (_audio_tx, _audio_rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 8);
+        let (audio_tx, mut audio_rx)     = RingBuffer::<f32>::new(CHUNK_SIZE * 8);
 
         std::thread::Builder::new()
             .name("dsp-thread".into())
-            .spawn(move || {
-                dsp_thread_main(hw_rate, cmd_rx, telemetry_tx, _audio_tx);
-            })
+            .spawn(move || dsp_thread_main(hw_rate, cmd_rx, telemetry_tx, audio_tx))
             .expect("spawn dsp thread");
 
-        AudioController { cmd_tx, telemetry_rx }
+        // ── cpal output stream ────────────────────────────────────────────
+        let host   = cpal::default_host();
+        let device = host.default_output_device().expect("no output device");
+        let config = device.default_output_config().expect("no output config");
+
+        let stream = device
+            .build_output_stream(
+                &config.into(),
+                // Zero-alloc callback: atomic load + ring pop only
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
+                    for sample in data.iter_mut() {
+                        *sample = audio_rx.pop().unwrap_or(0.0) * vol;
+                    }
+                },
+                |err| eprintln!("cpal stream error: {err}"),
+                None,
+            )
+            .expect("build output stream");
+
+        stream.play().expect("start stream");
+
+        AudioController { cmd_tx, telemetry_rx, _stream: stream }
     }
 }
 
@@ -140,6 +163,20 @@ fn dsp_thread_main(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_callback_captures_are_send() {
+        use rtrb::RingBuffer;
+        fn assert_send<T: Send + 'static>(_: T) {}
+        let (_, mut consumer) = RingBuffer::<f32>::new(64);
+        let cb = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
+            for sample in data.iter_mut() {
+                *sample = consumer.pop().unwrap_or(0.0) * vol;
+            }
+        };
+        assert_send(cb);
+    }
 
     #[test]
     fn controller_new_does_not_panic() {
