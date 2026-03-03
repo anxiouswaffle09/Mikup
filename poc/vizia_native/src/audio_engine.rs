@@ -128,12 +128,18 @@ fn dsp_thread_main(
             continue;
         }
 
-        let vol = VOLUME.load(Ordering::Relaxed);
+        // Back-pressure: yield if ring is >75% full so the cpal callback can drain it.
+        // Prevents DSP thread from pinning a CPU core when audio is playing.
+        if audio_tx.slots() < CHUNK_SIZE * 2 {
+            std::hint::spin_loop();
+            continue;
+        }
 
+        // Generate source audio — volume applied only in the cpal callback (correct gain stage).
         for ch in &mut bufs.input {
             for (i, s) in ch.iter_mut().enumerate() {
                 let t = (playhead + i as u64) as f32 / SOURCE_RATE as f32;
-                *s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * vol;
+                *s = (2.0 * std::f32::consts::PI * 440.0 * t).sin();
             }
         }
 
@@ -154,7 +160,9 @@ fn dsp_thread_main(
         playhead += CHUNK_SIZE as u64;
 
         let playhead_ms = playhead * 1000 / SOURCE_RATE as u64;
-        let rms: f32 = bufs.input[0].iter().map(|s| s * s).sum::<f32>() / CHUNK_SIZE as f32;
+        // dBFS RMS (proxy for LUFS; ITU-R BS.1770 K-weighting not implemented in PoC).
+        let vol = VOLUME.load(Ordering::Relaxed);
+        let rms: f32 = bufs.input[0].iter().map(|s| s * s).sum::<f32>() * vol * vol / CHUNK_SIZE as f32;
         let lufs = 20.0 * rms.sqrt().max(1e-9_f32).log10();
         let _ = telemetry_tx.push(Telemetry { lufs, playhead_ms });
     }

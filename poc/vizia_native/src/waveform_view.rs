@@ -90,11 +90,12 @@ impl WaveformView {
         if visible_count <= canvas_width {
             self.peaks[start_peak..end_peak].to_vec()
         } else {
-            let stride = visible_count / canvas_width;
+            // Per-pixel addressing distributes all visible_count peaks evenly,
+            // avoiding the trailing-data loss of a fixed integer stride.
             let mut out = Vec::with_capacity(canvas_width);
             for px in 0..canvas_width {
-                let i0 = start_peak + px * stride;
-                let i1 = (i0 + stride).min(total);
+                let i0 = start_peak + px * visible_count / canvas_width;
+                let i1 = (start_peak + (px + 1) * visible_count / canvas_width).min(total);
                 let min = self.peaks[i0..i1].iter().map(|p| p.min).fold(f32::INFINITY, f32::min);
                 let max = self.peaks[i0..i1].iter().map(|p| p.max).fold(f32::NEG_INFINITY, f32::max);
                 out.push(Peak { min, max });
