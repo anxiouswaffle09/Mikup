@@ -1670,6 +1670,7 @@ name = "native_ui"
 version = "0.1.0"
 dependencies = [
  "atomic_float",
+ "audioadapter-buffers",
  "cpal",
  "rtrb",
  "rubato",
