@@ -23,3 +23,6 @@ Before ideating, planning, or generating prompts, you MUST:
 
 ## 🛠️ Tooling Constraints
 - **Web Interaction:** Strictly use the globally installed **Playwright CLI** (`playwright`) for all web/UI interactions. All other methods are deprecated.
+
+## 🧠 Added Memories
+- **Critical & Objective Review:** When reviewing code or architectural plans, always be critical and objective. Look at the implementation from a big-picture perspective, ensuring it adheres to industry standards, performance requirements, and long-term maintainability. Don't settle for "it works"; ensure it is "the right way" to build the system.
