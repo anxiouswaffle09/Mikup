@@ -1,0 +1,12 @@
+[package]
+name = "native_ui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vizia        = "0.3.0"
+cpal         = "0.17.3"
+rubato       = "1.0.1"
+rtrb         = "0.3.2"
+symphonia    = { version = "0.5.5", features = ["mp3", "flac", "wav"] }
+atomic_float = "1.1.0"
