@@ -1,8 +1,10 @@
 import { memo, useEffect, useRef } from 'react';
+import type { DspFramePayload } from '@bindings';
 
 interface VectorscopeProps {
-  /** Lissajous X/Y pairs in [-1, 1] range. Max 128 points per frame from Rust. */
-  lissajousPoints: [number, number][];
+  latestFrameRef: React.MutableRefObject<DspFramePayload | null>;
+  /** Whether the stream is active — starts/stops the RAF loop. */
+  isStreaming: boolean;
   /** Canvas size in px (renders as a square). Default: 200. */
   size?: number;
 }
@@ -10,7 +12,8 @@ interface VectorscopeProps {
 const NEON_GREEN = '#39ff14';
 const GUIDE_COLOR = 'rgba(255, 255, 255, 0.06)';
 const CROSS_COLOR = 'rgba(255, 255, 255, 0.10)';
-export const Vectorscope = memo(function Vectorscope({ lissajousPoints, size = 200 }: VectorscopeProps) {
+
+export const Vectorscope = memo(function Vectorscope({ latestFrameRef, isStreaming, size = 200 }: VectorscopeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -20,34 +23,17 @@ export const Vectorscope = memo(function Vectorscope({ lissajousPoints, size = 2
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Cancel any pending frame before scheduling a new one.
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = cx * 0.88;
 
-    rafRef.current = requestAnimationFrame(() => {
-      if (!lissajousPoints || lissajousPoints.length === 0) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'rgb(10, 10, 10)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
-
-      const cx = size / 2;
-      const cy = size / 2;
-      const radius = cx * 0.88;
-
-      // Persistence effect (motion blur): Draw semi-transparent background
-      // instead of clearing entirely to let old frames fade.
-      ctx.fillStyle = "rgba(10, 10, 10, 0.25)";
-      ctx.fillRect(0, 0, size, size);
-
-      // Outer guide circle
+    const paintGuides = () => {
       ctx.strokeStyle = GUIDE_COLOR;
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Center cross
       ctx.strokeStyle = CROSS_COLOR;
       ctx.lineWidth = 0.5;
       ctx.beginPath();
@@ -56,29 +42,58 @@ export const Vectorscope = memo(function Vectorscope({ lissajousPoints, size = 2
       ctx.moveTo(cx - radius, cy);
       ctx.lineTo(cx + radius, cy);
       ctx.stroke();
+    };
 
-      // Lissajous points
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = NEON_GREEN;
-      ctx.fillStyle = NEON_GREEN;
+    // Paint initial blank canvas.
+    ctx.fillStyle = 'rgb(10, 10, 10)';
+    ctx.fillRect(0, 0, size, size);
+    paintGuides();
 
-      for (const [x, y] of lissajousPoints) {
-        // x/y are in [-1, 1]. Map to canvas pixel coords.
-        const px = cx + x * radius;
-        const py = cy - y * radius; // flip Y: canvas y grows downward
-        ctx.beginPath();
-        ctx.arc(px, py, 1.2, 0, Math.PI * 2);
-        ctx.fill();
+    if (!isStreaming) {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      return;
+    }
+
+    const loop = () => {
+      const frame = latestFrameRef.current;
+      const points = frame?.lissajous_points;
+
+      // Persistence effect: semi-transparent overlay fades previous frame.
+      ctx.fillStyle = 'rgba(10, 10, 10, 0.25)';
+      ctx.fillRect(0, 0, size, size);
+
+      paintGuides();
+
+      if (points && points.length > 0) {
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = NEON_GREEN;
+        ctx.fillStyle = NEON_GREEN;
+
+        for (const [x, y] of points) {
+          const px = cx + x * radius;
+          const py = cy - y * radius;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
       }
 
-      // Reset shadow so it doesn't bleed onto the next paint
-      ctx.shadowBlur = 0;
-    });
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
 
     return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [lissajousPoints, size]);
+  }, [isStreaming, latestFrameRef, size]);
 
   return (
     <canvas
