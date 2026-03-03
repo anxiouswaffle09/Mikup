@@ -44,18 +44,19 @@ export const Vectorscope = memo(function Vectorscope({ latestFrameRef, isStreami
       ctx.stroke();
     };
 
-    // Paint initial blank canvas.
-    ctx.fillStyle = 'rgb(10, 10, 10)';
-    ctx.fillRect(0, 0, size, size);
-    paintGuides();
-
     if (!isStreaming) {
+      // Stop the RAF loop; leave the last painted frame visible on canvas.
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
       return;
     }
+
+    // Starting (or restarting) the stream — paint a clean slate first.
+    ctx.fillStyle = 'rgb(10, 10, 10)';
+    ctx.fillRect(0, 0, size, size);
+    paintGuides();
 
     const loop = () => {
       const frame = latestFrameRef.current;
