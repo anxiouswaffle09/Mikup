@@ -25,41 +25,40 @@ export function useDspStream(): UseDspStreamReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const unlistenersRef = useRef<Array<() => void>>([]);
   const channelRef = useRef<Channel<DspFramePayload> | null>(null);
   const lastTimeUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    let cleanedUp = false;
+    let cancelled = false;
+    let cleanup: Array<() => void> = [];
 
     const setup = async () => {
       const unlistenComplete = await listen<DspCompletePayload>('dsp-complete', (event) => {
-        if (!cleanedUp) {
+        if (!cancelled) {
           setCompletePayload(event.payload);
           setIsStreaming(false);
         }
       });
       const unlistenError = await listen<string>('dsp-error', (event) => {
-        if (!cleanedUp) {
+        if (!cancelled) {
           setError(event.payload);
           setIsStreaming(false);
         }
       });
-
-      if (!cleanedUp) {
-        unlistenersRef.current = [unlistenComplete, unlistenError];
-      } else {
+      if (cancelled) {
         unlistenComplete();
         unlistenError();
+      } else {
+        cleanup = [unlistenComplete, unlistenError];
       }
     };
 
     setup();
 
     return () => {
-      cleanedUp = true;
-      unlistenersRef.current.forEach((fn) => fn());
-      unlistenersRef.current = [];
+      cancelled = true;
+      cleanup.forEach((fn) => fn());
+      cleanup = [];
       channelRef.current = null;
       latestFrameRef.current = null;
       commands.stopDspStream().catch(() => {});
@@ -67,12 +66,16 @@ export function useDspStream(): UseDspStreamReturn {
   }, []);
 
   function startStream(dxPath: string, musicPath: string, effectsPath: string, startTimeSecs?: number, sourcePath?: string) {
+    lastTimeUpdateRef.current = 0;
     latestFrameRef.current = null;
     setCurrentTimeSecs(startTimeSecs ?? 0);
     setCompletePayload(null);
     setError(null);
     setIsStreaming(true);
 
+    if (channelRef.current) {
+      channelRef.current.onmessage = () => {};
+    }
     const ch = new Channel<DspFramePayload>();
     ch.onmessage = (payload) => {
       // Always write to ref — zero state updates on the hot path.
