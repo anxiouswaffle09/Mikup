@@ -248,8 +248,8 @@ function interpretBalance(v: number) {
 // ---------------------------------------------------------------------------
 
 interface LiveMetersProps {
-  frame: DspFramePayload;
-  /** Available only after dsp-complete fires. Shows '--' until then. */
+  latestFrameRef: React.MutableRefObject<DspFramePayload | null>;
+  isStreaming: boolean;
   lra?: number;
 }
 
@@ -314,16 +314,20 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
       const width = container.getBoundingClientRect().width;
       if (width === 0) return;
       const dpr = window.devicePixelRatio || 1;
-
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(CANVAS_H * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${CANVAS_H}px`;
-
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      ctx.scale(dpr, dpr);
+      // Re-allocate backing store only when size/dpr actually changes.
+      const targetW = Math.floor(width * dpr);
+      const targetH = Math.floor(CANVAS_H * dpr);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${CANVAS_H}px`;
+        ctx.scale(dpr, dpr);
+      }
+
       ctx.clearRect(0, 0, width, CANVAS_H);
 
       const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
@@ -364,13 +368,20 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
         const width = container.getBoundingClientRect().width;
         if (width === 0) return;
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(width * dpr);
-        canvas.height = Math.floor(CANVAS_H * dpr);
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${CANVAS_H}px`;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        ctx.scale(dpr, dpr);
+
+        // Re-allocate backing store only when size/dpr actually changes.
+        const targetW = Math.floor(width * dpr);
+        const targetH = Math.floor(CANVAS_H * dpr);
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${CANVAS_H}px`;
+          ctx.scale(dpr, dpr);
+        }
+
         ctx.clearRect(0, 0, width, CANVAS_H);
         const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
         const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
@@ -414,42 +425,73 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
   );
 };
 
-export const LiveMeters: React.FC<LiveMetersProps> = React.memo(({ frame, lra }) => {
+export const LiveMeters: React.FC<LiveMetersProps> = ({ latestFrameRef, isStreaming, lra }) => {
+  const stemDxRef    = useRef<StemLufsRowHandle>(null);
+  const stemMusicRef = useRef<StemLufsRowHandle>(null);
+  const stemFxRef    = useRef<StemLufsRowHandle>(null);
+  const gaugeRef     = useRef<SemiCircleGaugeHandle>(null);
+  const phaseBarRef  = useRef<StereoHeatbarHandle>(null);
+  const centroidRef  = useRef<CentroidNeedleHandle>(null);
+  const maskingRef   = useRef<MaskingIndicatorHandle>(null);
+  const centroidTextRef = useRef<HTMLSpanElement>(null);
+  const rafRef       = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      return;
+    }
+
+    const loop = () => {
+      const frame = latestFrameRef.current;
+      if (frame) {
+        stemDxRef.current?.update(frame.dialogue_momentary_lufs, frame.dialogue_true_peak_dbtp);
+        stemMusicRef.current?.update(frame.music_momentary_lufs, frame.music_true_peak_dbtp);
+        stemFxRef.current?.update(frame.effects_momentary_lufs, frame.effects_true_peak_dbtp);
+        gaugeRef.current?.update(frame.snr_db);
+        phaseBarRef.current?.update(frame.phase_correlation, frame.phase_correlation < 0);
+        centroidRef.current?.update(frame.dialogue_centroid_hz);
+        maskingRef.current?.update(frame.speech_pocket_masked);
+        if (centroidTextRef.current) {
+          centroidTextRef.current.textContent = frame.dialogue_centroid_hz.toFixed(0);
+        }
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [isStreaming, latestFrameRef]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-1">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">SNR</span>
-        <SemiCircleGauge value={frame.snr_db} min={0} max={40} />
+        <SemiCircleGauge ref={gaugeRef} />
       </div>
-      <StereoHeatbar value={frame.phase_correlation} isPhaseIssue={frame.phase_correlation < 0} label="Phase" />
-      {/* 3-Stem Loudness */}
+      <StereoHeatbar ref={phaseBarRef} label="Phase" />
       <div className="flex flex-col gap-2">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Loudness — Momentary</span>
-        <StemLufsRow
-          label="DX"
-          color={STEM_COLORS.dx}
-          momentaryLufs={frame.dialogue_momentary_lufs}
-          truePeakDbtp={frame.dialogue_true_peak_dbtp}
-        />
-        <StemLufsRow
-          label="Music"
-          color={STEM_COLORS.music}
-          momentaryLufs={frame.music_momentary_lufs}
-          truePeakDbtp={frame.music_true_peak_dbtp}
-        />
-        <StemLufsRow
-          label="Effects"
-          color={STEM_COLORS.effects}
-          momentaryLufs={frame.effects_momentary_lufs}
-          truePeakDbtp={frame.effects_true_peak_dbtp}
-        />
+        <StemLufsRow ref={stemDxRef}    label="DX"      color={STEM_COLORS.dx} />
+        <StemLufsRow ref={stemMusicRef} label="Music"   color={STEM_COLORS.music} />
+        <StemLufsRow ref={stemFxRef}    label="Effects" color={STEM_COLORS.effects} />
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">Centroid</span>
         <span className="font-mono text-xl font-semibold text-text-main tabular-nums leading-none">
-          {frame.dialogue_centroid_hz.toFixed(0)}<span className="text-xs font-normal text-text-muted ml-1">Hz</span>
+          <span ref={centroidTextRef}>--</span>
+          <span className="text-xs font-normal text-text-muted ml-1">Hz</span>
         </span>
-        <CentroidNeedle value={frame.dialogue_centroid_hz} />
+        <CentroidNeedle ref={centroidRef} />
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">LRA</span>
@@ -458,10 +500,10 @@ export const LiveMeters: React.FC<LiveMetersProps> = React.memo(({ frame, lra })
           {lra !== undefined && <span className="text-xs font-normal text-text-muted ml-1">LU</span>}
         </span>
       </div>
-      <MaskingIndicator masked={frame.speech_pocket_masked} />
+      <MaskingIndicator ref={maskingRef} />
     </div>
   );
-}) as React.FC<LiveMetersProps>;
+};
 
 interface LiveStatCellProps {
   label: string;
