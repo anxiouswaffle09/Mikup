@@ -43,11 +43,13 @@ impl WaveformView {
             return Vec::new();
         }
 
-        let peaks_per_pixel = (1.0 / zoom).max(1.0);
+        if zoom <= 0.0 {
+            return Vec::new();
+        }
+        // peaks needed to fill canvas = canvas_width / zoom (zoom=pixels per peak)
+        let visible_peak_count = (canvas_width as f32 / zoom).ceil() as usize;
         let start_peak = (scroll_offset as usize).min(total);
-        let end_peak = ((scroll_offset + peaks_per_pixel * canvas_width as f32)
-            .ceil() as usize)
-            .min(total);
+        let end_peak = (start_peak + visible_peak_count).min(total);
 
         if start_peak >= end_peak {
             return Vec::new();
@@ -95,6 +97,14 @@ mod tests {
         let view = make_view(44100 * 60); // 1 min audio
         let visible = view.visible_peaks(0.0, 1.0, 800);
         assert_eq!(visible.len(), 800, "should return exactly 1 peak/pixel");
+    }
+
+    #[test]
+    fn lod_returns_fewer_peaks_when_zoomed_in() {
+        let view = make_view(44100 * 60);
+        // zoom=2.0 → 2px per peak → need canvas_width/2 peaks
+        let visible = view.visible_peaks(0.0, 2.0, 800);
+        assert_eq!(visible.len(), 400);
     }
 
     #[test]
