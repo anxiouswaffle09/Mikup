@@ -1,16 +1,4 @@
-#[allow(unused_imports)]
 use atomic_float::AtomicF32;
-#[allow(unused_imports)]
-use rtrb::RingBuffer;
-#[allow(unused_imports)]
-use rubato::{
-    Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
-    WindowFunction,
-};
-// rubato 1.0: SincFixedIn → Async::<f32>::new_sinc(..., FixedAsync::Input)
-// process_into_buffer is on the Resampler trait
-#[allow(unused_imports)]
-use std::sync::atomic::Ordering;
 
 pub static VOLUME: AtomicF32 = AtomicF32::new(1.0);
 
