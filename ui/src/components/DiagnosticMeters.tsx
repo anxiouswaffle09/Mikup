@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle } from 'react';
 import type { DiagnosticMetrics } from '../types';
 import type { DspFramePayload } from '../types';
 
@@ -260,11 +260,14 @@ const STEM_COLORS = {
   effects: 'oklch(0.75 0.16 65)',
 } as const;
 
+export interface StemLufsRowHandle {
+  update: (momentaryLufs: number, truePeakDbtp: number) => void;
+}
+
 interface StemLufsRowProps {
   label: string;
   color: string;
-  momentaryLufs: number;
-  truePeakDbtp: number;
+  ref?: React.Ref<StemLufsRowHandle>;
 }
 
 const LUFS_MIN = -48;
@@ -273,33 +276,43 @@ const BAR_H = 6;
 const CANVAS_H = 32;
 const BAR_Y = (CANVAS_H - BAR_H) / 2;
 
-const StemLufsRow: React.FC<StemLufsRowProps> = ({
-  label,
-  color,
-  momentaryLufs,
-  truePeakDbtp,
-}) => {
+const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
   const TP_CEILING = -1;
-
-  const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
-  const tpDanger = truePeakDbtp > TP_CEILING;
-
-  // Peak hold: React-approved "adjust state when prop changes" pattern.
-  const [peakLufs, setPeakLufs] = useState(momentaryLufs);
-  if (momentaryLufs > peakLufs) setPeakLufs(momentaryLufs);
-  const peakPct = Math.max(0, Math.min(1, (peakLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lufsTextRef = useRef<HTMLSpanElement>(null);
+  const tpTextRef = useRef<HTMLSpanElement>(null);
+  const peakLufsRef = useRef<number>(-Infinity);
+  const valuesRef = useRef<{ momentaryLufs: number; truePeakDbtp: number }>({
+    momentaryLufs: -Infinity,
+    truePeakDbtp: -Infinity,
+  });
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+  useImperativeHandle(ref, () => ({
+    update: (momentaryLufs: number, truePeakDbtp: number) => {
+      valuesRef.current = { momentaryLufs, truePeakDbtp };
 
-    let rafId: number;
+      if (momentaryLufs > peakLufsRef.current) {
+        peakLufsRef.current = momentaryLufs;
+      }
 
-    const paint = (width: number) => {
+      if (lufsTextRef.current) {
+        lufsTextRef.current.textContent = momentaryLufs <= -48 ? '--' : momentaryLufs.toFixed(1);
+        lufsTextRef.current.className = `font-mono text-base font-semibold tabular-nums leading-none w-14 shrink-0 ${momentaryLufs <= -48 ? 'text-text-muted' : 'text-text-main'}`;
+      }
+      if (tpTextRef.current) {
+        const tpDanger = truePeakDbtp > TP_CEILING;
+        tpTextRef.current.textContent = `TP ${truePeakDbtp > -120 ? truePeakDbtp.toFixed(1) : '--'}`;
+        tpTextRef.current.className = `text-[9px] font-mono tabular-nums ${tpDanger ? 'text-danger' : 'text-text-muted'}`;
+      }
+
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      const width = container.getBoundingClientRect().width;
+      if (width === 0) return;
       const dpr = window.devicePixelRatio || 1;
 
       canvas.width = Math.floor(width * dpr);
@@ -313,14 +326,15 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, CANVAS_H);
 
-      // Background track (full width, rounded, vertically centered)
+      const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+      const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+
       const borderColor =
         getComputedStyle(canvas).getPropertyValue('--color-panel-border').trim() ||
         'oklch(0.25 0.02 250)';
       ctx.fillStyle = borderColor;
       fillRoundRect(ctx, 0, BAR_Y, width, BAR_H, 2);
 
-      // Live fill bar (stem color at 0.8 opacity)
       if (lufsPct > 0) {
         ctx.save();
         ctx.globalAlpha = 0.8;
@@ -329,7 +343,6 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({
         ctx.restore();
       }
 
-      // Peak-hold tick (1px wide, stem color at 0.5 opacity)
       if (peakPct > 0) {
         ctx.save();
         ctx.globalAlpha = 0.5;
@@ -337,50 +350,61 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({
         ctx.fillRect(Math.round(peakPct * width), BAR_Y, 1, BAR_H);
         ctx.restore();
       }
-    };
+    },
+  }), [color]);
 
-    const schedule = (width: number) => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => paint(width));
-    };
-
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        schedule(entry.contentRect.width);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      const { momentaryLufs, truePeakDbtp: _tp } = valuesRef.current;
+      if (momentaryLufs > -Infinity) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const width = container.getBoundingClientRect().width;
+        if (width === 0) return;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(CANVAS_H * dpr);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${CANVAS_H}px`;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, width, CANVAS_H);
+        const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+        const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
+        const borderColor = getComputedStyle(canvas).getPropertyValue('--color-panel-border').trim() || 'oklch(0.25 0.02 250)';
+        ctx.fillStyle = borderColor;
+        fillRoundRect(ctx, 0, BAR_Y, width, BAR_H, 2);
+        if (lufsPct > 0) {
+          ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = color;
+          fillRoundRect(ctx, 0, BAR_Y, lufsPct * width, BAR_H, 2); ctx.restore();
+        }
+        if (peakPct > 0) {
+          ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = color;
+          ctx.fillRect(Math.round(peakPct * width), BAR_Y, 1, BAR_H); ctx.restore();
+        }
       }
     });
     ro.observe(container);
-    schedule(container.getBoundingClientRect().width);
-
-    return () => {
-      ro.disconnect();
-      cancelAnimationFrame(rafId);
-    };
-  }, [color, lufsPct, peakPct]);
+    return () => ro.disconnect();
+  }, [color]);
 
   return (
     <div className="flex flex-col gap-0.5">
-      {/* Top row: stem label + TP value */}
       <div className="flex justify-between items-baseline">
-        <span
-          className="text-[9px] uppercase tracking-widest font-bold"
-          style={{ color }}
-        >
+        <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color }}>
           {label}
         </span>
-        <span
-          className={`text-[9px] font-mono tabular-nums ${tpDanger ? 'text-danger' : 'text-text-muted'}`}
-        >
-          TP {truePeakDbtp > -120 ? truePeakDbtp.toFixed(1) : '--'}
+        <span ref={tpTextRef} className="text-[9px] font-mono tabular-nums text-text-muted">
+          TP --
         </span>
       </div>
-      {/* Bottom row: numeric readout + canvas meter bar */}
       <div className="flex items-center gap-2">
-        <span
-          className={`font-mono text-base font-semibold tabular-nums leading-none w-14 shrink-0 ${momentaryLufs <= -48 ? 'text-text-muted' : 'text-text-main'}`}
-        >
-          {momentaryLufs <= -48 ? '--' : momentaryLufs.toFixed(1)}
-          <span className="text-[9px] font-normal text-text-muted ml-0.5">M</span>
+        <span className="flex items-baseline gap-0.5">
+          <span ref={lufsTextRef} className="font-mono text-base font-semibold tabular-nums leading-none w-14 shrink-0 text-text-muted">--</span>
+          <span className="text-[9px] font-normal text-text-muted">M</span>
         </span>
         <div ref={containerRef} className="flex-1">
           <canvas ref={canvasRef} className="block" />
@@ -519,20 +543,42 @@ export const LiveStatCell: React.FC<LiveStatCellProps> = ({
 // SemiCircleGauge — SNR gauge rendered as an animated SVG arc + needle
 // ---------------------------------------------------------------------------
 
-interface SemiCircleGaugeProps {
-  value: number;
-  min?: number;
-  max?: number;
+export interface SemiCircleGaugeHandle {
+  update: (value: number) => void;
 }
 
-const SemiCircleGauge: React.FC<SemiCircleGaugeProps> = ({ value, min = 0, max = 40 }) => {
-  const cx = 60;
-  const cy = 60;
-  const r = 50;
+interface SemiCircleGaugeProps {
+  min?: number;
+  max?: number;
+  ref?: React.Ref<SemiCircleGaugeHandle>;
+}
+
+const SemiCircleGauge: React.FC<SemiCircleGaugeProps> = ({ min = 0, max = 40, ref }) => {
+  const needleRef = useRef<SVGLineElement>(null);
+  const textRef = useRef<SVGTextElement>(null);
+  const cx = 60; const cy = 60; const r = 50; const needleLength = 44;
+
+  useImperativeHandle(ref, () => ({
+    update: (value: number) => {
+      const clamped = Math.max(min, Math.min(max, value));
+      const frac = (clamped - min) / (max - min);
+      const deg = 180 - frac * 180;
+      const rad = (deg * Math.PI) / 180;
+      const nx = cx + needleLength * Math.cos(rad);
+      const ny = cy - needleLength * Math.sin(rad);
+      if (needleRef.current) {
+        needleRef.current.setAttribute('x2', nx.toFixed(2));
+        needleRef.current.setAttribute('y2', ny.toFixed(2));
+      }
+      if (textRef.current) {
+        textRef.current.textContent = `${value.toFixed(1)} dB`;
+      }
+    },
+  }), [min, max]);
 
   function arcPath(fracStart: number, fracEnd: number): string {
     const degStart = 180 - fracStart * 180;
-    const degEnd = 180 - fracEnd * 180;
+    const degEnd   = 180 - fracEnd   * 180;
     const toRad = (d: number) => (d * Math.PI) / 180;
     const x1 = cx + r * Math.cos(toRad(degStart));
     const y1 = cy - r * Math.sin(toRad(degStart));
@@ -541,28 +587,18 @@ const SemiCircleGauge: React.FC<SemiCircleGaugeProps> = ({ value, min = 0, max =
     return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
   }
 
-  const redStart   = 0;
-  const redEnd     = (5  - min) / (max - min);
-  const yellowEnd  = (15 - min) / (max - min);
-  const greenEnd   = 1;
-
-  const clampedValue = Math.max(min, Math.min(max, value));
-  const needleFrac = (clampedValue - min) / (max - min);
-  const needleDeg = 180 - needleFrac * 180;
-  const needleRad = (needleDeg * Math.PI) / 180;
-  const needleLength = 44;
-  const nx = cx + needleLength * Math.cos(needleRad);
-  const ny = cy - needleLength * Math.sin(needleRad);
+  const redEnd    = (5  - min) / (max - min);
+  const yellowEnd = (15 - min) / (max - min);
 
   return (
-    <svg width={120} height={65} viewBox="0 0 120 65" aria-label={`SNR ${value.toFixed(1)} dB`}>
-      <path d={arcPath(redStart, redEnd)} fill="none" stroke="oklch(0.55 0.22 25)" strokeWidth={5} strokeLinecap="round" />
+    <svg width={120} height={65} viewBox="0 0 120 65" aria-label="SNR gauge">
+      <path d={arcPath(0, redEnd)}       fill="none" stroke="oklch(0.55 0.22 25)" strokeWidth={5} strokeLinecap="round" />
       <path d={arcPath(redEnd, yellowEnd)} fill="none" stroke="oklch(0.75 0.18 85)" strokeWidth={5} strokeLinecap="round" />
-      <path d={arcPath(yellowEnd, greenEnd)} fill="none" stroke="oklch(0.65 0.2 145)" strokeWidth={5} strokeLinecap="round" />
-      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="var(--color-text-main)" strokeWidth={1.5} strokeLinecap="round" style={{ transition: 'x2 0.2s ease, y2 0.2s ease' }} />
+      <path d={arcPath(yellowEnd, 1)}    fill="none" stroke="oklch(0.65 0.2 145)"  strokeWidth={5} strokeLinecap="round" />
+      <line ref={needleRef} x1={cx} y1={cy} x2={cx} y2={cy} stroke="var(--color-text-main)" strokeWidth={1.5} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={2.5} fill="var(--color-text-main)" />
-      <text x={cx} y={62} textAnchor="middle" fontSize={8} fill="var(--color-text-muted)" fontFamily="monospace">
-        {value.toFixed(1)} dB
+      <text ref={textRef} x={cx} y={62} textAnchor="middle" fontSize={8} fill="var(--color-text-muted)" fontFamily="monospace">
+        -- dB
       </text>
     </svg>
   );
@@ -572,40 +608,44 @@ const SemiCircleGauge: React.FC<SemiCircleGaugeProps> = ({ value, min = 0, max =
 // StereoHeatbar — phase correlation / stereo balance bar with triangle indicator
 // ---------------------------------------------------------------------------
 
-interface StereoHeatbarProps {
-  value: number;
-  isPhaseIssue?: boolean;
-  label: string;
+export interface StereoHeatbarHandle {
+  update: (value: number, isPhaseIssue: boolean) => void;
 }
 
-const StereoHeatbar: React.FC<StereoHeatbarProps> = ({ value, isPhaseIssue, label }) => {
-  const WIDTH = 160;
-  const BAR_HEIGHT = 8;
-  const INDICATOR_H = 12;
-  const clampedValue = Math.max(-1, Math.min(1, value));
-  const xPos = ((clampedValue + 1) / 2) * WIDTH;
+interface StereoHeatbarProps {
+  label: string;
+  ref?: React.Ref<StereoHeatbarHandle>;
+}
 
-  const indicatorFill = isPhaseIssue
-    ? 'oklch(0.55 0.22 25)'
-    : clampedValue > 0.5
-    ? 'oklch(0.65 0.2 145)'
-    : 'oklch(0.75 0.18 85)';
+const StereoHeatbar: React.FC<StereoHeatbarProps> = ({ label, ref }) => {
+  const polygonRef = useRef<SVGPolygonElement>(null);
+  const WIDTH = 160; const INDICATOR_H = 12; const triHalf = 5;
 
-  const triTop = 0;
-  const triBottom = INDICATOR_H;
-  const triHalf = 5;
-  const trianglePoints = `${xPos},${triBottom} ${xPos - triHalf},${triTop} ${xPos + triHalf},${triTop}`;
+  useImperativeHandle(ref, () => ({
+    update: (value: number, isPhaseIssue: boolean) => {
+      const clamped = Math.max(-1, Math.min(1, value));
+      const xPos = ((clamped + 1) / 2) * WIDTH;
+      const points = `${xPos},${INDICATOR_H} ${xPos - triHalf},0 ${xPos + triHalf},0`;
+      const fill = isPhaseIssue
+        ? 'oklch(0.55 0.22 25)'
+        : clamped > 0.5 ? 'oklch(0.65 0.2 145)' : 'oklch(0.75 0.18 85)';
+      if (polygonRef.current) {
+        polygonRef.current.setAttribute('points', points);
+        polygonRef.current.setAttribute('fill', fill);
+      }
+    },
+  }), []);
 
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[9px] uppercase tracking-widest font-bold text-text-muted">{label}</span>
-      <svg width={WIDTH} height={38} viewBox={`0 0 ${WIDTH} 38`} aria-label={`${label} ${value.toFixed(2)}`}>
-        <polygon points={trianglePoints} fill={indicatorFill} style={{ transition: 'points 0.15s ease' }} />
-        <rect x={0} y={INDICATOR_H + 2} width={WIDTH} height={BAR_HEIGHT} rx={2} fill={isPhaseIssue ? 'oklch(0.65 0.2 25 / 0.3)' : 'var(--color-panel-border)'} style={{ transition: 'fill 0.15s ease' }} />
-        <line x1={WIDTH / 2} y1={INDICATOR_H + 2} x2={WIDTH / 2} y2={INDICATOR_H + 2 + BAR_HEIGHT} stroke="var(--color-text-muted)" strokeWidth={1} strokeDasharray="2 2" />
-        <text x={1} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace">-1</text>
-        <text x={WIDTH / 2} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="middle">0</text>
-        <text x={WIDTH - 1} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="end">+1</text>
+      <svg width={160} height={38} viewBox="0 0 160 38" aria-label={`${label} indicator`}>
+        <polygon ref={polygonRef} points="80,12 75,0 85,0" fill="oklch(0.75 0.18 85)" />
+        <rect x={0} y={14} width={160} height={8} rx={2} fill="var(--color-panel-border)" />
+        <line x1={80} y1={14} x2={80} y2={22} stroke="var(--color-text-muted)" strokeWidth={1} strokeDasharray="2 2" />
+        <text x={1}   y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace">-1</text>
+        <text x={80}  y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="middle">0</text>
+        <text x={159} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="end">+1</text>
       </svg>
     </div>
   );
@@ -615,44 +655,43 @@ const StereoHeatbar: React.FC<StereoHeatbarProps> = ({ value, isPhaseIssue, labe
 // CentroidNeedle — log-scale spectral centroid indicator bar
 // ---------------------------------------------------------------------------
 
-interface CentroidNeedleProps {
-  value: number;
+export interface CentroidNeedleHandle {
+  update: (value: number) => void;
 }
 
-const CentroidNeedle: React.FC<CentroidNeedleProps> = ({ value }) => {
-  const WIDTH = 160;
-  const BAR_HEIGHT = 8;
-  const INDICATOR_H = 12;
+interface CentroidNeedleProps {
+  ref?: React.Ref<CentroidNeedleHandle>;
+}
 
-  const LOG_MIN = Math.log10(20);
-  const LOG_MAX = Math.log10(20000);
-  const clampedValue = Math.max(20, Math.min(20000, value));
-  const pos = (Math.log10(clampedValue) - LOG_MIN) / (LOG_MAX - LOG_MIN);
-  const xPos = pos * WIDTH;
+const CentroidNeedle: React.FC<CentroidNeedleProps> = ({ ref }) => {
+  const polygonRef = useRef<SVGPolygonElement>(null);
+  const WIDTH = 160; const INDICATOR_H = 12; const triHalf = 5;
+  const LOG_MIN = Math.log10(20); const LOG_MAX = Math.log10(20000);
 
-  const ticks: { hz: number; label: string }[] = [
-    { hz: 100,   label: '100' },
-    { hz: 1000,  label: '1k' },
-    { hz: 10000, label: '10k' },
-  ];
+  useImperativeHandle(ref, () => ({
+    update: (value: number) => {
+      const clamped = Math.max(20, Math.min(20000, value));
+      const pos = (Math.log10(clamped) - LOG_MIN) / (LOG_MAX - LOG_MIN);
+      const xPos = pos * WIDTH;
+      const points = `${xPos},${INDICATOR_H} ${xPos - triHalf},0 ${xPos + triHalf},0`;
+      if (polygonRef.current) {
+        polygonRef.current.setAttribute('points', points);
+      }
+    },
+  }), []);
 
-  const tickX = (hz: number) =>
-    ((Math.log10(hz) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * WIDTH;
-
-  const triHalf = 5;
-  const triTop = 0;
-  const triBottom = INDICATOR_H;
-  const trianglePoints = `${xPos},${triBottom} ${xPos - triHalf},${triTop} ${xPos + triHalf},${triTop}`;
+  const tickX = (hz: number) => ((Math.log10(hz) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * WIDTH;
+  const ticks = [{ hz: 100, label: '100' }, { hz: 1000, label: '1k' }, { hz: 10000, label: '10k' }];
 
   return (
-    <svg width={WIDTH} height={38} viewBox={`0 0 ${WIDTH} 38`} aria-label={`Centroid ${value.toFixed(0)} Hz`}>
-      <polygon points={trianglePoints} fill="var(--color-accent)" style={{ transition: 'points 0.15s ease' }} />
-      <rect x={0} y={INDICATOR_H + 2} width={WIDTH} height={BAR_HEIGHT} rx={2} fill="var(--color-panel-border)" />
+    <svg width={160} height={38} viewBox="0 0 160 38" aria-label="Spectral centroid indicator">
+      <polygon ref={polygonRef} points="80,12 75,0 85,0" fill="var(--color-accent)" />
+      <rect x={0} y={14} width={160} height={8} rx={2} fill="var(--color-panel-border)" />
       {ticks.map(({ hz, label }) => {
         const tx = tickX(hz);
         return (
           <g key={hz}>
-            <line x1={tx} y1={INDICATOR_H + 2} x2={tx} y2={INDICATOR_H + 2 + BAR_HEIGHT} stroke="var(--color-text-muted)" strokeWidth={0.75} opacity={0.5} />
+            <line x1={tx} y1={14} x2={tx} y2={22} stroke="var(--color-text-muted)" strokeWidth={0.75} opacity={0.5} />
             <text x={tx} y={36} fontSize={7} fill="var(--color-text-muted)" fontFamily="monospace" textAnchor="middle">{label}</text>
           </g>
         );
@@ -661,16 +700,37 @@ const CentroidNeedle: React.FC<CentroidNeedleProps> = ({ value }) => {
   );
 };
 
-const MaskingIndicator: React.FC<{ masked: boolean }> = ({ masked }) => (
-  <div className="flex items-center gap-2">
-    <div
-      className={`w-2 h-2 rounded-full transition-colors duration-150 ${masked ? 'bg-danger' : 'bg-panel-border'}`}
-      style={{ boxShadow: masked ? '0 0 6px var(--color-danger)' : 'none' }}
-    />
-    <span
-      className={`text-[9px] uppercase tracking-widest font-bold transition-colors duration-150 ${masked ? 'text-danger' : 'text-text-muted'}`}
-    >
-      {masked ? 'Masking' : 'Clear'}
-    </span>
-  </div>
-);
+export interface MaskingIndicatorHandle {
+  update: (masked: boolean) => void;
+}
+
+interface MaskingIndicatorProps {
+  ref?: React.Ref<MaskingIndicatorHandle>;
+}
+
+const MaskingIndicator: React.FC<MaskingIndicatorProps> = ({ ref }) => {
+  const dotRef = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    update: (masked: boolean) => {
+      if (dotRef.current) {
+        dotRef.current.className = `w-2 h-2 rounded-full ${masked ? 'bg-danger' : 'bg-panel-border'}`;
+        dotRef.current.style.boxShadow = masked ? '0 0 6px var(--color-danger)' : 'none';
+      }
+      if (labelRef.current) {
+        labelRef.current.className = `text-[9px] uppercase tracking-widest font-bold ${masked ? 'text-danger' : 'text-text-muted'}`;
+        labelRef.current.textContent = masked ? 'Masking' : 'Clear';
+      }
+    },
+  }), []);
+
+  return (
+    <div className="flex items-center gap-2">
+      <div ref={dotRef} className="w-2 h-2 rounded-full bg-panel-border" />
+      <span ref={labelRef} className="text-[9px] uppercase tracking-widest font-bold text-text-muted">
+        Clear
+      </span>
+    </div>
+  );
+};
