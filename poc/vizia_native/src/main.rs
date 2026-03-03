@@ -56,7 +56,8 @@ fn main() {
                     .on_press(move |cx| {
                         // Send Play/Pause command to DSP thread.
                         let playing = AppData::playing.get(cx);
-                        if let Ok(mut eng) = engine_for_play.lock() {
+                        {
+                        let mut eng = engine_for_play.lock().unwrap();
                             use audio_engine::AudioCmd;
                             let _ = eng.cmd_tx.push(if playing {
                                 AudioCmd::Pause
@@ -82,7 +83,7 @@ fn main() {
             .height(Pixels(48.0));
 
             // ── Waveform ─────────────────────────────────────────────────
-            WaveformView::insert(cx, samples.clone())
+            WaveformView::insert(cx, samples)
                 .width(Stretch(1.0))
                 .height(Stretch(1.0));
         })
