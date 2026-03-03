@@ -40,13 +40,7 @@ impl Render for TranscriptView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let word_count = self.transcript.read(cx).words.len();
         let active_idx = self.transcript.read(cx).active_word_idx;
-        let words: Vec<(String, f64)> = self
-            .transcript
-            .read(cx)
-            .words
-            .iter()
-            .map(|w| (w.text.clone(), w.start))
-            .collect();
+        let transcript = self.transcript.clone();
         let dsp = self.dsp.clone();
 
         div()
@@ -56,10 +50,13 @@ impl Render for TranscriptView {
             .bg(rgb(0x1e1e2e))
             .overflow_y_scroll()
             .child(
-                uniform_list("transcript-words", word_count, move |range, _window, _cx| {
+                uniform_list("transcript-words", word_count, move |range, _window, cx| {
+                    let ts = transcript.read(cx);
                     range
                         .map(|ix| {
-                            let (ref text, start) = words[ix];
+                            let word = &ts.words[ix];
+                            let text = word.text.clone();
+                            let start = word.start;
                             let is_active = ix == active_idx;
                             let dsp_handle = dsp.clone();
 
@@ -80,10 +77,15 @@ impl Render for TranscriptView {
                                 .on_click(move |_event, _window, cx| {
                                     dsp_handle.update(cx, |state, cx| {
                                         state.playhead_secs = start;
+                                        if state.is_playing {
+                                            state.play_start = Some(std::time::Instant::now());
+                                            state.play_start_offset = start;
+                                        }
+                                        cx.emit(PlayheadMoved { playhead_secs: start });
                                         cx.notify();
                                     });
                                 })
-                                .child(text.clone())
+                                .child(text)
                         })
                         .collect()
                 })

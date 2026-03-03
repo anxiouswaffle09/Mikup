@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use gpui::*;
 use crate::data::{PeakBlock, Word};
 
@@ -8,6 +9,10 @@ pub struct DspState {
     pub is_playing: bool,
     pub lufs_momentary: f32,
     pub lufs_short_term: f32,
+    /// Wall-clock instant when playback last started/resumed.
+    pub play_start: Option<std::time::Instant>,
+    /// Playhead offset at the moment playback started.
+    pub play_start_offset: f64,
 }
 
 impl DspState {
@@ -17,6 +22,18 @@ impl DspState {
             is_playing: false,
             lufs_momentary: -23.0,
             lufs_short_term: -23.0,
+            play_start: None,
+            play_start_offset: 0.0,
+        }
+    }
+
+    pub fn toggle_playing(&mut self) {
+        self.is_playing = !self.is_playing;
+        if self.is_playing {
+            self.play_start = Some(std::time::Instant::now());
+            self.play_start_offset = self.playhead_secs;
+        } else {
+            self.play_start = None;
         }
     }
 }
@@ -31,7 +48,7 @@ impl EventEmitter<PlayheadMoved> for DspState {}
 // ── Timeline / waveform state (user interaction) ──────────────
 
 pub struct TimelineState {
-    pub peaks: Vec<PeakBlock>,
+    pub peaks: Arc<Vec<PeakBlock>>,
     pub total_duration: f64,
     pub zoom: f64,          // pixels per second
     pub scroll_offset: f64, // seconds from start
@@ -40,7 +57,7 @@ pub struct TimelineState {
 impl TimelineState {
     pub fn new(peaks: Vec<PeakBlock>, total_duration: f64) -> Self {
         Self {
-            peaks,
+            peaks: Arc::new(peaks),
             total_duration,
             zoom: 2.0,        // 2 px/sec → full 600s fits in 1200px
             scroll_offset: 0.0,
@@ -81,7 +98,7 @@ impl TranscriptState {
             }
         }) {
             Ok(idx) => idx,
-            Err(idx) => idx.min(self.words.len().saturating_sub(1)),
+            Err(idx) => if idx == 0 { 0 } else { idx - 1 },
         }
     }
 }

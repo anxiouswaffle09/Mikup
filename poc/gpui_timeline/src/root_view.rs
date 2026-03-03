@@ -2,6 +2,8 @@ use futures::StreamExt;
 use gpui::*;
 use std::time::Duration;
 
+const DEFAULT_VIEWPORT_WIDTH: f64 = 1200.0;
+
 use crate::data::{generate_transcript, generate_waveform_peaks, DURATION_SECS};
 use crate::state::{DspState, PlayheadMoved, TimelineState, TranscriptState};
 use crate::transcript_view::TranscriptView;
@@ -38,12 +40,17 @@ impl RootView {
         let dsp_weak = dsp.downgrade();
         let timer_task = cx.spawn(async move |_this, cx| {
             let mut interval = Timer::interval(Duration::from_millis(16));
-            while let Some(_) = interval.next().await {
+            while interval.next().await.is_some() {
                 let result = dsp_weak.update(cx, |state, cx| {
                     if state.is_playing {
-                        state.playhead_secs += 1.0 / 60.0;
-                        if state.playhead_secs > DURATION_SECS {
-                            state.playhead_secs = 0.0;
+                        if let Some(start) = state.play_start {
+                            let elapsed = start.elapsed().as_secs_f64();
+                            state.playhead_secs = state.play_start_offset + elapsed;
+                            if state.playhead_secs > DURATION_SECS {
+                                state.playhead_secs = 0.0;
+                                state.play_start_offset = 0.0;
+                                state.play_start = Some(std::time::Instant::now());
+                            }
                         }
                         state.lufs_momentary =
                             -23.0 + 6.0 * (state.playhead_secs * 0.5).sin() as f32;
@@ -97,7 +104,7 @@ impl Render for RootView {
             .on_key_down(move |event: &KeyDownEvent, _window, cx| {
                 if event.keystroke.key == " " {
                     dsp.update(cx, |state, cx| {
-                        state.is_playing = !state.is_playing;
+                        state.toggle_playing();
                         cx.notify();
                     });
                 }
@@ -115,7 +122,7 @@ impl Render for RootView {
                         let delta_secs = -delta_y / state.zoom;
                         state.scroll_offset += delta_secs;
                     }
-                    state.clamp_scroll(1200.0);
+                    state.clamp_scroll(DEFAULT_VIEWPORT_WIDTH);
                     cx.notify();
                 });
             })

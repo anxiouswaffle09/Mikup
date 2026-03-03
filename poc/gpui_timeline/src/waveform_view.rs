@@ -41,7 +41,6 @@ impl Render for WaveformView {
         let peaks = self.timeline.read(cx).peaks.clone();
         let zoom = self.timeline.read(cx).zoom;
         let scroll_offset = self.timeline.read(cx).scroll_offset;
-        let _total_duration = self.timeline.read(cx).total_duration;
 
         let block_duration = BLOCK_SIZE as f64 / SAMPLE_RATE as f64;
 
