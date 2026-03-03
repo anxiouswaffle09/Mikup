@@ -57,6 +57,11 @@ impl WaveformView {
         }
     }
 
+    /// Insert into the Vizia tree and return a Handle, consuming `samples`.
+    pub fn insert(cx: &mut Context, samples: Vec<f32>) -> Handle<'_, Self> {
+        Self::new(samples).build(cx, |_| {})
+    }
+
     /// LOD + viewport culling. Returns at most `canvas_width` peaks covering the visible range.
     ///
     /// - `scroll_offset`: first visible peak index (float, in peak-table units)
