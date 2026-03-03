@@ -117,7 +117,6 @@ impl View for WaveformView {
                 let x = b.x + i as f32 * x_step;
                 path.move_to((x, mid_y - peak.max.abs() * b.h * 0.45));
                 path.line_to((x, mid_y));
-                path.move_to((x, mid_y));
                 path.line_to((x, mid_y + peak.min.abs() * b.h * 0.45));
             }
 
