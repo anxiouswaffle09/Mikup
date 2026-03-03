@@ -30,6 +30,9 @@ data/output/*
 !data/output/.gitkeep
 notebooks/.ipynb_checkpoints
 
+# Rust
+**/target/
+
 # Build & Dist
 build/
 develop-eggs/
