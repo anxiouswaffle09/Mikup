@@ -1,3 +1,5 @@
+mod data;
+
 use gpui::*;
 
 struct HelloView;
