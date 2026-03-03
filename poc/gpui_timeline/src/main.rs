@@ -1,5 +1,6 @@
 mod data;
 mod state;
+mod transcript_view;
 mod waveform_view;
 
 use gpui::*;
