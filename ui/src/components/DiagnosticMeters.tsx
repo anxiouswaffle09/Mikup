@@ -276,6 +276,31 @@ const BAR_H = 6;
 const CANVAS_H = 32;
 const BAR_Y = (CANVAS_H - BAR_H) / 2;
 
+/**
+ * Resizes the canvas backing store when dimensions change, applying DPR scale.
+ * Returns {ctx, width} ready for drawing, or null if the container has no width.
+ */
+function ensureCanvasSize(
+  canvas: HTMLCanvasElement,
+  container: HTMLDivElement,
+): { ctx: CanvasRenderingContext2D; width: number } | null {
+  const width = container.getBoundingClientRect().width;
+  if (width === 0) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const targetW = Math.floor(width * dpr);
+  const targetH = Math.floor(CANVAS_H * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${CANVAS_H}px`;
+    ctx.scale(dpr, dpr);
+  }
+  return { ctx, width };
+}
+
 /** Paints the LUFS bar + peak-hold tick onto an already-scaled canvas context. */
 function paintStemBar(
   ctx: CanvasRenderingContext2D,
@@ -344,22 +369,9 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
       const container = containerRef.current;
       if (!canvas || !container) return;
 
-      const width = container.getBoundingClientRect().width;
-      if (width === 0) return;
-      const dpr = window.devicePixelRatio || 1;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // Re-allocate backing store only when size/dpr actually changes.
-      const targetW = Math.floor(width * dpr);
-      const targetH = Math.floor(CANVAS_H * dpr);
-      if (canvas.width !== targetW || canvas.height !== targetH) {
-        canvas.width = targetW;
-        canvas.height = targetH;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${CANVAS_H}px`;
-        ctx.scale(dpr, dpr);
-      }
+      const sized = ensureCanvasSize(canvas, container);
+      if (!sized) return;
+      const { ctx, width } = sized;
 
       const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
       const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
@@ -375,22 +387,10 @@ const StemLufsRow: React.FC<StemLufsRowProps> = ({ label, color, ref }) => {
       if (momentaryLufs > -Infinity) {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const width = container.getBoundingClientRect().width;
-        if (width === 0) return;
-        const dpr = window.devicePixelRatio || 1;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
 
-        // Re-allocate backing store only when size/dpr actually changes.
-        const targetW = Math.floor(width * dpr);
-        const targetH = Math.floor(CANVAS_H * dpr);
-        if (canvas.width !== targetW || canvas.height !== targetH) {
-          canvas.width = targetW;
-          canvas.height = targetH;
-          canvas.style.width = `${width}px`;
-          canvas.style.height = `${CANVAS_H}px`;
-          ctx.scale(dpr, dpr);
-        }
+        const sized = ensureCanvasSize(canvas, container);
+        if (!sized) return;
+        const { ctx, width } = sized;
 
         const lufsPct = Math.max(0, Math.min(1, (momentaryLufs - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
         const peakPct = Math.max(0, Math.min(1, (peakLufsRef.current - LUFS_MIN) / (LUFS_MAX - LUFS_MIN)));
