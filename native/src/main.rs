@@ -226,10 +226,40 @@ fn main() {
                     }
                     ViewState::Processing => {
                         VStack::new(cx, |cx| {
-                            Label::new(cx, "Processing…").color(Color::rgb(180, 180, 200));
+                            Label::new(cx, "Processing…")
+                                .color(Color::rgb(180, 180, 200));
+
+                            Binding::new(cx, AppData::pipeline_message, |cx, msg_lens| {
+                                Label::new(cx, msg_lens.get(cx).as_str())
+                                    .color(Color::rgb(120, 120, 140))
+                                    .top(Pixels(8.0));
+                            });
+
+                            // Progress track
+                            VStack::new(cx, |cx| {
+                                Binding::new(
+                                    cx,
+                                    AppData::pipeline_progress,
+                                    |cx, pct_lens| {
+                                        let pct = pct_lens.get(cx);
+                                        Element::new(cx)
+                                            .width(Percentage(pct * 100.0))
+                                            .height(Stretch(1.0))
+                                            .background_color(Color::rgb(100, 120, 220));
+                                    },
+                                );
+                            })
+                            .width(Pixels(400.0))
+                            .height(Pixels(8.0))
+                            .background_color(Color::rgb(50, 50, 65))
+                            .top(Pixels(16.0));
                         })
                         .width(Stretch(1.0))
                         .height(Stretch(1.0))
+                        .left(Stretch(1.0))
+                        .right(Stretch(1.0))
+                        .top(Stretch(1.0))
+                        .bottom(Stretch(1.0))
                         .background_color(Color::rgb(30, 30, 30));
                     }
                     ViewState::Workspace => {
