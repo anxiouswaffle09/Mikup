@@ -178,7 +178,10 @@ impl Model for AppData {
                         });
                         proxy.emit(AppEvent::ProjectReady(assets)).ok();
                     }
-                    Err(e) => eprintln!("[mikup] LoadProject failed: {e}"),
+                    Err(e) => {
+                        eprintln!("[mikup] LoadProject failed: {e}");
+                        proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                    }
                 });
             }
             AppEvent::SelectNewAudioFile => {
