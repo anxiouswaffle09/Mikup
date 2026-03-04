@@ -237,17 +237,12 @@ fn main() {
 
                             // Progress track
                             VStack::new(cx, |cx| {
-                                Binding::new(
-                                    cx,
-                                    AppData::pipeline_progress,
-                                    |cx, pct_lens| {
-                                        let pct = pct_lens.get(cx);
-                                        Element::new(cx)
-                                            .width(Percentage(pct * 100.0))
-                                            .height(Stretch(1.0))
-                                            .background_color(Color::rgb(100, 120, 220));
-                                    },
-                                );
+                                Element::new(cx)
+                                    .width(AppData::pipeline_progress.map(|pct| {
+                                        Percentage(*pct * 100.0)
+                                    }))
+                                    .height(Stretch(1.0))
+                                    .background_color(Color::rgb(100, 120, 220));
                             })
                             .width(Pixels(400.0))
                             .height(Pixels(8.0))
