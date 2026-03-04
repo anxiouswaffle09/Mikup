@@ -191,6 +191,101 @@ impl Model for AppData {
                     }
                 });
             }
+            AppEvent::StartPipeline(path) => {
+                self.current_view = ViewState::Processing;
+                self.pipeline_progress = 0.0;
+                self.pipeline_message = "Starting…".to_string();
+
+                cx.spawn(move |proxy| {
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("output")
+                        .to_string();
+                    let output_dir = path
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."))
+                        .join(format!("{}_mikup", stem));
+
+                    // Project root is one level above the native/ crate.
+                    let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+                    let mut child = match std::process::Command::new("python3")
+                        .args([
+                            "-m",
+                            "src.main",
+                            "--input",
+                            path.to_str().unwrap_or(""),
+                            "--output-dir",
+                            output_dir.to_str().unwrap_or(""),
+                        ])
+                        .current_dir(&project_root)
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::inherit())
+                        .spawn()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("[mikup] Failed to spawn python3: {e}");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                            return;
+                        }
+                    };
+
+                    if let Some(stdout) = child.stdout.take() {
+                        use std::io::BufRead;
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines().map_while(Result::ok) {
+                            if let Ok(val) =
+                                serde_json::from_str::<serde_json::Value>(&line)
+                            {
+                                if val
+                                    .get("type")
+                                    .and_then(|t| t.as_str())
+                                    == Some("progress")
+                                {
+                                    let progress = val
+                                        .get("progress")
+                                        .and_then(|p| p.as_f64())
+                                        .unwrap_or(0.0) as f32;
+                                    let message = val
+                                        .get("message")
+                                        .and_then(|m| m.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    proxy
+                                        .emit(AppEvent::PipelineProgress(progress, message))
+                                        .ok();
+                                }
+                            }
+                        }
+                    }
+
+                    match child.wait() {
+                        Ok(s) if s.success() => {
+                            proxy
+                                .emit(AppEvent::LoadProject(
+                                    output_dir.join("mikup_payload.json"),
+                                ))
+                                .ok();
+                        }
+                        Ok(s) => {
+                            eprintln!(
+                                "[mikup] Pipeline exited {}",
+                                s.code().unwrap_or(-1)
+                            );
+                            proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                        }
+                        Err(e) => {
+                            eprintln!("[mikup] Pipeline wait error: {e}");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                        }
+                    }
+                });
+            }
             other => self.apply_event(other),
         });
     }
