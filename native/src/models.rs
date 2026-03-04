@@ -207,6 +207,15 @@ impl Model for AppData {
                         .unwrap_or_else(|| std::path::Path::new("."))
                         .join(format!("{}_mikup", stem));
 
+                    let (input_str, output_str) = match (path.to_str(), output_dir.to_str()) {
+                        (Some(i), Some(o)) => (i.to_string(), o.to_string()),
+                        _ => {
+                            eprintln!("[mikup] Path contains non-UTF-8 bytes");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                            return;
+                        }
+                    };
+
                     // Project root is one level above the native/ crate.
                     let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                         .parent()
@@ -218,9 +227,9 @@ impl Model for AppData {
                             "-m",
                             "src.main",
                             "--input",
-                            path.to_str().unwrap_or(""),
+                            input_str.as_str(),
                             "--output-dir",
-                            output_dir.to_str().unwrap_or(""),
+                            output_str.as_str(),
                         ])
                         .current_dir(&project_root)
                         .stdout(std::process::Stdio::piped())
@@ -235,7 +244,8 @@ impl Model for AppData {
                         }
                     };
 
-                    if let Some(stdout) = child.stdout.take() {
+                    let stdout = child.stdout.take().expect("stdout must be piped");
+                    {
                         use std::io::BufRead;
                         let reader = std::io::BufReader::new(stdout);
                         for line in reader.lines().map_while(Result::ok) {
