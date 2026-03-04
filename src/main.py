@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
@@ -128,6 +128,13 @@ _M = TypeVar("_M", bound=BaseModel)
 
 STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "director")
 PIPELINE_ORDER = list(STAGE_CHOICES)
+REDO_DOWNSTREAM_MAP = {
+    "separation": ("separation", "transcription", "semantics", "director"),
+    "transcription": ("transcription", "semantics", "director"),
+    "semantics": ("semantics", "director"),
+    "director": ("director",),
+    "dsp": ("dsp",),
+}
 CANONICAL_STEM_KEYS = ("DX", "Music", "Effects")
 OPTIONAL_STEM_KEYS = ("DX_Residual",)
 
@@ -184,31 +191,50 @@ def _read_json_file(path, default=None, model: type[_M] | None = None):
 
     When *model* is supplied, the parsed dict is validated through
     ``model.model_validate()`` and the resulting BaseModel instance is
-    returned.  On validation failure the raw dict is returned instead so
+    returned. On validation failure the raw dict is returned instead so
     callers never crash on legacy data.
     """
     if not is_existing_file(path):
         return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if model is not None and isinstance(data, dict):
-            try:
-                return model.model_validate(data)
-            except Exception:
-                return data
-        return data
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to read JSON from %s: %s", path, exc)
-        return default
+    with _state_lock:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if model is not None and isinstance(data, dict):
+                try:
+                    return model.model_validate(data)
+                except ValidationError as exc:
+                    logger.warning(
+                        "Validation failed for %s with model %s: %s",
+                        path,
+                        model.__name__,
+                        exc,
+                    )
+                    return data
+            return data
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to read JSON from %s: %s", path, exc)
+            return default
 
 
 def _write_json_file(path, payload):
     with _state_lock:
         ensure_output_dir(path)
         data = payload.model_dump() if isinstance(payload, BaseModel) else payload
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        target = Path(path)
+        tmp_path = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, target)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
 
 def _artifact_paths(output_dir):
@@ -292,9 +318,8 @@ def _invalidate_redo_stages(args, output_dir, artifacts, stage_state):
         return set()
 
     with _state_lock:
-        target_index = PIPELINE_ORDER.index(args.redo_stage)
-        stages_to_invalidate = PIPELINE_ORDER[target_index:]
-        logger.info("[REDO] Invaliding Stage: %s and all downstream dependencies.", args.redo_stage)
+        stages_to_invalidate = list(REDO_DOWNSTREAM_MAP.get(args.redo_stage, (args.redo_stage,)))
+        logger.info("[REDO] Invalidating stage: %s and configured downstream dependencies.", args.redo_stage)
 
         for stage_name in stages_to_invalidate:
             for artifact_path in _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
@@ -498,6 +523,26 @@ def _resolve_source_file(args, stage_state):
     return candidate or "Unknown"
 
 
+def _collect_stage_timestamps(stage_state):
+    if not isinstance(stage_state, dict):
+        return {}
+
+    stages = stage_state.get("stages")
+    if not isinstance(stages, dict):
+        return {}
+
+    stage_timestamps = {}
+    for stage_name in STAGE_CHOICES:
+        stage_entry = stages.get(stage_name)
+        if not isinstance(stage_entry, dict):
+            continue
+        timestamp = stage_entry.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            stage_timestamps[stage_name] = timestamp
+
+    return stage_timestamps
+
+
 def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_report=None):
     transcription_path = artifacts["transcription"]
     semantics_path = artifacts["semantics"]
@@ -546,6 +591,7 @@ def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_rep
             "pipeline_version": "0.2.0-beta",
             "timestamp": datetime.now().isoformat(),
             "is_complete": is_complete,
+            "stage_timestamps": _collect_stage_timestamps(stage_state),
         },
         "transcription": transcription_data,
         "metrics": dsp_metrics,
@@ -590,8 +636,8 @@ def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/conf
     Determine the output workspace directory.
 
     - If output_dir_flag is given (user passed --output-dir), use it verbatim as abspath.
-    - Otherwise, generate a timestamped workspace:
-        <default_projects_dir>/<input_stem>_<YYYYMMDD_HHMMSS>/
+    - Otherwise, generate a collision-safe timestamped workspace:
+        <default_projects_dir>/<input_stem>_<YYYYMMDD_HHMMSS>_<pid>/
       where default_projects_dir comes from data/config.json, falling back to
       <repo_root>/Projects/.
     """
@@ -602,7 +648,8 @@ def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/conf
     base = config.get("default_projects_dir") or str(Path(project_root) / "Projects")
     stem = Path(input_path).stem or "project"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return str(Path(base).resolve() / f"{stem}_{timestamp}")
+    pid_suffix = os.getpid()
+    return str(Path(base).resolve() / f"{stem}_{timestamp}_{pid_suffix}")
 
 
 def _timestamps_match(lhs, rhs, tolerance=1e-6):

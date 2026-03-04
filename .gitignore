@@ -59,3 +59,4 @@ Projects/
 *.wav
 data/history.json
 data/config.json
+.ant-colony/

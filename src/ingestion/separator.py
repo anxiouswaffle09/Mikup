@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import platform
@@ -44,6 +45,13 @@ class MikupSeparator:
         "https://github.com/ZFTurbo/MVSEP-CDX23-Cinematic-Sound-Demixing"
         "/releases/download/v.1.0.0/"
     )
+    # SHA-256 digests for CDX23 model files.
+    # Pinned from verified downloads — mismatches cause deletion + RuntimeError.
+    CDX23_MODEL_HASHES: dict[str, str] = {
+        "97d170e1-a778de4a.th": "a778de4a72b90482a578bfb6ea6bf41462785d9136c11802c67a864a40f29434",
+        "97d170e1-dbb4db15.th": "dbb4db154df7e45a5cb72d1659c48937e757f6d6b0eef8ca4199e6e38f8d8f37",
+        "97d170e1-e41a5468.th": "e41a54684d3cd6794ee2bb59183ffeb11a9a3d42db873a6a08a9829ac3ef4cfe",
+    }
 
     def __init__(self, output_dir):
         self.output_dir = str(Path(output_dir).resolve())
@@ -258,10 +266,80 @@ class MikupSeparator:
             except OSError as exc:
                 logger.warning("Failed to remove intermediate artifact %s: %s", candidate, exc)
 
+    @staticmethod
+    def _sha256_file(path: str, chunk_size: int = 1 << 20) -> str:
+        """Compute SHA-256 hex digest of a file."""
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _verify_model_integrity(self, model_path: str, model_id: str) -> None:
+        """Verify downloaded model file against known SHA-256 hash.
+
+        If no expected hash is registered (value is None), the computed hash is
+        logged so operators can pin it on first deployment.
+
+        Raises ``RuntimeError`` if the hash does not match.
+        """
+        computed = self._sha256_file(model_path)
+        expected = self.CDX23_MODEL_HASHES.get(model_id)
+
+        if expected is None:
+            logger.warning(
+                "No SHA-256 hash registered for CDX23 model %s. "
+                "Computed hash: %s — pin this value in CDX23_MODEL_HASHES "
+                "for integrity verification.",
+                model_id,
+                computed,
+            )
+            return
+
+        if computed != expected:
+            # Remove the corrupted / tampered file before raising
+            try:
+                Path(model_path).unlink()
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"Integrity check failed for CDX23 model '{model_id}'. "
+                f"Expected SHA-256 {expected}, got {computed}. "
+                f"The file has been removed. Re-run to download a fresh copy."
+            )
+
+        logger.info("CDX23 model %s integrity verified (SHA-256: %s).", model_id, computed[:16] + "…")
+
     def _cdx23_models_dir(self):
-        base = os.environ.get("MIKUP_CDX23_MODELS_DIR") or str(
-            _REPO_ROOT / "models" / "cdx23"
-        )
+        default_dir = str(_REPO_ROOT / "models" / "cdx23")
+        env_dir = os.environ.get("MIKUP_CDX23_MODELS_DIR", "").strip()
+
+        if env_dir:
+            resolved = Path(env_dir).resolve()
+            # Prevent path traversal: must not escape above repo root
+            try:
+                resolved.relative_to(_REPO_ROOT)
+            except ValueError:
+                logger.warning(
+                    "MIKUP_CDX23_MODELS_DIR (%s) resolves outside the repo root (%s). "
+                    "Ignoring environment override and using default.",
+                    resolved,
+                    _REPO_ROOT,
+                )
+                env_dir = ""
+
+            # Reject suspicious components (e.g. "..", symlinks to outside)
+            if env_dir and ".." in Path(env_dir).parts:
+                logger.warning(
+                    "MIKUP_CDX23_MODELS_DIR contains '..'. "
+                    "Ignoring environment override and using default."
+                )
+                env_dir = ""
+
+        base = env_dir or default_dir
         Path(base).mkdir(parents=True, exist_ok=True)
         return base
 
@@ -309,6 +387,8 @@ class MikupSeparator:
                 torch.hub.download_url_to_file(
                     self.CDX23_DOWNLOAD_BASE + model_id, model_path
                 )
+            # Verify integrity after download (or for cached files)
+            self._verify_model_integrity(model_path, model_id)
             try:
                 model = load_model(model_path)
             except Exception as exc:
@@ -425,6 +505,11 @@ class MikupSeparator:
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1:
-        msep = MikupSeparator()
-        print(msep.run_surgical_pipeline(sys.argv[1]))
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <input_audio> [output_dir]", file=sys.stderr)
+        sys.exit(1)
+
+    _input_file = sys.argv[1]
+    _output_dir = sys.argv[2] if len(sys.argv) > 2 else "./output"
+    msep = MikupSeparator(output_dir=_output_dir)
+    print(msep.run_surgical_pipeline(_input_file))

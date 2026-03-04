@@ -64,8 +64,8 @@ class MikupSemanticTagger:
         full_duration = librosa.get_duration(path=audio_path)
         
         # Take the middle 5 seconds for a "vibe check"
-        start_sec = max(0, (full_duration / 2) - 2.5) if full_duration > 7 else 0
-        duration_to_load = min(5.0, full_duration)
+        start_sec = max(0, (full_duration / 2) - 2.5) if full_duration > 5 else 0
+        duration_to_load = min(5.0, full_duration - start_sec)
 
         if duration_to_load < 0.5:
             logger.warning("Audio too short for semantic analysis (%.2fs), skipping.", duration_to_load)

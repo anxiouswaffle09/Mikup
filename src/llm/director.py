@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class MikupDirector:
         else:
             self.client = None
             logger.warning("GEMINI_API_KEY not found in environment. Stage 5 will be skipped.")
-        self._history: list[dict] = []
+        self._history: list[types.Content] = []
         self.payload_path = str(Path(payload_path).resolve()) if payload_path else None
         env_workspace = os.getenv("WORKSPACE_DIR")
         resolved_workspace = (
@@ -94,19 +95,16 @@ class MikupDirector:
         if not self.client:
             return "AI Director unavailable."
 
-        self._history.append({"role": "user", "content": user_text})
-
-        turns = []
-        for entry in self._history:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            turns.append(f"{role}: {content}")
-        prompt = "\n".join(turns)
+        user_content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=user_text)],
+        )
+        self._history.append(user_content)
 
         try:
             response = self.client.models.generate_content(
                 model=self.model_id,
-                contents=prompt,
+                contents=self._history,
             )
         except Exception as exc:
             logger.error("send_message: LLM call failed: %s", exc)
@@ -118,7 +116,11 @@ class MikupDirector:
             return "AI Director returned an empty response."
 
         reply_text = reply_text.strip()
-        self._history.append({"role": "assistant", "content": reply_text})
+        assistant_content = types.Content(
+            role="model",
+            parts=[types.Part.from_text(text=reply_text)],
+        )
+        self._history.append(assistant_content)
         return reply_text
 
     def _is_path_safe(self, path: str) -> bool:

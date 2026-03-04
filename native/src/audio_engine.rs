@@ -55,7 +55,7 @@ pub struct Telemetry {
 pub struct AudioController {
     pub cmd_tx: rtrb::Producer<AudioCmd>,
     pub telemetry_rx: rtrb::Consumer<Telemetry>,
-    _stream: cpal::Stream,
+    _stream: Option<cpal::Stream>,
 }
 
 const CHUNK_SIZE: usize = 2048;
@@ -89,34 +89,44 @@ impl AudioController {
             })
             .expect("spawn dsp thread");
 
-        // ── cpal output stream ───────────────────────────────────────────
-        let host = cpal::default_host();
-        let device = host.default_output_device().expect("no output device");
-        let config = device.default_output_config().expect("no output config");
-
-        let stream = device
-            .build_output_stream(
-                &config.into(),
-                // Zero-alloc callback: atomic load + ring pop only
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
-                    for sample in data.iter_mut() {
-                        *sample = audio_rx.pop().unwrap_or(0.0) * vol;
-                    }
-                },
-                |err| eprintln!("cpal stream error: {err}"),
-                None,
-            )
-            .expect("build output stream");
-
-        stream.play().expect("start stream");
+        // ── cpal output stream (optional — headless/CI graceful degradation) ──
+        let _stream = try_build_audio_stream(audio_rx);
 
         AudioController {
             cmd_tx,
             telemetry_rx,
-            _stream: stream,
+            _stream,
         }
     }
+}
+
+/// Attempt to open a cpal output stream. Returns `None` (silent mode) if no
+/// audio device is available — logs a warning but does NOT panic.
+fn try_build_audio_stream(mut audio_rx: rtrb::Consumer<f32>) -> Option<cpal::Stream> {
+    let host = cpal::default_host();
+    let device = host.default_output_device().or_else(|| {
+        eprintln!("[mikup] WARNING: no audio output device — running in silent mode");
+        None
+    })?;
+    let config = device.default_output_config().ok().or_else(|| {
+        eprintln!("[mikup] WARNING: could not read output config — running in silent mode");
+        None
+    })?;
+    let stream = device
+        .build_output_stream(
+            &config.into(),
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
+                for sample in data.iter_mut() {
+                    *sample = audio_rx.pop().unwrap_or(0.0) * vol;
+                }
+            },
+            |err| eprintln!("cpal stream error: {err}"),
+            None,
+        )
+        .ok()?;
+    stream.play().ok()?;
+    Some(stream)
 }
 
 fn dsp_thread_main(
@@ -153,7 +163,6 @@ fn dsp_thread_main(
     };
 
     let mut loudness = LoudnessAnalyzer::new(DSP_SAMPLE_RATE).expect("create loudness analyzer");
-    let spatial = SpatialAnalyzer::new();
 
     // ── Pre-allocate resampler ───────────────────────────────────────────
     let params = SincInterpolationParameters {
@@ -171,6 +180,7 @@ fn dsp_thread_main(
     let mut resample_input = vec![vec![0.0_f32; CHUNK_SIZE]; 2];
     let mut resample_output = vec![vec![0.0_f32; out_max]; 2];
 
+    let mut spatial = SpatialAnalyzer::new();
     let mut playing = false;
     let mut playhead_samples: u64 = 0;
     let mut finished = false;
@@ -268,7 +278,7 @@ fn dsp_thread_main(
         // Spatial analysis → Lissajous points + phase correlation
         let spatial_metrics = spatial.process_frame(&frame);
         let mut spatial_xy = [0.0_f32; 512];
-        let pts = &spatial_metrics.lissajous_points;
+        let pts = spatial.lissajous_points();
         let n_out = pts.len().min(256);
         let stride = if pts.len() > 256 { pts.len() / 256 } else { 1 };
         for i in 0..n_out {
@@ -398,6 +408,14 @@ pub fn detect_hw_rate() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn init_stream_does_not_panic_when_called() {
+        use rtrb::RingBuffer;
+        let (_, rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 8);
+        // Must not panic regardless of audio device availability (headless/CI)
+        let _stream: Option<cpal::Stream> = try_build_audio_stream(rx);
+    }
 
     #[test]
     fn audio_callback_captures_are_send() {

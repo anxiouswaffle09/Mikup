@@ -225,7 +225,22 @@ impl Model for AppData {
                         .map(|p| p.to_path_buf())
                         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-                    let mut child = match std::process::Command::new("python3")
+                    // Resolve the venv python, falling back to system python3.
+                    let python_bin: std::ffi::OsString = {
+                        let candidates: &[&[&str]] = &[
+                            &[".venv", "bin", "python3"],
+                            &[".venv", "bin", "python"],
+                            &[".venv", "Scripts", "python.exe"],
+                        ];
+                        candidates
+                            .iter()
+                            .map(|parts| parts.iter().fold(project_root.clone(), |p, s| p.join(s)))
+                            .find(|p| p.exists())
+                            .map(|p| p.into_os_string())
+                            .unwrap_or_else(|| std::ffi::OsString::from("python3"))
+                    };
+
+                    let mut child = match std::process::Command::new(&python_bin)
                         .args([
                             "-m",
                             "src.main",
@@ -241,7 +256,7 @@ impl Model for AppData {
                     {
                         Ok(c) => c,
                         Err(e) => {
-                            eprintln!("[mikup] Failed to spawn python3: {e}");
+                            eprintln!("[mikup] Failed to spawn {python_bin:?}: {e}");
                             proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
                             return;
                         }

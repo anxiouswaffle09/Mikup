@@ -1,9 +1,61 @@
+import importlib
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.modules.pop("src.transcription.transcriber", None)
+MikupTranscriber = importlib.import_module("src.transcription.transcriber").MikupTranscriber
+
 from tests._pipeline_test_utils import load_main_module, run_main
+
+
+class FallbackSpeakerAssignmentTests(unittest.TestCase):
+    def test_apply_fallback_speakers_reuses_label_for_same_unknown_identity(self):
+        payload = {
+            "segments": [
+                {"speaker": "UNKNOWN_0", "text": "a"},
+                {"speaker": "UNKNOWN_1", "text": "b"},
+                {"speaker": "UNKNOWN_0", "text": "c"},
+                {"speaker": "SPEAKER_01", "text": "d"},
+            ]
+        }
+
+        result = MikupTranscriber._apply_fallback_speakers(payload)
+        speakers = [segment["speaker"] for segment in result["segments"]]
+
+        self.assertEqual(speakers[0], "Speaker 1")
+        self.assertEqual(speakers[1], "Speaker 2")
+        self.assertEqual(speakers[2], "Speaker 1")
+        self.assertEqual(speakers[3], "SPEAKER_01")
+
+    def test_apply_fallback_speakers_groups_blank_and_unknown(self):
+        payload = {
+            "segments": [
+                {"speaker": None, "text": "a"},
+                {"speaker": "", "text": "b"},
+                {"speaker": "UNKNOWN", "text": "c"},
+            ]
+        }
+
+        result = MikupTranscriber._apply_fallback_speakers(payload)
+        speakers = [segment["speaker"] for segment in result["segments"]]
+
+        self.assertEqual(speakers, ["Speaker 1", "Speaker 1", "Speaker 1"])
+
+    def test_apply_fallback_speakers_respects_existing_generic_labels(self):
+        payload = {
+            "segments": [
+                {"speaker": "Speaker 1", "text": "already tagged"},
+                {"speaker": "UNKNOWN", "text": "needs fallback"},
+            ]
+        }
+
+        result = MikupTranscriber._apply_fallback_speakers(payload)
+        speakers = [segment["speaker"] for segment in result["segments"]]
+
+        self.assertEqual(speakers, ["Speaker 1", "Speaker 2"])
 
 
 class TranscriptionStageSmokeTests(unittest.TestCase):

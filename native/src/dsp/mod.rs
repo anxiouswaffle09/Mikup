@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod loudness;
 pub mod player;
 pub mod scanner;
@@ -382,13 +384,6 @@ impl StemStreamDecoder {
             .map_err(|err| AudioDecodeError::Probe(err.to_string()))?;
 
         let format = probed.format;
-        if !extension.eq_ignore_ascii_case("wav") && !extension.eq_ignore_ascii_case("wave") {
-            return Err(AudioDecodeError::UnsupportedFormat {
-                stem: stem_name,
-                path: path.clone(),
-                format: extension.to_string(),
-            });
-        }
 
         let (track_id, codec_params, sample_rate) = {
             let track = format
@@ -556,7 +551,8 @@ fn decode_to_normalized_mono(decoded: AudioBufferRef<'_>) -> Vec<f32> {
         .chunks_exact(channels)
         .map(|frame| {
             let sum: f32 = frame.iter().copied().sum();
-            sum.clamp(-1.0, 1.0)
+            let mono = sum / channels as f32;
+            mono.clamp(-1.0, 1.0)
         })
         .collect()
 }

@@ -71,10 +71,10 @@ def test_resolve_output_dir_uses_config_projects_dir(tmp_path):
     )
 
     assert result.startswith(str(projects_dir))
-    # Workspace dir name: my_audio_YYYYMMDD_HHMMSS
+    # Workspace dir name: my_audio_YYYYMMDD_HHMMSS_<pid>
     name = Path(result).name
     assert name.startswith("my_audio_"), f"Expected 'my_audio_...' got {name!r}"
-    assert re.search(r"\d{8}_\d{6}$", name), f"No timestamp suffix in {name!r}"
+    assert re.search(r"\d{8}_\d{6}_\d+$", name), f"No timestamp+pid suffix in {name!r}"
 
 
 def test_resolve_output_dir_respects_explicit_flag(tmp_path):

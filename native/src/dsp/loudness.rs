@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ebur128::{EbuR128, Mode};
 
 use crate::dsp::SyncedAudioFrame;

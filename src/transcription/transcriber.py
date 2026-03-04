@@ -2,6 +2,7 @@ import logging
 import json
 import platform
 import inspect
+import re
 import tempfile
 from pathlib import Path
 
@@ -63,20 +64,52 @@ class MikupTranscriber:
 
     @staticmethod
     def _apply_fallback_speakers(transcription_result):
-        """Replace missing/UNKNOWN speaker tags with clean generic labels."""
+        """Replace missing/UNKNOWN speaker tags with deterministic labels.
+
+        Fallback labels are assigned by *unique fallback speaker identity*
+        (the original speaker token), not by segment position. This keeps
+        labels stable across segments that share the same fallback identity,
+        e.g. ``UNKNOWN_0`` appearing in multiple segments will consistently map
+        to the same ``Speaker N`` label.
+        """
         segments = transcription_result.get("segments", [])
         if not isinstance(segments, list):
             return transcription_result
 
-        fallback_index = 1
+        existing_generic_indices = set()
         for segment in segments:
             if not isinstance(segment, dict):
                 continue
             speaker = str(segment.get("speaker") or "").strip()
-            if speaker and speaker.upper() != "UNKNOWN":
+            match = re.fullmatch(r"Speaker\s+(\d+)", speaker)
+            if match:
+                existing_generic_indices.add(int(match.group(1)))
+
+        fallback_index = max(existing_generic_indices, default=0) + 1
+        fallback_identity_to_label: dict[str, str] = {}
+
+        for segment in segments:
+            if not isinstance(segment, dict):
                 continue
-            segment["speaker"] = f"Speaker {fallback_index}"
-            fallback_index += 1
+
+            raw_speaker = segment.get("speaker")
+            speaker = str(raw_speaker or "").strip()
+            normalized = speaker.upper()
+
+            # Keep concrete labels (including diarization labels and existing
+            # "Speaker N" values) unchanged.
+            if speaker and not normalized.startswith("UNKNOWN"):
+                continue
+
+            # Missing speaker and plain UNKNOWN are treated as a single
+            # fallback identity. Indexed UNKNOWN variants each get their own
+            # stable identity and thus stable "Speaker N" assignment.
+            fallback_identity = normalized or "UNKNOWN"
+            if fallback_identity not in fallback_identity_to_label:
+                fallback_identity_to_label[fallback_identity] = f"Speaker {fallback_index}"
+                fallback_index += 1
+
+            segment["speaker"] = fallback_identity_to_label[fallback_identity]
 
         return transcription_result
 
@@ -594,8 +627,14 @@ class MikupTranscriber:
             diarization = pipeline(audio_path)
 
             for segment in transcription_result.get("segments", []):
+                if not isinstance(segment, dict):
+                    continue
+                seg_start = segment.get("start")
+                seg_end = segment.get("end")
+                if seg_start is None or seg_end is None:
+                    continue
                 segment["speaker"] = self._assign_speaker(
-                    segment["start"], segment["end"], diarization
+                    seg_start, seg_end, diarization
                 )
 
             logger.info("Diarization complete.")

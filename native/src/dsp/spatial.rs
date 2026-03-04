@@ -9,33 +9,44 @@ pub struct LissajousPoint {
     pub y: f32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SpatialMetrics {
     pub phase_correlation: f32,
-    pub lissajous_points: Vec<LissajousPoint>,
 }
 
-#[derive(Debug, Default)]
-pub struct SpatialAnalyzer;
+#[derive(Debug)]
+pub struct SpatialAnalyzer {
+    lissajous_buffer: Vec<LissajousPoint>,
+}
 
 impl SpatialAnalyzer {
     pub fn new() -> Self {
-        Self
+        Self {
+            lissajous_buffer: Vec::new(),
+        }
     }
 
-    pub fn process_frame(&self, frame: &SyncedAudioFrame) -> SpatialMetrics {
+    pub fn process_frame(&mut self, frame: &SyncedAudioFrame) -> SpatialMetrics {
         let len = frame.len();
         if len == 0 {
+            self.lissajous_buffer.clear();
             return SpatialMetrics::default();
         }
 
         let dialogue = &frame.dialogue_raw[..len];
         let background = &frame.background_raw[..len];
 
+        lissajous_points_into(dialogue, background, &mut self.lissajous_buffer);
+
         SpatialMetrics {
             phase_correlation: pearson_correlation(dialogue, background),
-            lissajous_points: lissajous_points(dialogue, background),
         }
+    }
+
+    /// Access the Lissajous points computed by the last `process_frame` call.
+    /// Buffer is reused across frames — zero allocations after warm-up.
+    pub fn lissajous_points(&self) -> &[LissajousPoint] {
+        &self.lissajous_buffer
     }
 }
 
@@ -68,14 +79,15 @@ fn pearson_correlation(left: &[f32], right: &[f32]) -> f32 {
     }
 }
 
-fn lissajous_points(left: &[f32], right: &[f32]) -> Vec<LissajousPoint> {
-    left.iter()
-        .zip(right.iter())
-        .map(|(&l, &r)| LissajousPoint {
+fn lissajous_points_into(left: &[f32], right: &[f32], out: &mut Vec<LissajousPoint>) {
+    out.clear();
+    out.reserve(left.len().min(right.len()).saturating_sub(out.capacity()));
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        out.push(LissajousPoint {
             x: (l - r) * SQRT_HALF,
             y: (l + r) * SQRT_HALF,
-        })
-        .collect()
+        });
+    }
 }
 
 #[cfg(test)]
@@ -92,9 +104,10 @@ mod tests {
 
     #[test]
     fn lissajous_mapping_matches_expected_transform() {
-        let points = lissajous_points(&[1.0], &[-1.0]);
-        assert_eq!(points.len(), 1);
-        assert!((points[0].x - (2.0 * SQRT_HALF)).abs() < 1.0e-6);
-        assert!(points[0].y.abs() < 1.0e-6);
+        let mut buf = Vec::new();
+        lissajous_points_into(&[1.0], &[-1.0], &mut buf);
+        assert_eq!(buf.len(), 1);
+        assert!((buf[0].x - (2.0 * SQRT_HALF)).abs() < 1.0e-6);
+        assert!(buf[0].y.abs() < 1.0e-6);
     }
 }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,6 +19,7 @@ pub struct AudioOutputPlayer {
     producer_finished: Arc<AtomicBool>,
     drained: Arc<AtomicBool>,
     underrun_samples: Arc<AtomicU64>,
+    dropped_samples: Arc<AtomicU64>,
     clear_requested: Arc<AtomicBool>,
 }
 
@@ -51,6 +54,7 @@ impl AudioOutputPlayer {
         let producer_finished = Arc::new(AtomicBool::new(false));
         let drained = Arc::new(AtomicBool::new(false));
         let underrun_samples = Arc::new(AtomicU64::new(0));
+        let dropped_samples = Arc::new(AtomicU64::new(0));
         let clear_requested = Arc::new(AtomicBool::new(false));
 
         let stream = match sample_format {
@@ -93,6 +97,7 @@ impl AudioOutputPlayer {
             producer_finished,
             drained,
             underrun_samples,
+            dropped_samples,
             clear_requested,
         })
     }
@@ -109,8 +114,10 @@ impl AudioOutputPlayer {
     where
         T: SizedSample + Sample + FromSample<f32>,
     {
-        let error_callback = |err: cpal::StreamError| {
+        let drained_for_err = Arc::clone(&drained);
+        let error_callback = move |err: cpal::StreamError| {
             eprintln!("Audio output stream error: {err}");
+            drained_for_err.store(true, Ordering::Release);
         };
 
         device
@@ -157,7 +164,7 @@ impl AudioOutputPlayer {
 
     pub fn clear(&self) {
         self.clear_requested.store(true, Ordering::Release);
-        for _ in 0..100 {
+        for _ in 0..500 {
             if !self.clear_requested.load(Ordering::Acquire) {
                 break;
             }
@@ -174,8 +181,14 @@ impl AudioOutputPlayer {
     pub fn push_interleaved_nonblocking(&self, interleaved_samples: &[f32]) {
         let mut producer = self.producer.lock().unwrap();
         for &sample in interleaved_samples {
-            let _ = producer.push(sample);
+            if producer.push(sample).is_err() {
+                self.dropped_samples.fetch_add(1, Ordering::Relaxed);
+            }
         }
+    }
+
+    pub fn dropped_samples(&self) -> u64 {
+        self.dropped_samples.load(Ordering::Relaxed)
     }
 
     pub fn push_interleaved_blocking(
