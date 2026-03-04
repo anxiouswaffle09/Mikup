@@ -166,6 +166,8 @@ fn main() {
             loaded_project: initial_assets.clone(),
             engine: Some(engine_for_appdata),
             vectorscope_data: scope_for_appdata,
+            pipeline_progress: 0.0,
+            pipeline_message: String::new(),
         }
         .build(cx);
 

@@ -83,6 +83,8 @@ pub struct AppData {
     pub engine: Option<Arc<Mutex<AudioController>>>,
     #[lens(ignore)]
     pub vectorscope_data: Arc<Mutex<VectorscopeData>>,
+    pub pipeline_progress: f32,
+    pub pipeline_message: String,
 }
 
 #[derive(Clone)]
@@ -95,6 +97,7 @@ pub enum AppEvent {
     StartPipeline(PathBuf),
     ProjectReady(Arc<WorkspaceAssets>),
     SwitchView(ViewState),
+    PipelineProgress(f32, String),
 }
 
 impl AppData {
@@ -127,14 +130,12 @@ impl AppData {
             AppEvent::SwitchView(v) => {
                 self.current_view = v;
             }
-            AppEvent::StartPipeline(path) => {
-                eprintln!(
-                    "[mikup] SelectNewAudioFile picked {} (pipeline start placeholder)",
-                    path.display()
-                );
+            AppEvent::PipelineProgress(pct, msg) => {
+                self.pipeline_progress = pct;
+                self.pipeline_message = msg;
             }
-            // LoadProject is handled in Model::event where cx is available.
-            AppEvent::LoadProject(_) | AppEvent::SelectNewAudioFile => {}
+            // Handled in Model::event (needs cx).
+            AppEvent::LoadProject(_) | AppEvent::SelectNewAudioFile | AppEvent::StartPipeline(_) => {}
         }
     }
 }
@@ -253,6 +254,8 @@ mod tests {
             loaded_project: MaybeProject(None),
             engine: None,
             vectorscope_data: Arc::new(Mutex::new(VectorscopeData::default())),
+            pipeline_progress: 0.0,
+            pipeline_message: String::new(),
         }
     }
 
