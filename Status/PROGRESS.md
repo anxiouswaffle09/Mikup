@@ -13,6 +13,7 @@ The core 3-stem hybrid pipeline is functional. Now focusing on the "Pro" experie
 - [x] **Project-First Workspace:** Automated generation of `Projects/<NAME>_<TIMESTAMP>/`.
 - [x] **Real-time Vectorscope:** Integrated Rust spatial metrics into the React UI.
 - [x] **3-Channel Live Meters:** Upgraded `loudness.rs` and `DiagnosticMeters.tsx` to independent DX/Music/Effects LUFS.
+- [x] **Native Windows Support:** Added `requirements-windows.txt` and DirectML acceleration for non-NVIDIA native hardware.
 
 ### 🚧 In Progress
 - [ ] **Versioned Iteration:** Support for "Redoing" stages with downstream invalidation.

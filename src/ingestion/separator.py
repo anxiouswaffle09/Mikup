@@ -85,6 +85,9 @@ class MikupSeparator:
             if "CUDAExecutionProvider" in available_providers:
                 providers.append("CUDAExecutionProvider")
                 logger.info("Prioritizing CUDAExecutionProvider for Linux/Windows.")
+            if "DMLExecutionProvider" in available_providers:
+                providers.append("DMLExecutionProvider")
+                logger.info("Prioritizing DMLExecutionProvider for Native Windows (AMD/Intel).")
             if "CoreMLExecutionProvider" in available_providers:
                 providers.append("CoreMLExecutionProvider")
                 logger.info("Prioritizing CoreMLExecutionProvider for Darwin (macOS).")

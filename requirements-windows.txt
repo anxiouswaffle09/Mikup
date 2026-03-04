@@ -1,0 +1,10 @@
+-r requirements.txt
+# GPU-accelerated ONNX for Native Windows (NVIDIA/DirectML)
+# This file handles native Windows environments, providing acceleration for both NVIDIA (CUDA)
+# and AMD/Intel (DirectML) hardware.
+
+# Default high-performance provider (NVIDIA)
+onnxruntime-gpu==1.24.2
+
+# Alternative for AMD/Intel users (uncomment to use):
+# onnxruntime-directml==1.24.2

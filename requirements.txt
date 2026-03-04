@@ -1,7 +1,8 @@
 # Base dependencies for Project Mikup
 # For hardware acceleration, please use:
 #   macOS: pip install -r requirements-mac.txt
-#   Linux/Windows (CUDA): pip install -r requirements-cuda.txt
+#   Linux/WSL2 (CUDA): pip install -r requirements-cuda.txt
+#   Native Windows (NVIDIA/AMD): pip install -r requirements-windows.txt
 
 # --- Audio Processing & Separation ---
 audio-separator==0.41.1
