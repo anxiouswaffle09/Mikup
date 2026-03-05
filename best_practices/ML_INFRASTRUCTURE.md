@@ -2,13 +2,13 @@
 
 Updated as of: March 2, 2026
 
-## PyTorch Security (Torch 2.4/2.10+)
-To prevent arbitrary code execution via untrusted checkpoints while still supporting `weights_only=True`, the project uses the **Safe Globals** pattern.
-
-### Mandatory Procedure:
-1.  **Strict Weights Loading:** All `torch.load` calls should default to `weights_only=True`.
-2.  **Bootstrap Registration:** Use `torch.serialization.add_safe_globals()` in `src/bootstrap.py` to register exactly the classes needed by our pipeline (e.g., `HTDemucs`, `numpy.dtype`).
-3.  **No Environment Overrides:** The `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD` environment variable is **strictly forbidden**. All required classes must be registered through `add_safe_globals()` in `src/bootstrap.py`.
+## Machine Learning & Performance
+- **Environment Context:** Codebase in Windows (`/mnt/d/SoftwareDev/Mikup/`); Agents/Runtime in WSL2 (Linux). Ensure CUDA/DirectML acceleration is correctly mapped from WSL2 to the Windows host GPU.
+- **PyTorch Security (Torch 2.4/2.10+):** Use `weights_only=True` with **Safe Globals** in `bootstrap.py`.
+- **Mandatory Procedure:**
+  1.  **Strict Weights Loading:** All `torch.load` calls should default to `weights_only=True`.
+  2.  **Bootstrap Registration:** Use `torch.serialization.add_safe_globals()` in `src/bootstrap.py` to register exactly the classes needed by our pipeline (e.g., `HTDemucs`, `numpy.dtype`).
+  3.  **No Environment Overrides:** The `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD` environment variable is **strictly forbidden**.
 
 ## Hybrid Separation (The "Mikup Mix")
 For high-fidelity audio dramas, a two-pass separation strategy is mandatory to capture both dialogue clarity and cinematic scale.

@@ -11,16 +11,15 @@ Before implementing any feature or refactoring code, you MUST:
 2.  **Enforce 2026 Standards:** Use only the stable syntaxes defined in those files (e.g., React 19 Actions, Tailwind v4 CSS configuration).
 3.  **Fallback to MCP:** If the local reference is missing specific technical details, use the `get-library-docs` MCP tool as a second option.
 
-## Primary Focus: The Interactive DAW
+## Primary Focus: The Native Vizia UI
 Claude must prioritize:
-1. **Sub-millisecond Sync:** Perfectly aligning the UI (React) and the Master Clock (Rust).
-2. **Real-Time Visuals:** High-fidelity Vectorscopes (Canvas/WebGL), LUFS meters, and frequency indicators.
-3. **Interactive Navigation:** Word-level seeking and waveform region scrubbing.
+1. **Low-Latency Telemetry:** Streaming DSP metrics from `audio_engine.rs` to Vizia Models using `rtrb` and `ContextProxy`.
+2. **Native Performance:** Skia-powered drawing for Vectorscopes and Waveforms in custom Vizia Views.
+3. **Reactive State:** Efficient Model/Lens architecture in `native/src/main.rs`.
 
 ## Technical Environment
-Refer to `best_practices/` for current standards:
-- **React 19:** Actions API, Zero-Memoization.
-- **Tauri v2:** Capability-based ACLs, Raw Byte IPC.
-- **Tailwind v4:** CSS-first `@theme` configuration.
+- **Hybrid Setup:** Codebase in Windows (`/mnt/d/SoftwareDev/Mikup/`); Agents/Runtime in WSL2 (Linux).
+- **Handoff-First Mandate:** You cannot run the Windows app. Provide the user with exact Windows commands (e.g., `cargo run --bin mikup-native`) to verify your work.
+- **Vizia 0.3.0:** Retained-mode, Reactive, Skia.
 - **Python 3.14:** No-GIL Threading.
 - **Rust 1.86:** Wait-Free Audio Threads.

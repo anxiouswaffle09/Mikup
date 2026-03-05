@@ -10,6 +10,8 @@ Updated as of: March 2, 2026
 ## 2. 🚫 Anti-AI Slop (Tauri v2)
 Tauri v2 is a complete architectural shift from v1. AI models often default to v1 "slop."
 
+**Hybrid Environment Note:** Codebase is in Windows (`/mnt/d/SoftwareDev/Mikup/`); Agents/Runtime in WSL2 (Linux). Use `tauri:wsl` for rendering and `WEBKIT_DISABLE_COMPOSITING_MODE=1`.
+
 | Legacy/Slop Pattern | Modern Standard (2026) | Why? |
 | :--- | :--- | :--- |
 | `invoke("command")` | **`tauri-specta` v2** | Type-safe, contract-first bridge; zero string-matching errors. |

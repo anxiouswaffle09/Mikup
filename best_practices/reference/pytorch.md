@@ -80,15 +80,20 @@ scheduler.step()
 
 ---
 
-## 5. CUDA & High-Performance Backends
-- **`torch.backends.cuda.matmul.allow_tf32 = False`**: IEEE accuracy.
-- **`torch.backends.cuda.sdp_kernel`**: Force specific attention engines.
-- **`torch.cuda.Stream`**: Non-blocking concurrent execution.
+## 5. Hardware Acceleration & Backends
+Mikup prioritizes native execution providers for each OS to ensure bit-perfect, zero-copy DSP performance.
+
+### ONNX Execution Providers:
+1. **`CUDAExecutionProvider`**: Prioritized for Linux/Windows NVIDIA hardware.
+2. **`DMLExecutionProvider`**: Prioritized for Native Windows (AMD/Intel/DirectML).
+3. **`CoreMLExecutionProvider`**: Prioritized for Darwin (macOS/Apple Silicon).
+4. **`CPUExecutionProvider`**: Fallback; strictly restricted to low-latency scrubbing.
 
 ---
 
 ## 6. Best Practices for Mikup
 1. **Security-First Loading**: Always use `src/bootstrap.py` for safe globals.
-2. **Hybrid Accuracy**: Tweak TF32/FP16 based on the separation stage.
-3. **Weight Loading Logic**: Detect unsafe globals using `get_unsafe_globals_in_checkpoint`.
-4. **No-GIL Threading**: Use `ThreadPoolExecutor` for parallel ML pre-processing.
+2. **Hardware Check**: Always check `separator.py` for correct provider prioritization.
+3. **Hybrid Accuracy**: Tweak TF32/FP16 based on the separation stage.
+4. **Weight Loading Logic**: Detect unsafe globals using `get_unsafe_globals_in_checkpoint`.
+5. **No-GIL Threading**: Use `ThreadPoolExecutor` for parallel ML pre-processing.

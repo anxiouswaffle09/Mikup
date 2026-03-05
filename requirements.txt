@@ -21,7 +21,7 @@ ctranslate2==4.7.1
 
 # --- Transcription & Diarization ---
 pyannote.audio==4.0.4
-whisperx==3.8.1
+# whisperx==3.8.1  # Commented out due to huggingface-hub version conflict (installed manually)
 faster-whisper==1.2.1
 # Apple Silicon optional acceleration path (fallback remains faster-whisper).
 mlx-whisper; platform_system == "Darwin" and platform_machine == "arm64"

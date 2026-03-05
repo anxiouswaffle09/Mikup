@@ -18,11 +18,13 @@ Before ideating, planning, or generating prompts, you MUST:
 - **Task Generation:** All delegated tasks must include: Context, Technical Specifications (referencing `best_practices/`), and clear Acceptance Criteria.
 
 ## 🤖 Implementation Team
-- **Claude (Sonnet):** Versatile implementation specialist. Primary owner of the React/Tauri frontend and UI/UX. **Preferred Model: Claude 4.6 Sonnet.**
+- **Claude (Sonnet):** Native UI/UX specialist. Primary owner of the **Vizia** frontend and desktop shell. **Preferred Model: Claude 4.6 Sonnet.**
 - **Claude (Opus):** Systems and ML specialist. Focused on high-performance Python/Rust DSP pipelines. **Preferred Model: Claude 4.6 Opus.**
 
 ## 🛠️ Tooling Constraints
 - **Web Interaction:** Strictly use the globally installed **Playwright CLI** (`playwright`) for all web/UI interactions. All other methods are deprecated.
+- **Environment Context:** The codebase resides in a Windows directory (`/mnt/d/SoftwareDev/Mikup`), but all agents (Gemini, Claude, Codex) and tools run within WSL2 (Linux).
+- **Handoff-First Mandate:** Agents MUST NOT attempt to run the GUI or install Windows-native dependencies. Every task must conclude with a "Handoff for Windows" section containing the exact Windows commands (PowerShell/CMD) for the user to execute and verify.
 
 ## 🧠 Added Memories
 - **Critical & Objective Review:** When reviewing code or architectural plans, always be critical and objective. Look at the implementation from a big-picture perspective, ensuring it adheres to industry standards, performance requirements, and long-term maintainability. Don't settle for "it works"; ensure it is "the right way" to build the system.

@@ -10,6 +10,8 @@ Updated as of: March 2, 2026
 ## 2. 🚫 Anti-AI Slop (Python 3.14)
 The No-GIL era demands new patterns. AI models often generate legacy "GIL-think."
 
+**Hybrid Environment Note:** Codebase is in Windows (`/mnt/d/SoftwareDev/Mikup/`); Runtime is WSL2 (Linux). Always use `pathlib.Path` for cross-platform safety.
+
 | Legacy/Slop Pattern | Modern Standard (2026) | Why? |
 | :--- | :--- | :--- |
 | `ProcessPoolExecutor` | **`ThreadPoolExecutor`** | With No-GIL, threads provide true parallelism without IPC overhead. |

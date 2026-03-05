@@ -10,6 +10,8 @@ Updated as of: March 2, 2026
 ## 2. 🚫 Anti-AI Slop (Rust 2024 Edition)
 The 2024 Edition (v1.86+) eliminates many common boilerplate patterns. AI models often generate pre-2024 "slop."
 
+**Hybrid Environment Note:** Codebase is in Windows (`/mnt/d/SoftwareDev/Mikup/`); Agents/Runtime in WSL2 (Linux).
+
 | Legacy/Slop Pattern | Modern Standard (2026) | Why? |
 | :--- | :--- | :--- |
 | `lazy_static!` / `once_cell` | **`std::sync::LazyLock`** | Native `std` support; zero dependencies; `const` compatible. |

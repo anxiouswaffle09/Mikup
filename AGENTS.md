@@ -13,11 +13,12 @@ Every agent (Gemini, Claude, Codex) must follow this sequence before any task:
 3.  **Fallback to MCP**: If information is missing from the local reference, use the `get-library-docs` or `resolve-library-id` MCP tools as a secondary option.
 
 ## 🛠️ Project Stack (March 2, 2026)
-Refer to `best_practices/` for exact implementation patterns:
-- **Frontend**: React 19 (Actions), Tailwind v4 (CSS-first), Vite.
-- **Desktop Engine**: Tauri v2 (Capability ACLs, Raw Byte IPC).
+- **Environment**: WSL2 (Linux) agents/runtime; Codebase in Windows mount (`/mnt/d/SoftwareDev/Mikup`).
+- **Handoff-First Mandate**: Agents are forbidden from running GUI tasks or Windows-native installs. All implementation tasks must provide a "Handoff for Windows" block with native PowerShell/CMD commands for the user to run.
+- **Frontend (Native UI)**: Vizia 0.3.0 (Retained-mode, Skia-powered, Rust).
+- **Desktop Engine**: Native Rust binary (`native/src/main.rs`).
 - **Backend (ML/DSP)**: Python 3.14 (Free-threaded / No-GIL), PyTorch 2.10 (Safe Globals).
-- **Audio Engine (Native)**: Rust 1.86 (Wait-free threads, `rtrb`).
+- **Audio Engine (Native)**: Rust 1.86 (Wait-free threads, `rtrb`, `cpal`).
 
 ## 📋 Coding Standards
 - **Python**: PEP 8, 4-space indent, `snake_case` functions, `PascalCase` classes.

@@ -18,5 +18,8 @@ Tauri v2 is the production standard. All core features are now **Plugins**.
 
 ## Cross-Platform Parity
 - **Path Resolution:** Always use the `@tauri-apps/api/path` plugin. Never hardcode path separators.
-- **WSL2 Rendering:** Use `WEBKIT_DISABLE_COMPOSITING_MODE=1` for Linux/Windows hybrid environments to bypass hardware acceleration bugs.
-- **Mobile-Ready:** Keep Rust logic in modular plugins to allow for future iOS/Android porting.
+- **Hybrid Environment (WSL2/Windows):** 
+  - The codebase resides in `/mnt/d/SoftwareDev/Mikup/`. 
+  - Build and runtime tools (Cargo, npm) must be Linux versions running in WSL2.
+  - **WSL2 Rendering:** Use `WEBKIT_DISABLE_COMPOSITING_MODE=1` to bypass hardware acceleration bugs.
+  - **Inter-OS Communication:** Be aware that file watching (`HMR`) can be slower across the WSL/Windows file system boundary; prefer specific file triggers if needed.

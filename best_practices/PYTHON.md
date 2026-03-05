@@ -3,9 +3,7 @@
 Updated as of: March 2, 2026
 
 ## Python 3.14 (Stablefoundation)
-The transition to **No-GIL** (Free-threading) and **Tier 2 JIT** is complete.
-
-### Key Practices:
+- **Hybrid Environment:** Codebase in Windows (`/mnt/d/SoftwareDev/Mikup/`); Runtime in WSL2 (Linux). Use `pathlib.Path` for all file operations.
 - **Free-threaded Build (`python-t`):** Use the free-threaded runtime for the Mikup DSP pipeline to achieve 2x–4x speedup on multi-core systems.
 - **Thread-Safety:** The GIL is gone. Use explicit `threading.Lock` for shared dictionaries or project states.
 - **Concurrency Strategy:** 
