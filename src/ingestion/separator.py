@@ -507,12 +507,13 @@ class MikupSeparator:
 
 if __name__ == "__main__":
     import sys
+    import tempfile
 
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <input_audio> [output_dir]", file=sys.stderr)
         sys.exit(1)
 
     _input_file = sys.argv[1]
-    _output_dir = sys.argv[2] if len(sys.argv) > 2 else "./output"
+    _output_dir = sys.argv[2] if len(sys.argv) > 2 else str(Path(tempfile.gettempdir()) / "mikup_output")
     msep = MikupSeparator(output_dir=_output_dir)
     print(msep.run_surgical_pipeline(_input_file))

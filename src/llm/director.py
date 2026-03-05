@@ -72,7 +72,7 @@ class MikupDirector:
             final_prompt = prompt_template + "\n\n" + payload_block
 
         try:
-            logger.info(f"Sending payload to AI Director ({self.model_id})...")
+            logger.info("Sending payload to AI Director (%s)...", self.model_id)
             # Using system_instruction for the persona part if prompt is split correctly
             # For simplicity here, we send as a single prompt unless we refactor director_prompt.md
             response = self.client.models.generate_content(

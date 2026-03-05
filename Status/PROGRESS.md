@@ -5,6 +5,7 @@
 The core 3-stem hybrid pipeline is functional. Now focusing on the "Pro" experience: re-running stages and managing project storage.
 
 ### ✅ Completed
+- [x] **Platform Stabilization:** Fixed path resolution (`#13`), transient storage (`#2`), and logging standards (`#17`) for Windows/macOS compatibility.
 - [x] **SPEC.md Update:** Defined the 3-stem canonical naming (`DX`, `Music`, `Effects`).
 - [x] **Python Refactor:** `separator.py` and `main.py` updated to use the new hybrid 2-pass architecture.
 - [x] **Frontend Types:** `ui/src/types.ts` updated to recognize the 3-stem outputs.
@@ -25,10 +26,10 @@ The core 3-stem hybrid pipeline is functional. Now focusing on the "Pro" experie
 | :--- | :--- | :--- |
 | 2026-03-02 | **Versioned Iteration (Redo)** | Allow users to redo stages (e.g., Separation) with downstream invalidation to fix errors. |
 | 2026-03-01 | **3-Stem Hybrid Pivot** | CDX23's dialog separation is inferior to MBR; hybridizing MBR for Vocals + CDX23 for Instrumental provides superior clarity. |
-| 2026-02-28 | **Interactive DAW Pivot** | Moving away from static reports to a real-time diagnostic workspace via Tauri v2. |
-| 2026-02-27 | **WSL2 Rendering** | Use `tauri:wsl` to bypass hardware acceleration bugs in virtualized environments. |
+| 2026-03-03 | **Mikup Native (Vizia)** | Pivot from Tauri/React to native Vizia UI for 120fps telemetry and zero-IPC overhead. |
+| 2026-02-28 | **Interactive DAW Pivot** | Moving away from static reports to a real-time diagnostic workspace via Vizia. |
 
 ## Next Steps 🚀
 1.  **[Codex]** Update `src/main.py` with `--redo-stage` logic and destructive overwrite.
-2.  **[Claude]** Implement `get_disk_space` in Tauri/Rust and the Storage Gauge UI component.
-3.  **[Claude]** Add "Redo Stage" buttons to the Project/LandingHub view.
+2.  **[Claude]** Implement `get_disk_space` in Vizia/Rust and the Storage Gauge UI component.
+3.  **[Claude]** Add "Redo Stage" buttons to the Project/LandingHub view in Vizia.

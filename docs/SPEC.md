@@ -2,7 +2,7 @@
 
 **Version:** 0.3.0-beta
 **Focus:** Hybrid Surgical Separation (MBR + CDX23)
-**Platforms:** macOS (Silicon/Intel), Linux (WSL2/Native)
+**Platforms:** Windows (10/11), macOS (Silicon/Intel)
 
 ## 1. Surgical Separation Pipeline (Stage 1)
 All separation follows this hybrid 2-pass architecture.
@@ -35,22 +35,39 @@ The project officially deprecates the 5-stem "Cinematic Trinity" split in favor 
 ## 3. Platform Standards
 ### macOS (Darwin)
 - **Dependencies:** `pip install -r requirements-mac.txt`
-- **Torch:** Use `mps` device.
+- **Torch:** Use `mps` device (Metal Performance Shaders).
 - **ONNX:** Use `CoreMLExecutionProvider`.
 - **FFmpeg:** Must be available via `brew`.
 
-### Linux/WSL2
-- **Dependencies:** `pip install -r requirements-cuda.txt`
-- **Torch:** Use `cuda` (if available) or `cpu`.
-- **ONNX:** Use `CUDAExecutionProvider`.
-- **Tauri:** Use `tauri:wsl` to bypass hardware acceleration bugs.
+### Windows (NT)
+- **Dependencies:** `pip install -r requirements-windows.txt`
+- **Torch:** Use `cuda` (NVIDIA) or `directml` (AMD/Intel/Generic) via `torch-directml`.
+- **ONNX:** Use `DmlExecutionProvider` or `CUDAExecutionProvider`.
+- **FFmpeg:** Must be in system PATH (e.g., via `scoop` or manual install).
+- **UI:** Native Vizia 0.3.0 binary (DirectX/Skia).
 
-## 4. UI/UX Standards
+### Runtime Environment (WSL2 Hybrid)
+- **Agent Context:** All implementation agents (Gemini, Claude, Codex) and the Python processing pipeline run within **WSL2 (Ubuntu)**.
+- **Cross-OS Access:** The codebase resides on the Windows host (`/mnt/d/SoftwareDev/Mikup`), allowing agents to modify files that the Windows-native Vizia UI then consumes.
+- **Execution:** While processing happens in WSL2, hardware-accelerated tasks (DirectML/CUDA) are passed through to the Windows GPU drivers.
+
+## 4. Engineering Standards
+
+### 4.1 Path Normalization
+- **Strict Pathlib:** All file system interactions must use `pathlib.Path`.
+- **Resolution:** Paths must be anchored to `PROJECT_ROOT` to ensure consistency across Windows (`\`) and macOS (`/`).
+- **No Relative Defaults:** Functions must not use relative string literals (e.g., `"data/config.json"`) for machine-level state.
+
+### 4.2 Transient Storage
+- **Platform-Agnostic Temp:** Intermediate artifacts (stems before workspace movement) must use `tempfile.gettempdir()`.
+- **Cleanup:** Temporary directories must be purged upon successful workspace migration to prevent storage bloat.
+
+## 5. UI/UX Standards
 - **Mikup Console:** A real-time, autoscrolling terminal log in the "Processing" view.
 - **Visuals:** Minimalist Light / Pastel (`oklch()`).
-- **Telemetry:** 60fps live metering (LUFS, Phase, Vectorscope) via Rust/Tauri bridge.
+- **Telemetry:** 120fps live metering (LUFS, Phase, Vectorscope) via Vizia Model/Lens architecture.
 
-## 5. Workspace Layout
+## 6. Workspace Layout
 
 Every pipeline run produces a self-contained project directory.
 
@@ -81,18 +98,18 @@ Projects/
 `data/processed/`, `data/raw/`, `data/output/` are legacy paths; do not create
 new artifacts there.
 
-## 6. Versioned Iteration & Invalidation Protocol
+## 7. Versioned Iteration & Invalidation Protocol
 
 To support non-destructive iteration and error correction, Mikup implements a "Redo" mechanism with strict downstream invalidation rules.
 
-### 6.1 Dependency Waterfall
+### 7.1 Dependency Waterfall
 The pipeline is a linear dependency chain. Redoing any stage automatically invalidates all subsequent stages:
 1. **Separation** (Root)
 2. **Transcription** (Depends on DX stem)
 3. **Semantics** (Depends on Background stems)
 4. **AI Director** (Depends on All Metadata)
 
-### 6.2 Invalidation Rules
+### 7.2 Invalidation Rules
 - **Destructive Overwrite:** To save disk space, a "Redo" operation overwrites existing artifacts for that stage. Branching (v1, v2) is currently not supported to prevent storage bloat.
 - **Model Locking:** Once a project is initialized, it is "locked" to the models and parameters defined at creation. Rerunning a stage uses these locked settings to ensure deterministic results.
 - **Downstream Purge:** When `--redo-stage <STAGE>` is invoked, the system:
@@ -100,5 +117,5 @@ The pipeline is a linear dependency chain. Redoing any stage automatically inval
     2. Deletes artifacts for all stages appearing later in the Waterfall.
     3. Resets `stage_state.json` for those stages.
 
-### 6.3 Storage Awareness
+### 7.3 Storage Awareness
 The UI must provide a real-time **Storage Gauge** (available vs. used) to prevent pipeline failures during heavy separation tasks.

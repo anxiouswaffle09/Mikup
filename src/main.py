@@ -626,12 +626,14 @@ def _safe_get_mtime(path):
         return None
 
 
-def _read_config(config_path="data/config.json"):
+def _read_config(config_path=None):
     """Read data/config.json and return its contents as a dict."""
-    return _read_json_file(config_path, default={}) or {}
+    if config_path is None:
+        config_path = PROJECT_ROOT / "data" / "config.json"
+    return _read_json_file(str(Path(config_path).resolve()), default={}) or {}
 
 
-def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/config.json"):
+def _resolve_output_dir(input_path, output_dir_flag=None, config_path=None):
     """
     Determine the output workspace directory.
 
@@ -645,7 +647,7 @@ def _resolve_output_dir(input_path, output_dir_flag=None, config_path="data/conf
         return str(Path(output_dir_flag).resolve())
 
     config = _read_config(config_path)
-    base = config.get("default_projects_dir") or str(Path(project_root) / "Projects")
+    base = config.get("default_projects_dir") or str(PROJECT_ROOT / "Projects")
     stem = Path(input_path).stem or "project"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pid_suffix = os.getpid()
@@ -801,9 +803,9 @@ def cleanup_stems(stems):
         if path and Path(path).exists():
             try:
                 Path(path).unlink()
-                logger.info(f"Cleaned up stem: {path}")
+                logger.info("Cleaned up stem: %s", path)
             except Exception as e:
-                logger.warning(f"Failed to cleanup stem {path}: {e}")
+                logger.warning("Failed to cleanup stem %s: %s", path, e)
 
 
 def _as_dict(value):
@@ -973,7 +975,7 @@ def main():
         args.mock = bool(stage_state.get("mock_mode", False))
 
     if not Path(args.input).exists() and not args.mock:
-        logger.error(f"Input file {args.input} not found.")
+        logger.error("Input file %s not found.", args.input)
         sys.exit(1)
 
     previous_source = stage_state.get("source_file")

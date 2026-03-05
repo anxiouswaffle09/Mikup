@@ -25,7 +25,7 @@ class MikupSemanticTagger:
         self.model_dtype = torch.float16 if self.device in {"cuda", "mps"} else torch.float32
 
         clap_cache = str(_MODELS_DIR / "clap")
-        logger.info(f"Loading CLAP model {model_id} on {self.device}...")
+        logger.info("Loading CLAP model %s on %s...", model_id, self.device)
         self.model = ClapModel.from_pretrained(
             model_id,
             torch_dtype=self.model_dtype,
@@ -58,7 +58,7 @@ class MikupSemanticTagger:
         if candidate_labels is None:
             candidate_labels = self.default_labels
 
-        logger.info(f"Tagging audio: {audio_path}")
+        logger.info("Tagging audio: %s", audio_path)
         
         # Calculate duration first without loading the full audio
         full_duration = librosa.get_duration(path=audio_path)
