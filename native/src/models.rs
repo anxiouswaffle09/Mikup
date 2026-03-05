@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use rfd::FileDialog;
+use rfd::{FileDialog, MessageDialog, MessageDialogResult, MessageButtons, MessageLevel};
 use vizia::prelude::*;
 
 use crate::audio_engine::{AudioCmd, AudioController};
@@ -359,6 +359,17 @@ impl Model for AppData {
                 });
             }
             AppEvent::RedoStage(stage) => {
+                let confirm = MessageDialog::new()
+                    .set_level(MessageLevel::Warning)
+                    .set_title("Redo Stage")
+                    .set_description("Re-running this stage will permanently delete all downstream artifacts. Continue?")
+                    .set_buttons(MessageButtons::OkCancel)
+                    .show();
+
+                if confirm != MessageDialogResult::Ok {
+                    return;
+                }
+
                 let project_dir = self.project_dir.clone();
                 self.current_view = ViewState::Processing;
                 self.pipeline_progress = 0.0;
