@@ -119,3 +119,54 @@ The pipeline is a linear dependency chain. Redoing any stage automatically inval
 
 ### 7.3 Storage Awareness
 The UI must provide a real-time **Storage Gauge** (available vs. used) to prevent pipeline failures during heavy separation tasks.
+
+## 8. AI Director & Multimodal Chat
+Mikup acts as a read-only research tool. The AI Director does not modify audio. Instead, it utilizes **On-Demand Audio Slicing**. The Rust frontend passes timeline coordinates to the Python backend, which slices the raw WAV files and sends the audio bytes to the multimodal LLM (Gemini 2.0), allowing the AI to "listen" and analyze specific anomalies.
+
+**Interactive REPL Protocol:**
+The bi-directional chat uses a persistent stdin/stdout pipe.
+- **Input (Rust -> Python):** `{"text": "...", "playhead_time": 125.4, "audio_context": {"start_time": 80.0, "end_time": 85.0, "stem": "Effects"}}`
+- **Output (Python -> Rust):** `{"type": "response", "text": "..."}`
+
+**Context-Aware Standards:**
+- **Always-On Context:** Every message sent from Rust to Python MUST include the current `playhead_time` (in seconds) to ensure the AI always knows where the user is looking.
+- **User Override:** If a user manually specifies a timestamp in their text (e.g., "Check the noise at 01:20"), the AI should prioritize the text-based timestamp over the silent `playhead_time` context.
+- **Timestamp Interaction:** Clicking a `[MM:SS:ms]` timestamp in the chat UI will **move the playhead only**. No auto-looping or soloing is performed.
+
+**Graceful Cancellation Protocol:**
+To prevent VRAM corruption or stranded processes during heavy ML tasks (Separation/Transcription):
+- **Signal Handling:** The Python backend implements a `SIGTERM` handler.
+- **Rust Command:** When the user clicks "Cancel," Rust sends a `SIGTERM` to the child process.
+- **Python Response:** The backend catches the signal, flushes all pending JSON logs, deletes any partial transient artifacts, and exits with a `130` code.
+
+## 9. UI-First Forensic Dashboards
+Project Mikup is a visual-first forensic application. The UI is architected as a **2-Column Forensic Suite** (70/30 split) using Vizia's `HStack`.
+
+### 9.1 Column 1: The Forensic Canvas (Left - 70%)
+The primary research area for visualizing time-based data.
+- **Reference Waveform:** Top-most track showing the original file waveform (Visual Truth).
+- **Unified Forensic Graph:** Middle track showing high-resolution curves on a **fixed -60 to 0 LUFS scale**:
+    - **Yellow (Solid):** `DX` Integrated LUFS.
+    - **Purple (Solid):** `Music` Integrated LUFS.
+    - **Cyan (Solid):** `Effects` Integrated LUFS.
+    - **White (Solid):** `Master` Integrated LUFS.
+    - **White (Dashed):** `Pacing Density` (Syllables per second).
+- **Forensic Markers (Anomalies):** Discrete icons pinned to the graph at exact timestamps:
+    - **Masking Alert ( ! ):** STOI or Spectral SNR drops below thresholds.
+    - **Impact Peak ( ⚡ ):** Sudden transients in Effects/Music.
+    - **Ducking Signature ( ⬇️ ):** Mathematical detection of deliberate gain reduction.
+    - **Pacing Milestone ( 🏁 ):** Acceleration or deceleration points (>30% shift).
+- **Main Stage (Footer):** Semantic tags (e.g., `[TRAFFIC]`, `[RAIN]`) and the system log terminal.
+
+### 9.2 Column 2: The Data Center (Right - 30%)
+The research deep-dive area, starting parallel to the Reference Waveform.
+- **Global Vitals (Persistent Top):** High-density meters for Master LUFS, Clarity (STOI), and Energy (Speech Rate).
+- **Forensic Radar (Tabbed Research):** A tabbed workstations area:
+    - **[ MIX ]:** Full Dynamics/LRA dials for all stems.
+    - **[ PACE ]:** nPVI Rhythm Index, Articulation Rate, and Silence Ratio dials.
+    - **[ TEX ]:** Spectral Centroid, Stereo Width, and Texture markers.
+
+### 9.3 The Floating AI Director
+- **Visualization:** A floating overlay bubble ( (AI) ) in the bottom-right corner, implemented via Vizia `ZStack`.
+- **Behavior:** Clicking the bubble expands a non-intrusive chat window over the Forensic Radar.
+- **Alert Integration:** The AI automatically summarizes the forensic markers from Section 9.1 in its initial report.

@@ -6,6 +6,59 @@ use serde::{Deserialize, Serialize};
 use crate::dsp::{self, AudioDecodeError};
 use crate::models::ProjectMetadata;
 
+/// Recursively sum file sizes under `path`. Returns 0 on error.
+pub fn get_disk_usage(path: &Path) -> u64 {
+    if !path.exists() {
+        return 0;
+    }
+    let mut total: u64 = 0;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else {
+                total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    total
+}
+
+/// Available disk space on the volume containing `path`. Returns 0 on error.
+pub fn get_available_disk_space(path: &Path) -> u64 {
+    let target = if path.exists() {
+        path.to_path_buf()
+    } else {
+        path.ancestors()
+            .find(|p| p.exists())
+            .unwrap_or(Path::new("/"))
+            .to_path_buf()
+    };
+    fs2::available_space(&target).unwrap_or(0)
+}
+
+/// Total disk capacity on the volume containing `path`. Returns 0 on error.
+pub fn get_total_disk_space(path: &Path) -> u64 {
+    let target = if path.exists() {
+        path.to_path_buf()
+    } else {
+        path.ancestors()
+            .find(|p| p.exists())
+            .unwrap_or(Path::new("/"))
+            .to_path_buf()
+    };
+    fs2::total_space(&target).unwrap_or(0)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MikupPayload {
     pub metadata: PayloadMetadata,

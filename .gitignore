@@ -53,6 +53,12 @@ wheels/
 # MacOS
 .DS_Store
 
+# Agent Configurations
+!.claude/
+!.gemini/
+.gemini/.env
+*.local.json
+
 # Git worktrees
 .worktrees/
 Projects/

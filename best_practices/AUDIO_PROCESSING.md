@@ -2,12 +2,12 @@
 
 Updated as of: March 2, 2026
 
-## Native Audio Engine (Rust/Tauri)
+## Native Audio Engine (Rust/Vizia)
 For the interactive DAW, low-latency playback and high-frequency metering are mandatory.
 
 ### Key Practices:
 - **Engine Choice:** Use `cpal` (for raw device access) and `rodio` (for playback management) in the Rust backend. Avoid browser-based `<audio>` tags for diagnostic playback due to jitter and lack of sample-accurate control.
-- **Sync Protocol:** The playhead position must be owned by the Rust backend and "pushed" to the UI via Tauri Events. UI-side "pulling" is prohibited for high-accuracy scrubbing.
+- **Sync Protocol:** The playhead position must be owned by the Rust backend and "pushed" to the Vizia Models via lock-free ring buffers (`rtrb`). UI-side "pulling" is prohibited for high-accuracy scrubbing.
 - **Memory Management:** Use shared buffers (`Arc<Vec<f32>>`) between the playback thread and the diagnostic analysis thread (Vectorscope/Loudness) to avoid redundant copies.
 
 ## Loudness & Dynamics (BS.1770-4)

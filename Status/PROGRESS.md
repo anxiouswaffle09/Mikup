@@ -15,6 +15,7 @@ The core 3-stem hybrid pipeline is functional. Now focusing on the "Pro" experie
 - [x] **Real-time Vectorscope:** Integrated Rust spatial metrics into the React UI.
 - [x] **3-Channel Live Meters:** Upgraded `loudness.rs` and `DiagnosticMeters.tsx` to independent DX/Music/Effects LUFS.
 - [x] **Native Windows Support:** Added `requirements-windows.txt` and DirectML acceleration for non-NVIDIA native hardware.
+- [x] **Code Review Audit (March 5, 2026):** Resolved 28 identified stability and performance issues across the Python and Rust codebase. (See `Status/RESOLVED_FIXES_2026_03_05.md`).
 
 ### 🚧 In Progress
 - [ ] **Versioned Iteration:** Support for "Redoing" stages with downstream invalidation.

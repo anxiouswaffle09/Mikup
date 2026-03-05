@@ -8,8 +8,8 @@
 
 ## ⚙️ Documentation Protocol (Mandatory)
 Before ideating, planning, or generating prompts, you MUST:
-1.  **Consult Local Reference:** Read the relevant files in `best_practices/reference/` (e.g., `react.md`, `tauri.md`, `pytorch.md`, `python.md`, `rust.md`).
-2.  **Enforce 2026 Standards:** Ensure all plans adhere to the latest stable syntaxes defined in those files (React 19, Tauri v2, Python 3.14 No-GIL).
+1.  **Consult Local Reference:** Read the relevant files in `best_practices/reference/` (e.g., `vizia.md`, `pytorch.md`, `python.md`, `rust.md`).
+2.  **Enforce 2026 Standards:** Ensure all plans adhere to the latest stable syntaxes defined in those files (React is no longer used; Vizia 0.3.0 is the standard).
 3.  **Fallback to MCP:** Only if the local documentation is insufficient should you use `get-library-docs` or `google_web_search`. If you find new info, update the local reference immediately.
 
 ## ⚡ Standard Operating Procedures (SOPs)

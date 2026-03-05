@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
@@ -8,6 +8,30 @@ use vizia::prelude::*;
 use crate::audio_engine::{AudioCmd, AudioController};
 use crate::project::{Project, TranscriptSegment, WordSegment};
 use crate::vectorscope_view::VectorscopeData;
+
+// ── Pipeline stages ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StageName {
+    Separation,
+    Transcription,
+    Dsp,
+    Semantics,
+    Director,
+}
+
+impl std::fmt::Display for StageName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Separation => "separation",
+            Self::Transcription => "transcription",
+            Self::Dsp => "dsp",
+            Self::Semantics => "semantics",
+            Self::Director => "director",
+        };
+        f.write_str(s)
+    }
+}
 
 // ── View state ────────────────────────────────────────────────────────────────
 
@@ -85,6 +109,11 @@ pub struct AppData {
     pub vectorscope_data: Arc<Mutex<VectorscopeData>>,
     pub pipeline_progress: f32,
     pub pipeline_message: String,
+    pub project_disk_usage: u64,
+    pub system_available_space: u64,
+    pub system_total_space: u64,
+    #[lens(ignore)]
+    pub project_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -98,6 +127,9 @@ pub enum AppEvent {
     ProjectReady(Arc<WorkspaceAssets>),
     SwitchView(ViewState),
     PipelineProgress(f32, String),
+    RedoStage(StageName),
+    StorageUpdate { usage: u64, available: u64, total: u64 },
+    RefreshStorage,
 }
 
 impl AppData {
@@ -126,6 +158,7 @@ impl AppData {
             AppEvent::ProjectReady(assets) => {
                 self.loaded_project = MaybeProject(Some(assets));
                 self.current_view = ViewState::Workspace;
+                // project_dir is set by LoadProject before ProjectReady arrives
             }
             AppEvent::SwitchView(v) => {
                 self.current_view = v;
@@ -134,8 +167,17 @@ impl AppData {
                 self.pipeline_progress = pct;
                 self.pipeline_message = msg;
             }
+            AppEvent::StorageUpdate { usage, available, total } => {
+                self.project_disk_usage = usage;
+                self.system_available_space = available;
+                self.system_total_space = total;
+            }
             // Handled in Model::event (needs cx).
-            AppEvent::LoadProject(_) | AppEvent::SelectNewAudioFile | AppEvent::StartPipeline(_) => {}
+            AppEvent::LoadProject(_)
+            | AppEvent::SelectNewAudioFile
+            | AppEvent::StartPipeline(_)
+            | AppEvent::RedoStage(_)
+            | AppEvent::RefreshStorage => {}
         }
     }
 }
@@ -145,6 +187,7 @@ impl Model for AppData {
         event.map(|e: &AppEvent, _meta| match e.clone() {
             AppEvent::LoadProject(path) => {
                 self.current_view = ViewState::Processing;
+                self.project_dir = path.parent().map(Path::to_path_buf);
                 let engine = self.engine.clone();
                 cx.spawn(move |proxy| match Project::load(&path) {
                     Ok(proj) => {
@@ -177,6 +220,7 @@ impl Model for AppData {
                             transcript_items: Arc::new(transcript_items),
                         });
                         proxy.emit(AppEvent::ProjectReady(assets)).ok();
+                        proxy.emit(AppEvent::RefreshStorage).ok();
                     }
                     Err(e) => {
                         eprintln!("[mikup] LoadProject failed: {e}");
@@ -314,6 +358,128 @@ impl Model for AppData {
                     }
                 });
             }
+            AppEvent::RedoStage(stage) => {
+                let project_dir = self.project_dir.clone();
+                self.current_view = ViewState::Processing;
+                self.pipeline_progress = 0.0;
+                self.pipeline_message = format!("Re-running {stage}...");
+
+                cx.spawn(move |proxy| {
+                    let Some(dir) = project_dir else {
+                        eprintln!("[mikup] No project loaded for redo");
+                        proxy.emit(AppEvent::SwitchView(ViewState::Landing)).ok();
+                        return;
+                    };
+
+                    let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+                    let python_bin: std::ffi::OsString = {
+                        let candidates: &[&[&str]] = &[
+                            &[".venv", "bin", "python3"],
+                            &[".venv", "bin", "python"],
+                            &[".venv", "Scripts", "python.exe"],
+                        ];
+                        candidates
+                            .iter()
+                            .map(|parts| parts.iter().fold(project_root.clone(), |p, s| p.join(s)))
+                            .find(|p| p.exists())
+                            .map(|p| p.into_os_string())
+                            .unwrap_or_else(|| std::ffi::OsString::from("python3"))
+                    };
+
+                    let stage_str = stage.to_string();
+                    let output_str = match dir.to_str() {
+                        Some(s) => s.to_string(),
+                        None => {
+                            eprintln!("[mikup] Project dir path is not UTF-8");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Workspace)).ok();
+                            return;
+                        }
+                    };
+
+                    // Find original source file from payload
+                    let payload_path = dir.join("mikup_payload.json");
+                    let input_str = match std::fs::read(&payload_path)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                        .and_then(|v| v["metadata"]["source_file"].as_str().map(String::from))
+                    {
+                        Some(s) => s,
+                        None => {
+                            eprintln!("[mikup] Cannot read source_file from payload");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Workspace)).ok();
+                            return;
+                        }
+                    };
+
+                    let mut child = match std::process::Command::new(&python_bin)
+                        .args([
+                            "-m", "src.main",
+                            "--input", input_str.as_str(),
+                            "--output-dir", output_str.as_str(),
+                            "--redo-stage", stage_str.as_str(),
+                        ])
+                        .current_dir(&project_root)
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::inherit())
+                        .spawn()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("[mikup] Failed to spawn redo pipeline: {e}");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Workspace)).ok();
+                            return;
+                        }
+                    };
+
+                    let stdout = child.stdout.take().expect("stdout must be piped");
+                    {
+                        use std::io::BufRead;
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines().map_while(Result::ok) {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                                if val.get("type").and_then(|t| t.as_str()) == Some("progress") {
+                                    let progress = val.get("progress")
+                                        .and_then(|p| p.as_f64())
+                                        .unwrap_or(0.0) as f32;
+                                    let message = val.get("message")
+                                        .and_then(|m| m.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    proxy.emit(AppEvent::PipelineProgress(progress, message)).ok();
+                                }
+                            }
+                        }
+                    }
+
+                    match child.wait() {
+                        Ok(s) if s.success() => {
+                            proxy.emit(AppEvent::LoadProject(payload_path)).ok();
+                        }
+                        Ok(s) => {
+                            eprintln!("[mikup] Redo pipeline exited {}", s.code().unwrap_or(-1));
+                            proxy.emit(AppEvent::SwitchView(ViewState::Workspace)).ok();
+                        }
+                        Err(e) => {
+                            eprintln!("[mikup] Redo pipeline wait error: {e}");
+                            proxy.emit(AppEvent::SwitchView(ViewState::Workspace)).ok();
+                        }
+                    }
+                });
+            }
+            AppEvent::RefreshStorage => {
+                let dir = self.project_dir.clone();
+                cx.spawn(move |proxy| {
+                    let Some(dir) = dir else { return };
+                    let usage = crate::project::get_disk_usage(&dir);
+                    let available = crate::project::get_available_disk_space(&dir);
+                    let total = crate::project::get_total_disk_space(&dir);
+                    proxy.emit(AppEvent::StorageUpdate { usage, available, total }).ok();
+                });
+            }
             other => self.apply_event(other),
         });
     }
@@ -379,6 +545,10 @@ mod tests {
             vectorscope_data: Arc::new(Mutex::new(VectorscopeData::default())),
             pipeline_progress: 0.0,
             pipeline_message: String::new(),
+            project_disk_usage: 0,
+            system_available_space: 0,
+            system_total_space: 0,
+            project_dir: None,
         }
     }
 

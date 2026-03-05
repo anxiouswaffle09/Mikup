@@ -14,8 +14,12 @@ Updated as of: March 2, 2026
 For high-fidelity audio dramas, a two-pass separation strategy is mandatory to capture both dialogue clarity and cinematic scale.
 
 ### The Strategy:
-- **Pass 1 (Roformer):** Use `model_bs_roformer_ep_317_sdr_12.9755.ckpt` strictly for **Dialogue**. It is the industry standard for vocal isolation in high-noise/high-music environments.
-- **Pass 2 (CDX23):** Use `h_demucs_cdx23` for **Cinematic Stems** (Drums, Bass, Other). It preserves the "cinematic spatial image" better than pure Roformer for non-vocal elements.
+- **Pass 1 (Roformer):** Use `model_bs_roformer_ep_317_sdr_12.9755.ckpt` strictly for **Dialogue** (`DX`).
+- **Pass 2 (CDX23):** Use `h_demucs_cdx23` for **Cinematic Stems** (`Music`, `Effects`).
+- **3-Stem Hybrid Standard:** All pipelines must converge on this high-fidelity triplet:
+  - `DX`: Primary Dialogue (clean).
+  - `Music`: Orchestral/Electronic score.
+  - `Effects`: All non-music/non-dialogue sounds.
 - **Alignment:** Stems must be phase-aligned before diagnostic playback to avoid comb filtering in the DAW.
 
 ## Hugging Face Transformers (v5.2.0)

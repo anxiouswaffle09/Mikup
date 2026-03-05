@@ -1,24 +1,25 @@
 # Best Practices: AI Director (LLM Clients)
 
-Updated as of: March 2, 2026
+Updated as of: March 5, 2026
 
-## Interactive Tool-Calling (The DAW Loop)
-The AI Director has evolved from a "Batch Report Generator" to a "Real-Time Creative Partner" inside the DAW.
+## Read-Only Research Focus (The Forensic Loop)
+The AI Director is strictly a **Forensic Analyst** and **Creative Partner**. It is forbidden from modifying audio or project state. Its role is to observe, diagnose, and explain.
 
 ### Key Practices:
-- **Mikup Control Protocol (MCP):** Define tool-calling schemas that allow the Director to interact with the playhead and mixer.
-  - *Example Tool:* `jump_to_mikup(timestamp_ms)` or `solo_stem(stem_id)`.
-- **Context Preservation:** Maintain a "Project State" in the system prompt that includes the currently loaded stems and their detected LUFS/RT60 metadata.
-- **Async Streaming:** Use the Python `google-genai` or `openai` async clients to stream "Director Thoughts" to the UI while waiting for tool execution.
+- **Always-On Playhead Context:** The Rust UI must silently append the current `playhead_time` to every message sent to the AI Director. This ensures the AI always has situational awareness of "where" the user is looking.
+- **On-Demand Multimodal Slicing:** To prevent massive uploads, the system uses **On-Demand Slicing**.
+  - *Strategy:* The Rust UI sends timestamp coordinates (`start_time`, `end_time`). The Python backend slices a tiny WAV snippet and uploads it to the multimodal LLM (Gemini 2.0 Flash).
+  - *Benefit:* Allows the AI to "listen" to specific anomalies (e.g., "What is that 60Hz hum at [01:20:500]?").
+- **3-Stem Context (DX, Music, Effects):** All prompts must align with the canonical 3-stem architecture.
+- **Move-Only Timestamps:** All LLM responses must use the `[MM:SS:ms]` format. The Vizia UI turns these into clickable buttons that **move the playhead ONLY**.
+- **Async Streaming:** Use the Python `google-genai` async client to stream tokens to the UI.
 
-## Google Gemini (v1.65+ "Live Integration")
-- **Gemini 2.0 Flash:** The primary model for low-latency, real-time "Creative Direction."
-- **Audio Native Inference:** For complex "Acoustic Diagnosis," prefer sending the direct audio buffer (via `client.files.upload`) rather than just the transcript.
-- **System Instructions:** Strictly define the "Creative Director" persona in `system_instruction` to avoid "hallucinated compliance."
+## Google Gemini (v2.0+ "Flash Multimodal")
+...
+- **System Instructions:** Defined in `src/llm/director_prompt.md`. Strictly enforce the "Forensic Analyst" persona and the prioritization of user-specified timestamps over the automatic `playhead_time`.
 
 ## Security & Path Sandboxing (Mandatory)
-All file-related tool calls (e.g., `export_diagnostic_clip`) must validate requested paths using the `_is_path_safe(path)` helper in the `Director` base class.
-
+...
 ```python
 # Validation Helper Snippet
 abs_path = os.path.abspath(path)

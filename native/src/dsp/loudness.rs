@@ -101,10 +101,9 @@ impl LoudnessAnalyzer {
     }
 
     pub fn reset(&mut self) {
-        match Self::new(self.sample_rate) {
-            Ok(fresh) => *self = fresh,
-            Err(err) => eprintln!("Failed to reset loudness analyzer: {err}"),
-        }
+        self.dialogue_meter.reset();
+        self.music_meter.reset();
+        self.effects_meter.reset();
     }
 
     pub fn final_metrics(&self) -> FinalLoudnessMetrics {

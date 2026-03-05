@@ -6,9 +6,34 @@ use vizia::style::Color;
 
 use crate::audio_engine::VOLUME;
 use crate::lufs_meter::LufsMeterRow;
-use crate::models::{AppData, AppEvent, AudioEngineStore, WorkspaceAssets};
+use crate::models::{AppData, AppEvent, AudioEngineStore, StageName, WorkspaceAssets};
 use crate::vectorscope_view::{VectorscopeData, VectorscopeView};
 use crate::waveform_view::WaveformView;
+
+fn format_bytes(bytes: u64) -> String {
+    const GB: u64 = 1_073_741_824;
+    const MB: u64 = 1_048_576;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else {
+        format!("{:.0} MB", bytes as f64 / MB as f64)
+    }
+}
+
+fn storage_color(_usage: u64, total: u64, available: u64) -> Color {
+    const TEN_GB: u64 = 10 * 1_073_741_824;
+    if total == 0 {
+        return Color::rgb(100, 100, 100);
+    }
+    let used_pct = ((total - available) as f64 / total as f64) * 100.0;
+    if available < TEN_GB || used_pct > 90.0 {
+        Color::rgb(243, 139, 168) // red
+    } else if used_pct > 70.0 {
+        Color::rgb(249, 226, 175) // yellow
+    } else {
+        Color::rgb(166, 227, 161) // green
+    }
+}
 
 /// Builds the full workspace layout (waveforms + sidebar).
 /// All data is accessed via `Arc` clones so this can be called from a
@@ -114,6 +139,74 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                     LufsMeterRow::effects(cx);
                 })
                 .height(Pixels(120.0));
+
+                // ── Storage Gauge ────────────────────────────────────────────
+                Label::new(cx, "Storage")
+                    .color(Color::rgb(180, 180, 200))
+                    .height(Pixels(20.0))
+                    .top(Pixels(8.0));
+
+                // Gauge track
+                Binding::new(cx, AppData::project_disk_usage, |cx, _| {
+                    let usage = AppData::project_disk_usage.get(cx);
+                    let available = AppData::system_available_space.get(cx);
+                    let total = AppData::system_total_space.get(cx);
+
+                    let fill_pct = if total > 0 {
+                        ((total - available) as f64 / total as f64 * 100.0).min(100.0)
+                    } else {
+                        0.0
+                    };
+                    let color = storage_color(usage, total, available);
+                    let label_text = format!(
+                        "Project: {} | Free: {}",
+                        format_bytes(usage),
+                        format_bytes(available),
+                    );
+
+                    VStack::new(cx, move |cx| {
+                        Element::new(cx)
+                            .width(Percentage(fill_pct as f32))
+                            .height(Stretch(1.0))
+                            .background_color(color);
+                    })
+                    .width(Stretch(1.0))
+                    .height(Pixels(8.0))
+                    .background_color(Color::rgb(50, 50, 65));
+
+                    Label::new(cx, &label_text)
+                        .color(Color::rgb(140, 140, 160))
+                        .height(Pixels(16.0));
+                });
+
+                // ── Redo Stage Buttons ──────────────────────────────────────
+                Label::new(cx, "Re-run Stage")
+                    .color(Color::rgb(180, 180, 200))
+                    .height(Pixels(20.0))
+                    .top(Pixels(8.0));
+
+                HStack::new(cx, |cx| {
+                    let stages = [
+                        ("Sep", StageName::Separation),
+                        ("Trx", StageName::Transcription),
+                        ("DSP", StageName::Dsp),
+                        ("Sem", StageName::Semantics),
+                        ("Dir", StageName::Director),
+                    ];
+                    for (label, stage) in stages {
+                        let s = stage.clone();
+                        Button::new(cx, move |cx| {
+                            Label::new(cx, label)
+                        })
+                        .on_press(move |cx| {
+                            cx.emit(AppEvent::RedoStage(s.clone()));
+                        })
+                        .width(Stretch(1.0))
+                        .height(Pixels(24.0));
+                    }
+                })
+                .height(Pixels(24.0))
+                .width(Stretch(1.0));
 
                 Label::new(cx, "Transcript")
                     .color(Color::rgb(180, 180, 200))

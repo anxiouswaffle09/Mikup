@@ -26,6 +26,8 @@ pub struct SpectralAnalyzer {
     window: Vec<f32>,
     dialogue_buffer: Vec<Complex32>,
     background_buffer: Vec<Complex32>,
+    dialogue_magnitudes: Vec<f32>,
+    background_magnitudes: Vec<f32>,
 }
 
 impl SpectralAnalyzer {
@@ -35,6 +37,9 @@ impl SpectralAnalyzer {
         let window = hann_window(frame_size);
         let dialogue_buffer = vec![Complex32::new(0.0, 0.0); frame_size];
         let background_buffer = vec![Complex32::new(0.0, 0.0); frame_size];
+        let nyquist_bins = frame_size / 2 + 1;
+        let dialogue_magnitudes = vec![0.0; nyquist_bins];
+        let background_magnitudes = vec![0.0; nyquist_bins];
 
         Self {
             sample_rate,
@@ -43,12 +48,16 @@ impl SpectralAnalyzer {
             window,
             dialogue_buffer,
             background_buffer,
+            dialogue_magnitudes,
+            background_magnitudes,
         }
     }
 
     pub fn reset(&mut self) {
         self.dialogue_buffer.fill(Complex32::new(0.0, 0.0));
         self.background_buffer.fill(Complex32::new(0.0, 0.0));
+        self.dialogue_magnitudes.fill(0.0);
+        self.background_magnitudes.fill(0.0);
     }
 
     pub fn process_frame(&mut self, frame: &SyncedAudioFrame) -> SpectralMetrics {
@@ -66,19 +75,21 @@ impl SpectralAnalyzer {
         self.fft.process(&mut self.dialogue_buffer);
         self.fft.process(&mut self.background_buffer);
 
-        let dialogue_magnitudes = magnitudes(&self.dialogue_buffer);
-        let background_magnitudes = magnitudes(&self.background_buffer);
+        magnitudes_into(&self.dialogue_buffer, &mut self.dialogue_magnitudes);
+        magnitudes_into(&self.background_buffer, &mut self.background_magnitudes);
 
-        let dialogue_centroid_hz = spectral_centroid_hz(&dialogue_magnitudes, self.sample_rate);
-        let background_centroid_hz = spectral_centroid_hz(&background_magnitudes, self.sample_rate);
+        let dialogue_centroid_hz =
+            spectral_centroid_hz(&self.dialogue_magnitudes, self.sample_rate);
+        let background_centroid_hz =
+            spectral_centroid_hz(&self.background_magnitudes, self.sample_rate);
         let dialogue_speech_energy = speech_band_energy(
-            &dialogue_magnitudes,
+            &self.dialogue_magnitudes,
             self.sample_rate,
             SPEECH_LOW_HZ,
             SPEECH_HIGH_HZ,
         );
         let background_speech_energy = speech_band_energy(
-            &background_magnitudes,
+            &self.background_magnitudes,
             self.sample_rate,
             SPEECH_LOW_HZ,
             SPEECH_HIGH_HZ,
@@ -115,13 +126,12 @@ fn fill_fft_buffer(buffer: &mut [Complex32], input: &[f32], window: &[f32]) {
     }
 }
 
-fn magnitudes(spectrum: &[Complex32]) -> Vec<f32> {
-    let nyquist_bins = spectrum.len() / 2 + 1;
-    spectrum
-        .iter()
-        .take(nyquist_bins)
-        .map(|c| c.norm())
-        .collect()
+fn magnitudes_into(spectrum: &[Complex32], out: &mut [f32]) {
+    debug_assert_eq!(out.len(), spectrum.len() / 2 + 1);
+    let len = out.len();
+    for (dst, complex) in out.iter_mut().zip(spectrum.iter().take(len)) {
+        *dst = complex.norm();
+    }
 }
 
 fn spectral_centroid_hz(magnitudes: &[f32], sample_rate: u32) -> f32 {

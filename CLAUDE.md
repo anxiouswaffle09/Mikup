@@ -7,8 +7,8 @@ Claude must operate as a senior engineer, not a "yes-man."
 
 ## ⚙️ Documentation Protocol (Mandatory)
 Before implementing any feature or refactoring code, you MUST:
-1.  **Consult Local Reference:** Read the relevant files in `best_practices/reference/` (e.g., `react.md`, `tauri.md`, `pytorch.md`, `python.md`, `rust.md`).
-2.  **Enforce 2026 Standards:** Use only the stable syntaxes defined in those files (e.g., React 19 Actions, Tailwind v4 CSS configuration).
+1.  **Consult Local Reference:** Read the relevant files in `best_practices/reference/` (e.g., `vizia.md`, `pytorch.md`, `python.md`, `rust.md`).
+2.  **Enforce 2026 Standards:** Use only the stable syntaxes defined in those files (Vizia 0.3.0 for UI).
 3.  **Fallback to MCP:** If the local reference is missing specific technical details, use the `get-library-docs` MCP tool as a second option.
 
 ## Primary Focus: The Native Vizia UI

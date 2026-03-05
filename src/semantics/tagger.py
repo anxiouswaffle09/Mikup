@@ -59,10 +59,14 @@ class MikupSemanticTagger:
             candidate_labels = self.default_labels
 
         logger.info("Tagging audio: %s", audio_path)
-        
-        # Calculate duration first without loading the full audio
-        full_duration = librosa.get_duration(path=audio_path)
-        
+
+        try:
+            # Calculate duration first without loading the full audio
+            full_duration = librosa.get_duration(path=audio_path)
+        except OSError as exc:
+            logger.warning("Cannot read audio file %s: %s", audio_path, exc)
+            return []
+
         # Take the middle 5 seconds for a "vibe check"
         start_sec = max(0, (full_duration / 2) - 2.5) if full_duration > 5 else 0
         duration_to_load = min(5.0, full_duration - start_sec)
@@ -71,8 +75,12 @@ class MikupSemanticTagger:
             logger.warning("Audio too short for semantic analysis (%.2fs), skipping.", duration_to_load)
             return []
 
-        # Load and resample ONLY the 5-second window to 48kHz (CLAP standard)
-        y, _ = librosa.load(audio_path, sr=48000, offset=start_sec, duration=duration_to_load)
+        try:
+            # Load and resample ONLY the 5-second window to 48kHz (CLAP standard)
+            y, _ = librosa.load(audio_path, sr=48000, offset=start_sec, duration=duration_to_load)
+        except OSError as exc:
+            logger.warning("Cannot load audio file %s: %s", audio_path, exc)
+            return []
         
         # Prepare inputs
         raw_inputs = self.processor(

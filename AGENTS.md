@@ -8,11 +8,11 @@
 
 ## ⚙️ Documentation Protocol (Mandatory)
 Every agent (Gemini, Claude, Codex) must follow this sequence before any task:
-1.  **Read `best_practices/reference/`**: Check the local documentation for the relevant technology (e.g., `react.md`, `tauri.md`, `python.md`).
-2.  **Enforce 2026 Standards**: Use only the stable syntaxes defined in those files (React 19, Tailwind v4, Python 3.14 No-GIL).
+1.  **Read `best_practices/reference/`**: Check the local documentation for the relevant technology (e.g., `vizia.md`, `pytorch.md`, `python.md`, `rust.md`).
+2.  **Enforce 2026 Standards**: Use only the stable syntaxes defined in those files (Vizia 0.3.0, Python 3.14 No-GIL, Rust 1.86).
 3.  **Fallback to MCP**: If information is missing from the local reference, use the `get-library-docs` or `resolve-library-id` MCP tools as a secondary option.
 
-## 🛠️ Project Stack (March 2, 2026)
+## 🛠️ Project Stack (March 5, 2026)
 - **Environment**: WSL2 (Linux) agents/runtime; Codebase in Windows mount (`/mnt/d/SoftwareDev/Mikup`).
 - **Handoff-First Mandate**: Agents are forbidden from running GUI tasks or Windows-native installs. All implementation tasks must provide a "Handoff for Windows" block with native PowerShell/CMD commands for the user to run.
 - **Frontend (Native UI)**: Vizia 0.3.0 (Retained-mode, Skia-powered, Rust).
@@ -22,8 +22,8 @@ Every agent (Gemini, Claude, Codex) must follow this sequence before any task:
 
 ## 📋 Coding Standards
 - **Python**: PEP 8, 4-space indent, `snake_case` functions, `PascalCase` classes.
-- **React**: `PascalCase` filenames, `camelCase` hooks. No manual `useMemo`.
 - **Rust**: Functional style, strong type safety, no allocations in audio callbacks.
+- **Vizia**: Model/Lens architecture, `cx.spawn()` for async, `ContextProxy` for updates.
 
 ## 📦 Commits & PRs
 - **Commit Style**: Short, imperative subjects (e.g., `Update Vectorscope to Canvas`).

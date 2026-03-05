@@ -234,8 +234,7 @@ fn dsp_thread_main(
                         playhead_samples = 0;
                         finished = false;
                         resampler.reset();
-                        loudness = LoudnessAnalyzer::new(DSP_SAMPLE_RATE)
-                            .expect("recreate loudness analyzer");
+                        loudness.reset();
                         fade_state = FadeState::Steady;
                     }
                 }
@@ -351,8 +350,7 @@ fn dsp_thread_main(
                 playhead_samples = 0;
                 finished = false;
                 resampler.reset();
-                loudness = LoudnessAnalyzer::new(DSP_SAMPLE_RATE)
-                    .expect("recreate loudness analyzer");
+                loudness.reset();
                 fade_state = FadeState::FadingIn {
                     remaining: FADE_SAMPLES,
                 };

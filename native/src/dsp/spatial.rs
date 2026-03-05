@@ -2,6 +2,7 @@ use crate::dsp::SyncedAudioFrame;
 
 const SQRT_HALF: f32 = 0.70710677;
 const EPSILON: f32 = 1.0e-12;
+const DEFAULT_LISSAJOUS_CAPACITY: usize = 2_048;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LissajousPoint {
@@ -22,7 +23,7 @@ pub struct SpatialAnalyzer {
 impl SpatialAnalyzer {
     pub fn new() -> Self {
         Self {
-            lissajous_buffer: Vec::new(),
+            lissajous_buffer: Vec::with_capacity(DEFAULT_LISSAJOUS_CAPACITY),
         }
     }
 
@@ -80,13 +81,16 @@ fn pearson_correlation(left: &[f32], right: &[f32]) -> f32 {
 }
 
 fn lissajous_points_into(left: &[f32], right: &[f32], out: &mut Vec<LissajousPoint>) {
-    out.clear();
-    out.reserve(left.len().min(right.len()).saturating_sub(out.capacity()));
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        out.push(LissajousPoint {
-            x: (l - r) * SQRT_HALF,
-            y: (l + r) * SQRT_HALF,
-        });
+    let len = left.len().min(right.len());
+    if out.len() < len {
+        out.resize(len, LissajousPoint::default());
+    } else {
+        out.truncate(len);
+    }
+
+    for (dst, (&l, &r)) in out.iter_mut().zip(left.iter().zip(right.iter())) {
+        dst.x = (l - r) * SQRT_HALF;
+        dst.y = (l + r) * SQRT_HALF;
     }
 }
 

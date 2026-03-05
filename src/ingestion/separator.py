@@ -356,8 +356,6 @@ class MikupSeparator:
 
     def _pass2_cdx23_instrumental(self, instrumental_path, source_base, fast_mode=False):
         """Pass 2: CDX23 (Demucs4/DnR) splits instrumental → music + effects."""
-        import numpy as np
-        import torch
         from demucs.apply import apply_model
         # load_model is imported at module level to allow mock patching in tests;
         # use the module-level binding rather than re-importing locally.

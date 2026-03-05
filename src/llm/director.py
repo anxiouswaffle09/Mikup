@@ -73,11 +73,13 @@ class MikupDirector:
 
         try:
             logger.info("Sending payload to AI Director (%s)...", self.model_id)
-            # Using system_instruction for the persona part if prompt is split correctly
-            # For simplicity here, we send as a single prompt unless we refactor director_prompt.md
+            user_content = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=final_prompt)],
+            )
             response = self.client.models.generate_content(
                 model=self.model_id,
-                contents=final_prompt
+                contents=[user_content],
             )
         except Exception as exc:
             logger.error("Failed to generate report from LLM: %s", exc)

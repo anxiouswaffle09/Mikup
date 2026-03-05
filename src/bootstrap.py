@@ -115,8 +115,10 @@ def check_model_integrity(versions: dict | None = None) -> None:
     Check if the required model weights are present in the models/ directory.
     Checks are derived from versions.json['ml_models'] to prevent manifest drift.
     """
+    if versions is None:
+        versions = load_versions()
     models_dir = _PROJECT_ROOT / "models"
-    ml_models = (versions or {}).get("ml_models", {})
+    ml_models = versions.get("ml_models", {})
 
     # Map ml_models keys -> (local subdir, specific filename or None for dir-level check)
     # 'alignment' is fetched at runtime by whisperx — not a local file to check.

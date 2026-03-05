@@ -639,7 +639,7 @@ class MikupTranscriber:
 
             logger.info("Diarization complete.")
 
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError, ImportError) as exc:
             logger.warning(
                 "Diarization failed (%s: %s) - continuing with fallback speaker labels.",
                 type(exc).__name__, exc,

@@ -1,4 +1,5 @@
 import os
+import shutil
 import argparse
 import json
 import gc
@@ -12,7 +13,7 @@ import math
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
@@ -53,7 +54,7 @@ load_dotenv()
 class StageInfo:
     completed: bool = False
     timestamp: str | None = None
-    artifacts: dict[str, str] = field(default_factory=dict)
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -127,13 +128,16 @@ _M = TypeVar("_M", bound=BaseModel)
 # ---------------------------------------------------------------------------
 
 STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "director")
-PIPELINE_ORDER = list(STAGE_CHOICES)
-REDO_DOWNSTREAM_MAP = {
-    "separation": ("separation", "transcription", "semantics", "director"),
-    "transcription": ("transcription", "semantics", "director"),
-    "semantics": ("semantics", "director"),
-    "director": ("director",),
-    "dsp": ("dsp",),
+REDO_STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "llm")
+PIPELINE_ORDER = ("separation", "transcription", "dsp", "semantics", "director")
+REDO_STAGE_ALIASES = {
+    "separation": "separation",
+    "transcription": "transcription",
+    "dsp": "dsp",
+    "semantics": "semantics",
+    "llm": "director",
+    # Backwards-compatible alias.
+    "director": "director",
 }
 CANONICAL_STEM_KEYS = ("DX", "Music", "Effects")
 OPTIONAL_STEM_KEYS = ("DX_Residual",)
@@ -152,7 +156,7 @@ def flush_vram():
 
 
 def emit_progress(stage, progress, message):
-    """Emit a JSON progress marker to stdout for Tauri to capture."""
+    """Emit a JSON progress marker to stdout for the native UI to capture."""
     print(json.dumps({
         "type": "progress",
         "stage": stage,
@@ -258,24 +262,37 @@ def _safe_remove_path(path):
         return
     try:
         if p.is_dir():
-            # os.walk has no pathlib equivalent -- keep it
-            for root, dirs, files in os.walk(str(p), topdown=False):
-                root_path = Path(root)
-                for filename in files:
-                    try:
-                        (root_path / filename).unlink()
-                    except OSError as exc:
-                        logger.warning("Failed to delete file %s: %s", root_path / filename, exc)
-                for dirname in dirs:
-                    try:
-                        (root_path / dirname).rmdir()
-                    except OSError as exc:
-                        logger.warning("Failed to delete directory %s: %s", root_path / dirname, exc)
-            p.rmdir()
+            shutil.rmtree(p)
         else:
             p.unlink()
     except OSError as exc:
         logger.warning("Failed to delete artifact %s: %s", p, exc)
+
+
+def _normalize_redo_stage(stage_name: str) -> str:
+    normalized = str(stage_name or "").strip().lower()
+    return REDO_STAGE_ALIASES.get(normalized, normalized)
+
+
+def _parse_redo_stage(value: str) -> str:
+    normalized = _normalize_redo_stage(value)
+    if normalized == "director":
+        return "llm"
+    if normalized not in REDO_STAGE_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"Invalid --redo-stage '{value}'. Choose from: {', '.join(REDO_STAGE_CHOICES)}"
+        )
+    return normalized
+
+
+def _redo_invalidation_sequence(start_stage_name: str) -> list[str]:
+    internal_stage_name = _normalize_redo_stage(start_stage_name)
+    if internal_stage_name not in PIPELINE_ORDER:
+        raise ValueError(
+            f"Unknown stage '{start_stage_name}'. Expected one of: {', '.join(REDO_STAGE_CHOICES)}"
+        )
+    start_index = PIPELINE_ORDER.index(internal_stage_name)
+    return list(PIPELINE_ORDER[start_index:])
 
 
 def _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
@@ -284,55 +301,99 @@ def _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
     stages = stage_state.get("stages") if isinstance(stage_state, dict) else {}
     stage_meta = stages.get(stage_name) if isinstance(stages, dict) else {}
     stage_artifacts = stage_meta.get("artifacts") if isinstance(stage_meta, dict) else {}
+    stage_dirs = {
+        "separation": (out / "stems",),
+        "transcription": (out / "transcription",),
+        "dsp": (out / "dsp",),
+        "semantics": (out / "semantics",),
+        "director": (out / "llm", out / "director"),
+    }
 
     if isinstance(stage_artifacts, dict):
         for artifact_path in stage_artifacts.values():
             if isinstance(artifact_path, str):
                 paths.add(artifact_path)
 
+    for directory in stage_dirs.get(stage_name, ()):
+        paths.add(str(directory))
+
     if stage_name == "separation":
-        paths.add(str(out / "stems"))
-        paths.add(artifacts["stems"])
-        stems = _read_json_file(artifacts["stems"], default={})
+        stems_manifest = artifacts.get("stems")
+        if isinstance(stems_manifest, str):
+            paths.add(stems_manifest)
+        stems = _read_json_file(stems_manifest, default={})
         if isinstance(stems, dict):
             for stem_path in stems.values():
                 if isinstance(stem_path, str):
                     paths.add(stem_path)
     elif stage_name == "transcription":
-        paths.add(artifacts["transcription"])
+        transcription_path = artifacts.get("transcription")
+        if isinstance(transcription_path, str):
+            paths.add(transcription_path)
     elif stage_name == "dsp":
-        paths.add(artifacts["dsp_metrics"])
+        dsp_metrics_path = artifacts.get("dsp_metrics")
+        if isinstance(dsp_metrics_path, str):
+            paths.add(dsp_metrics_path)
     elif stage_name == "semantics":
-        paths.add(artifacts["semantics"])
+        semantics_path = artifacts.get("semantics")
+        if isinstance(semantics_path, str):
+            paths.add(semantics_path)
     elif stage_name == "director":
         paths.add(str(out / "mikup_payload.json"))
         paths.add(str(out / "mikup_report.md"))
         paths.add(str(out / "data" / ".mikup_context.md"))
-        paths.add(artifacts.get("output_payload"))
+        output_payload = artifacts.get("output_payload")
+        if isinstance(output_payload, str):
+            paths.add(output_payload)
 
     return {path for path in paths if isinstance(path, str) and path.strip()}
 
 
-def _invalidate_redo_stages(args, output_dir, artifacts, stage_state):
-    if not args.redo_stage:
-        return set()
+def invalidate_stages(start_stage_name: str, output_dir: str, artifacts, stage_state) -> list[str]:
+    stages_to_invalidate = _redo_invalidation_sequence(start_stage_name)
+    project_id = Path(output_dir).name or str(Path(output_dir).resolve())
 
     with _state_lock:
-        stages_to_invalidate = list(REDO_DOWNSTREAM_MAP.get(args.redo_stage, (args.redo_stage,)))
-        logger.info("[REDO] Invalidating stage: %s and configured downstream dependencies.", args.redo_stage)
+        logger.info(
+            "Redoing stage '%s'. Purging downstream artifacts for project: %s",
+            start_stage_name,
+            project_id,
+        )
+        stages_block = stage_state.get("stages")
+        if not isinstance(stages_block, dict):
+            stages_block = {}
 
         for stage_name in stages_to_invalidate:
             for artifact_path in _stage_invalidation_paths(stage_name, output_dir, artifacts, stage_state):
                 _safe_remove_path(artifact_path)
 
-        stages_block = stage_state.get("stages")
-        if not isinstance(stages_block, dict):
-            stages_block = {}
-        for stage_name in stages_to_invalidate:
-            stages_block.pop(stage_name, None)
-        stage_state["stages"] = stages_block
+            stage_entry = stages_block.get(stage_name)
+            if not isinstance(stage_entry, dict):
+                stage_entry = {}
 
-    return set(stages_to_invalidate)
+            stage_entry["completed"] = False
+            stage_entry["is_complete"] = False
+            stage_entry["artifacts"] = {}
+            stage_entry["timestamp"] = None
+            stages_block[stage_name] = stage_entry
+
+        stage_state["stages"] = stages_block
+        stage_state["updated_at"] = datetime.now().isoformat()
+
+    return stages_to_invalidate
+
+
+def _invalidate_redo_stages(args, output_dir, artifacts, stage_state):
+    if not args.redo_stage:
+        return set()
+    return set(
+        invalidate_stages(
+            start_stage_name=str(args.redo_stage),
+            output_dir=output_dir,
+            artifacts=artifacts,
+            stage_state=stage_state,
+        )
+    )
 
 
 def _extract_canonical_stems(stems):
@@ -362,6 +423,7 @@ def _mark_stage_complete(state, stage_name, artifacts=None):
     stages = state.setdefault("stages", {})
     stage_state = stages.setdefault(stage_name, {})
     stage_state["completed"] = True
+    stage_state["is_complete"] = True
     stage_state["timestamp"] = datetime.now().isoformat()
     if artifacts is not None:
         stage_state["artifacts"] = artifacts
@@ -401,8 +463,7 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
             stems = _read_json_file(stems_path)
             if not isinstance(stems, dict):
                 return False
-            normalized = normalize_and_validate_stems(stems)
-            _write_json_file(stems_path, normalized)
+            normalize_and_validate_stems(stems)
             return True
 
         if stage_name == "transcription":
@@ -416,7 +477,9 @@ def validate_stage_artifacts(stage_name: str, output_dir: str) -> bool:
             stage_state = _read_json_file(str(out / "data" / "stage_state.json"), default={})
             stages = stage_state.get("stages") if isinstance(stage_state, dict) else {}
             dsp_state = stages.get("dsp") if isinstance(stages, dict) else {}
-            return isinstance(dsp_state, dict) and bool(dsp_state.get("completed"))
+            return isinstance(dsp_state, dict) and bool(
+                dsp_state.get("completed") or dsp_state.get("is_complete")
+            )
 
         if stage_name == "semantics":
             return _has_semantics_payload(str(out / "data" / "semantics.json"))
@@ -543,40 +606,55 @@ def _collect_stage_timestamps(stage_state):
     return stage_timestamps
 
 
+def _load_transcription_data(path):
+    data = _read_json_file(path, default={"segments": []})
+    return data if isinstance(data, dict) else {"segments": []}
+
+
+def _load_semantic_tags(path):
+    loaded = _read_json_file(path, default=[])
+    return loaded if isinstance(loaded, list) else []
+
+
+def _load_dsp_metrics(path):
+    data = _read_json_file(path, default={})
+    return data if isinstance(data, dict) else {}
+
+
+def _collect_existing_stem_paths(stems):
+    if not isinstance(stems, dict):
+        return []
+    return [p for p in stems.values() if is_existing_file(p)]
+
+
+def _check_missing_artifacts(stem_paths, transcription_path, dsp_metrics_path, semantics_path, stage_state_path):
+    missing = []
+    if not stem_paths:
+        missing.append("stems")
+    if not _has_transcription_payload(transcription_path):
+        missing.append("transcription")
+    if not is_existing_file(dsp_metrics_path):
+        missing.append("dsp_metrics")
+    if not _has_semantics_payload(semantics_path):
+        missing.append("semantics")
+    if not is_existing_file(stage_state_path):
+        missing.append("stage_state")
+    return missing
+
+
 def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_report=None):
     transcription_path = artifacts["transcription"]
     semantics_path = artifacts["semantics"]
     dsp_metrics_path = artifacts["dsp_metrics"]
 
-    transcription_data = _read_json_file(transcription_path, default={"segments": []})
-    if not isinstance(transcription_data, dict):
-        transcription_data = {"segments": []}
+    transcription_data = _load_transcription_data(transcription_path)
+    semantic_tags = _load_semantic_tags(semantics_path)
+    dsp_metrics = _load_dsp_metrics(dsp_metrics_path)
+    generated_stem_paths = _collect_existing_stem_paths(stems)
 
-    loaded_semantics = _read_json_file(semantics_path, default=[])
-    semantic_tags = loaded_semantics if isinstance(loaded_semantics, list) else []
-
-    dsp_metrics = _read_json_file(dsp_metrics_path, default={})
-    if not isinstance(dsp_metrics, dict):
-        dsp_metrics = {}
-
-    generated_stem_paths = [
-        stem_path
-        for stem_path in stems.values()
-        if is_existing_file(stem_path)
-    ] if isinstance(stems, dict) else []
-
-    missing_artifacts = []
-    if not generated_stem_paths:
-        missing_artifacts.append("stems")
-    if not _has_transcription_payload(transcription_path):
-        missing_artifacts.append("transcription")
-    if not is_existing_file(dsp_metrics_path):
-        missing_artifacts.append("dsp_metrics")
-    if not _has_semantics_payload(semantics_path):
-        missing_artifacts.append("semantics")
-    if not is_existing_file(artifacts.get("stage_state")):
-        missing_artifacts.append("stage_state")
-
+    missing_artifacts = _check_missing_artifacts(
+        generated_stem_paths, transcription_path, dsp_metrics_path, semantics_path, artifacts.get("stage_state"),
+    )
     is_complete = len(missing_artifacts) == 0
     if not is_complete:
         logger.warning(
@@ -650,8 +728,8 @@ def _resolve_output_dir(input_path, output_dir_flag=None, config_path=None):
     base = config.get("default_projects_dir") or str(PROJECT_ROOT / "Projects")
     stem = Path(input_path).stem or "project"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pid_suffix = os.getpid()
-    return str(Path(base).resolve() / f"{stem}_{timestamp}_{pid_suffix}")
+    short_id = uuid.uuid4().hex[:8]
+    return str(Path(base).resolve() / f"{stem}_{timestamp}_{short_id}")
 
 
 def _timestamps_match(lhs, rhs, tolerance=1e-6):
@@ -769,21 +847,20 @@ def update_history(payload, history_path="data/history.json"):
             except (OSError, json.JSONDecodeError):
                 history = []
 
-        history_payload = json.loads(json.dumps(payload))
-        history_payload = _relativize_payload_paths(history_payload, project_root)
-
-        metadata = history_payload.get("metadata") or {}
-        metrics = history_payload.get("metrics") or {}
-        spatial_metrics = metrics.get("spatial_metrics") or {}
+        metadata = payload.get("metadata") or {}
+        metrics = payload.get("metrics") or {}
+        spatial_metrics = (metrics.get("spatial_metrics") or {})
+        artifacts = payload.get("artifacts") or {}
         source_file = str(metadata.get("source_file", "")) or "Unknown"
 
-        # Create a summary entry
         entry = {
             "id": str(uuid.uuid4()),
             "filename": Path(source_file).name or "Unknown",
             "date": datetime.now().isoformat(),
             "duration": spatial_metrics.get("total_duration", 0) or 0,
-            "payload": history_payload  # Store full payload for instant loading
+            "is_complete": bool(payload.get("is_complete")),
+            "output_dir": _relativize_path(artifacts.get("output_dir", ""), project_root),
+            "pipeline_version": metadata.get("pipeline_version", "unknown"),
         }
 
         history.insert(0, entry)
@@ -804,7 +881,7 @@ def cleanup_stems(stems):
             try:
                 Path(path).unlink()
                 logger.info("Cleaned up stem: %s", path)
-            except Exception as e:
+            except OSError as e:
                 logger.warning("Failed to cleanup stem %s: %s", path, e)
 
 
@@ -934,7 +1011,7 @@ def main():
         help="Directory for intermediate stage artifacts (default: auto-generated Projects workspace)",
         default=None)
     parser.add_argument("--stage", choices=STAGE_CHOICES, help="Run only the specified stage and exit")
-    parser.add_argument("--redo-stage", choices=STAGE_CHOICES,
+    parser.add_argument("--redo-stage", type=_parse_redo_stage, choices=REDO_STAGE_CHOICES,
         help="Redo the specified stage and invalidate all downstream stage artifacts")
     parser.add_argument("--fast", action=argparse.BooleanOptionalAction, default=None,
         help="Quick mode: skip heavy separation/transcription work")
@@ -995,7 +1072,7 @@ def main():
     forced_stages = _invalidate_redo_stages(args, output_dir, artifacts, stage_state)
     if forced_stages:
         args.force = True
-        _persist_state(artifacts["stage_state"], stage_state, args, output_dir, artifacts, _read_json_file(artifacts["stems"], default={}) or {})
+        _write_json_file(artifacts["stage_state"], stage_state)
 
     def _allow_cache(stage_name):
         return not args.force or stage_name not in forced_stages
@@ -1138,7 +1215,7 @@ def main():
     if should_run_dsp:
         emit_progress("DSP", 60, "Feature Extraction (Handled by Rust Backend)")
 
-        # The DSP logic has been migrated to the native Rust Tauri backend (`ui/src-tauri/src/dsp/`)
+        # The DSP logic has been migrated to the native Rust engine (native/src/dsp/)
         # for real-time 60fps streaming and perfect DAW-level audio synchronization.
         # When called from this CLI, we simply acknowledge the stage and skip it.
         emit_progress("DSP", 75, "Rust handles DSP. Skipping in Python CLI.")
@@ -1237,6 +1314,8 @@ def main():
                 else:
                     logger.warning("AI Director returned no usable report. Skipping ai_report field.")
                 emit_progress("DIRECTOR", 95, "Synthesis complete.")
+            except Exception as exc:
+                logger.error("Stage 5 AI Director failed: %s", exc)
             finally:
                 if director is not None:
                     del director

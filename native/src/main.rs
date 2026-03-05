@@ -155,6 +155,8 @@ fn main() {
     });
 
     Application::new(move |cx| {
+        let project_dir = project.as_ref().map(|p| p.project_dir.clone());
+
         AppData {
             volume: 1.0,
             playing: false,
@@ -168,8 +170,17 @@ fn main() {
             vectorscope_data: scope_for_appdata,
             pipeline_progress: 0.0,
             pipeline_message: String::new(),
+            project_disk_usage: 0,
+            system_available_space: 0,
+            system_total_space: 0,
+            project_dir: project_dir.clone(),
         }
         .build(cx);
+
+        // Kick off initial storage scan in background.
+        if project_dir.is_some() {
+            cx.emit(models::AppEvent::RefreshStorage);
+        }
 
         AudioEngineStore {
             playhead_ms: 0,

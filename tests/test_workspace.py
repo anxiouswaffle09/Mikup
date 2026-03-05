@@ -71,10 +71,10 @@ def test_resolve_output_dir_uses_config_projects_dir(tmp_path):
     )
 
     assert result.startswith(str(projects_dir))
-    # Workspace dir name: my_audio_YYYYMMDD_HHMMSS_<pid>
+    # Workspace dir name: my_audio_YYYYMMDD_HHMMSS_<uuid8>
     name = Path(result).name
     assert name.startswith("my_audio_"), f"Expected 'my_audio_...' got {name!r}"
-    assert re.search(r"\d{8}_\d{6}_\d+$", name), f"No timestamp+pid suffix in {name!r}"
+    assert re.search(r"\d{8}_\d{6}_[0-9a-f]{8}$", name), f"No timestamp+uuid suffix in {name!r}"
 
 
 def test_resolve_output_dir_respects_explicit_flag(tmp_path):
@@ -91,6 +91,7 @@ def test_resolve_output_dir_respects_explicit_flag(tmp_path):
 def test_resolve_output_dir_falls_back_to_projects_when_no_config(tmp_path, monkeypatch):
     """When config.json is missing, fallback is <repo_root>/Projects/."""
     monkeypatch.setattr(main_mod, "project_root", str(tmp_path))
+    monkeypatch.setattr(main_mod, "PROJECT_ROOT", tmp_path)
     result = main_mod._resolve_output_dir(
         input_path="/fake/path/episode.wav",
         output_dir_flag=None,
