@@ -12,7 +12,7 @@ Mikup uses **Vizia 0.3.0** for the frontend to ensure 120fps telemetry and zero-
 - **Custom Drawing:** Use the `Canvas` API for high-frequency visualizations (Waveforms, Unified Forensic Graph).
 
 ## Forensic Dashboard Architecture
-Project Mikup is a visual-first forensic application. The UI is architected with a **Z-ordered 2-Column Suite**.
+Project Mikup is a visual-first forensic application. The UI is architected with a **Z-ordered 2-Column Suite**. For a detailed visual representation, see [docs/UI_LAYOUT.md](../docs/UI_LAYOUT.md).
 
 ### 1. The Root ZStack (Layers)
 - **Base Layer:** The primary 2-column `HStack`.

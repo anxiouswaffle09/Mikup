@@ -140,7 +140,7 @@ To prevent VRAM corruption or stranded processes during heavy ML tasks (Separati
 - **Python Response:** The backend catches the signal, flushes all pending JSON logs, deletes any partial transient artifacts, and exits with a `130` code.
 
 ## 9. UI-First Forensic Dashboards
-Project Mikup is a visual-first forensic application. The UI is architected as a **2-Column Forensic Suite** (70/30 split) using Vizia's `HStack`.
+Project Mikup is a visual-first forensic application. The UI is architected as a **2-Column Forensic Suite** (70/30 split) using Vizia's `HStack`. For a detailed visual blueprint, refer to [docs/UI_LAYOUT.md](UI_LAYOUT.md).
 
 ### 9.1 Column 1: The Forensic Canvas (Left - 70%)
 The primary research area for visualizing time-based data.
