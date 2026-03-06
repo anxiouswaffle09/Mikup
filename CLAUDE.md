@@ -39,6 +39,8 @@ The server auto-refreshes the index before every tool call — no manual `index_
 
 **Sniper discipline:** Identify all edit targets before fetching any symbols. Only fetch symbols you will edit or that answer a blocking question. Batch `get_symbol` + the 1-line Edit stub `Read` in the same parallel call.
 
+**After creating a new source file:** call `jcm_index_folder(path=<project_root>, incremental=true)` before querying the new file with any jcm tool.
+
 ---
 
 ## ✏️ Edit Protocol (Mandatory)

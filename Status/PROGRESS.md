@@ -35,4 +35,3 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 
 ## Next Steps 🚀
 1.  **[Claude/Codex]** Refine DSP metrics: Ensure Vocal Texture applies only to DX, Transient events to FX/MX, and Intelligibility uses Master/Stems.
-2.  **[Claude]** Add "Seek Sensitivity" toggle in Vizia settings for smoother high-zoom scrubbing.

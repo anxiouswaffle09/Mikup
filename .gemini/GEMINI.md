@@ -31,6 +31,8 @@ The server auto-refreshes the index before every tool call — no manual `index_
 
 **Sniper discipline:** Identify targets before fetching symbols. Only fetch what you will actually use.
 
+**After creating a new source file:** call `index_folder(path=<project_root>, incremental=true)` before querying the new file with any jcm tool.
+
 ---
 
 ## 🤖 Implementation Team

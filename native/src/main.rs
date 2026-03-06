@@ -197,6 +197,8 @@ fn main() {
         AppData {
             volume: 1.0,
             playing: false,
+            seek_sensitivity: 1.0,
+            is_scrubbing: false,
             project_name: project_name.clone(),
             current_view: initial_view.clone(),
             available_projects: available_projects.clone(),
