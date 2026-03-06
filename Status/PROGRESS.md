@@ -22,7 +22,7 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 - [x] **Forensic Canvas UI Redesign:** Vizia UI updated to 2-Column Forensic Canvas, integrating Unified LUFS Graph and markers.
 
 ### 🚧 In Progress
-- [ ] **Scrubbing Ergonomics:** Adding a "Seek Sensitivity" toggle in the Vizia settings for smoother high-zoom scrubbing.
+- [x] **Scrubbing Ergonomics:** Adding a "Seek Sensitivity" toggle in the Vizia settings for smoother high-zoom scrubbing.
 
 ## Decision Vault 🏛️
 | Date | Decision | Rationale |
