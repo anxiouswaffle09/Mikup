@@ -92,18 +92,21 @@ impl ForensicMarker {
         }
     }
 
-    /// Build masking alert if SNR is below threshold.
-    pub fn masking_alert(timestamp_ms: u64, snr: f64) -> Self {
+    /// Build masking alert marker with a caller-provided context label.
+    pub fn masking_alert(timestamp_ms: u64, context: impl Into<String>) -> Self {
         Self {
             timestamp_ms,
             duration_ms: 0,
             kind: MarkerKind::MaskingAlert,
-            context: format!("SNR: {snr:.1} dB"),
+            context: context.into(),
         }
     }
 
     pub fn from_masking(alert: &MaskingAlert) -> Self {
-        let mut marker = Self::masking_alert((alert.timestamp * 1000.0) as u64, alert.snr);
+        let mut marker = Self::masking_alert(
+            (alert.timestamp * 1000.0) as u64,
+            format!("SNR: {:.1} dB", alert.snr),
+        );
         marker.duration_ms = alert.duration_ms;
         if !alert.context.is_empty() {
             marker.context = alert.context.clone();
@@ -621,12 +624,11 @@ impl Model for AppData {
 #[derive(Lens, Clone)]
 pub struct AudioEngineStore {
     pub playhead_ms: u64,
-    pub dx_lufs: f32,
-    pub music_lufs: f32,
-    pub effects_lufs: f32,
-    pub dx_peak_dbtp: f32,
-    pub music_peak_dbtp: f32,
-    pub effects_peak_dbtp: f32,
+    pub master_lufs: f32,
+    pub master_peak_dbtp: f32,
+    pub master_transient_density: f32,
+    pub dialogue_spectral_entropy: f32,
+    pub masking_intensity: f32,
 }
 
 /// Zero-allocation telemetry snapshot.  All fields are `Copy`; spatial data
@@ -634,24 +636,22 @@ pub struct AudioEngineStore {
 #[derive(Debug, Clone, Copy)]
 pub struct AudioEngineStoreUpdate {
     pub playhead_ms: u64,
-    pub dx_lufs: f32,
-    pub music_lufs: f32,
-    pub effects_lufs: f32,
-    pub dx_peak_dbtp: f32,
-    pub music_peak_dbtp: f32,
-    pub effects_peak_dbtp: f32,
+    pub master_lufs: f32,
+    pub master_peak_dbtp: f32,
+    pub master_transient_density: f32,
+    pub dialogue_spectral_entropy: f32,
+    pub masking_intensity: f32,
 }
 
 impl Model for AudioEngineStore {
     fn event(&mut self, _cx: &mut EventContext, event: &mut Event) {
         event.map(|u: &AudioEngineStoreUpdate, _meta| {
             self.playhead_ms = u.playhead_ms;
-            self.dx_lufs = u.dx_lufs;
-            self.music_lufs = u.music_lufs;
-            self.effects_lufs = u.effects_lufs;
-            self.dx_peak_dbtp = u.dx_peak_dbtp;
-            self.music_peak_dbtp = u.music_peak_dbtp;
-            self.effects_peak_dbtp = u.effects_peak_dbtp;
+            self.master_lufs = u.master_lufs;
+            self.master_peak_dbtp = u.master_peak_dbtp;
+            self.master_transient_density = u.master_transient_density;
+            self.dialogue_spectral_entropy = u.dialogue_spectral_entropy;
+            self.masking_intensity = u.masking_intensity;
         });
     }
 }

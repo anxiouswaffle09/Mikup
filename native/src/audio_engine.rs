@@ -1,15 +1,16 @@
 use std::path::PathBuf;
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use atomic_float::AtomicF32;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use crate::dsp::loudness::LoudnessAnalyzer;
+use crate::dsp::loudness::MasterLoudnessAnalyzer;
 use crate::dsp::spatial::SpatialAnalyzer;
-use crate::dsp::{MikupAudioDecoder, shared_default_stem_states};
+use crate::dsp::spectral::SpectralAnalyzer;
+use crate::dsp::{shared_default_stem_states, MikupAudioDecoder};
 
 pub static VOLUME: AtomicF32 = AtomicF32::new(1.0);
 
@@ -46,12 +47,11 @@ enum FadeState {
 #[derive(Debug, Clone, Copy)]
 pub struct Telemetry {
     pub playhead_ms: u64,
-    pub dx_lufs: f32,
-    pub music_lufs: f32,
-    pub effects_lufs: f32,
-    pub dx_peak_dbtp: f32,
-    pub music_peak_dbtp: f32,
-    pub effects_peak_dbtp: f32,
+    pub master_lufs: f32,
+    pub master_peak_dbtp: f32,
+    pub master_transient_density: f32,
+    pub dialogue_spectral_entropy: f32,
+    pub masking_intensity: f32,
     /// 256 X/Y pairs interleaved: [x0, y0, x1, y1, ...]. Mid-Side Lissajous.
     pub spatial_xy: [f32; 512],
     pub phase_correlation: f32,
@@ -191,7 +191,9 @@ fn dsp_thread_main(
         }
     };
 
-    let mut loudness = LoudnessAnalyzer::new(DSP_SAMPLE_RATE).expect("create loudness analyzer");
+    let mut loudness =
+        MasterLoudnessAnalyzer::new(DSP_SAMPLE_RATE).expect("create loudness analyzer");
+    let mut spectral = SpectralAnalyzer::new(DSP_SAMPLE_RATE, CHUNK_SIZE);
 
     // ── Pre-allocate resampler ───────────────────────────────────────────
     let params = SincInterpolationParameters {
@@ -232,6 +234,7 @@ fn dsp_thread_main(
                         } else {
                             resampler.reset();
                             loudness.reset();
+                            spectral.reset();
                             playhead_samples = ms * DSP_SAMPLE_RATE as u64 / 1000;
                             finished = false;
                         }
@@ -267,6 +270,7 @@ fn dsp_thread_main(
                         finished = false;
                         resampler.reset();
                         loudness.reset();
+                        spectral.reset();
                         fade_state = FadeState::Steady;
                     }
                 }
@@ -305,6 +309,7 @@ fn dsp_thread_main(
 
         // EBU R128 loudness metering
         let lufs_metrics = loudness.process_frame(frame).unwrap_or_default();
+        let spectral_metrics = spectral.process_frame(frame);
 
         // Spatial analysis → Lissajous points + phase correlation
         let spatial_metrics = spatial.process_frame(frame);
@@ -389,6 +394,7 @@ fn dsp_thread_main(
                 finished = false;
                 resampler.reset();
                 loudness.reset();
+                spectral.reset();
                 fade_state = FadeState::FadingIn {
                     remaining: FADE_SAMPLES,
                 };
@@ -419,12 +425,11 @@ fn dsp_thread_main(
 
         let _ = telemetry_tx.push(Telemetry {
             playhead_ms,
-            dx_lufs: lufs_metrics.dialogue.momentary_lufs,
-            music_lufs: lufs_metrics.music.momentary_lufs,
-            effects_lufs: lufs_metrics.effects.momentary_lufs,
-            dx_peak_dbtp: lufs_metrics.dialogue.true_peak_dbtp,
-            music_peak_dbtp: lufs_metrics.music.true_peak_dbtp,
-            effects_peak_dbtp: lufs_metrics.effects.true_peak_dbtp,
+            master_lufs: lufs_metrics.master.momentary_lufs,
+            master_peak_dbtp: lufs_metrics.master.true_peak_dbtp,
+            master_transient_density: lufs_metrics.master.transient_density,
+            dialogue_spectral_entropy: spectral_metrics.dialogue_spectral_entropy,
+            masking_intensity: spectral_metrics.masking_intensity,
             spatial_xy,
             phase_correlation: spatial_metrics.phase_correlation,
             spatial_point_count: n_out as u16,

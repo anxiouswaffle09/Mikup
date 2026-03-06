@@ -93,7 +93,7 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                     .color(Color::rgb(220, 220, 235))
                     .height(Pixels(16.0));
                 if !master_waveform.is_empty() {
-                    WaveformView::insert(cx, Arc::clone(&master_waveform))
+                    WaveformView::insert(cx, Arc::clone(&master_waveform), duration)
                         .width(Stretch(1.0))
                         .height(Stretch(1.0));
                 } else {
@@ -140,11 +140,9 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                     .top(Pixels(8.0));
 
                 VStack::new(cx, |cx| {
-                    LufsMeterRow::dialogue(cx);
-                    LufsMeterRow::music(cx);
-                    LufsMeterRow::effects(cx);
+                    LufsMeterRow::master(cx);
                 })
-                .height(Pixels(120.0));
+                .height(Pixels(40.0));
 
                 // ── Storage Gauge ────────────────────────────────────────────
                 Label::new(cx, "Storage")

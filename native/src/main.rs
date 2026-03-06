@@ -17,8 +17,8 @@ use vizia::style::Color;
 
 use audio_engine::AudioController;
 use models::{
-    AppData, AudioEngineStore, AudioEngineStoreUpdate, MaybeProject, ProjectMetadata, ViewState,
-    WorkspaceAssets, build_forensic_markers,
+    build_forensic_markers, AppData, AudioEngineStore, AudioEngineStoreUpdate, MaybeProject,
+    ProjectMetadata, ViewState, WorkspaceAssets,
 };
 use project::Project;
 use vectorscope_view::VectorscopeData;
@@ -223,12 +223,11 @@ fn main() {
 
         AudioEngineStore {
             playhead_ms: 0,
-            dx_lufs: -70.0,
-            music_lufs: -70.0,
-            effects_lufs: -70.0,
-            dx_peak_dbtp: -120.0,
-            music_peak_dbtp: -120.0,
-            effects_peak_dbtp: -120.0,
+            master_lufs: -70.0,
+            master_peak_dbtp: -120.0,
+            master_transient_density: 0.0,
+            dialogue_spectral_entropy: 0.0,
+            masking_intensity: 0.0,
         }
         .build(cx);
 
@@ -251,12 +250,11 @@ fn main() {
                     }
                     cx.emit(AudioEngineStoreUpdate {
                         playhead_ms: t.playhead_ms,
-                        dx_lufs: t.dx_lufs,
-                        music_lufs: t.music_lufs,
-                        effects_lufs: t.effects_lufs,
-                        dx_peak_dbtp: t.dx_peak_dbtp,
-                        music_peak_dbtp: t.music_peak_dbtp,
-                        effects_peak_dbtp: t.effects_peak_dbtp,
+                        master_lufs: t.master_lufs,
+                        master_peak_dbtp: t.master_peak_dbtp,
+                        master_transient_density: t.master_transient_density,
+                        dialogue_spectral_entropy: t.dialogue_spectral_entropy,
+                        masking_intensity: t.masking_intensity,
                     });
                 }
             }
