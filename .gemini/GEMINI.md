@@ -22,10 +22,14 @@ The server auto-refreshes the index before every tool call — no manual `index_
 3. `get_symbol` / `get_symbols` — targeted source retrieval
 4. `search_symbols` — find by name/kind/language
 5. `search_text` — literals, comments, config values
+6. `find_constructors` / `find_callers` / `find_references` / `find_field_reads` / `find_field_writes` — wiring verification, dead-code detection
 
 **`Read` only for:** `.toml`, `.json`, `.md`, shell scripts. Never on source files.
 
-**`search_text` over shell for literals:** Use `search_text` to find call sites, error messages, and identifiers — not `grep`/`rg`. Shell is only for regex patterns `search_text` cannot express (anchors, character classes, lookaheads). `search_text` defaults to `max_results=20` — for common patterns this truncates after 1-2 files; pass `file_pattern` to narrow scope or raise `max_results` explicitly. Check `files_searched` in the response to confirm full coverage.
+**`search_text` over shell for literals:** Use `search_text` to find call sites, error messages, and identifiers. For punctuation-heavy exact strings (macro invocations, enum variants, log strings), use `search_text(exact=True)` — case-sensitive, no shell needed. Shell (`rg -n -F`) is only for regex patterns jcm cannot express. Check `total_hits` in every response — if a `warning` field is present, results are truncated; rerun with `exhaustive=True` before drawing conclusions.
+**Cross-ref limits:** `find_*` coverage is strongest for Rust and Python; unsupported languages may return coverage warnings. If multiple in-repo symbols share the same short name, `find_*` may withhold merged results and return candidates instead of a conflated count.
+
+**Wiring verification:** Before claiming a type is wired in production, call `find_constructors(type_name, production_only=True)`. Zero production hits = not wired. If `refs.json` is missing, re-index before trusting `find_*`.
 
 **File location:** When a file's path is not known, call `get_file_tree` before `get_file_outline`. An empty `symbols: []` result means the path is wrong — recover with `get_file_tree` immediately, do not proceed.
 

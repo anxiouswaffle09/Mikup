@@ -4,11 +4,17 @@
 
 A modification to the local `jcodemunch-mcp` MCP server that automatically runs
 an incremental index refresh on watched folders **before every tool call** that
-reads the index (`search_symbols`, `get_symbol`, `get_file_outline`, etc.).
+reads the index (`search_symbols`, `get_symbol`, `get_file_outline`,
+`search_text`, `get_repo_outline`, `get_file_tree`, and the `find_*`
+cross-reference tools).
 
 This guarantees the index is never stale mid-session, regardless of whether the
 agent remembered to call `jcm_index_folder` at session start. It fires on every
 task, not just at session boundaries.
+
+If an older index exists without `refs.json`, the first incremental refresh now
+backfills the xref cache as well, so the `find_*` tools become usable without a
+manual cache wipe.
 
 **Skipped for:** `index_folder`, `index_repo`, `invalidate_cache` — the agent
 called those explicitly, no need to pre-refresh.
@@ -30,6 +36,11 @@ very large repos.
 
 The install is **editable** (`pip install -e .`), so editing `server.py` takes
 effect on the next process start — no reinstall needed.
+
+Use the local `.venv/bin/jcodemunch-mcp` binary directly in CLI configs. Do not
+point CLIs at `uvx jcodemunch-mcp` if you want the locally modified server,
+because `uvx` can resolve a published package that does not include your local
+patches.
 
 ---
 
@@ -72,6 +83,10 @@ pkill -f jcodemunch-mcp
 ```
 
 No reinstall required. No CLI restart required.
+
+If you change the CLI config itself (for example from `uvx jcodemunch-mcp` to a
+direct local binary path), start a fresh CLI session so the MCP process is
+relaunched from the new command.
 
 ---
 
@@ -174,7 +189,8 @@ Then write the config with those paths:
 }
 ```
 
-**Gemini CLI** — add to `~/.gemini/settings.json`:
+**Gemini CLI** — add to `~/.gemini/settings.json` or the project-level
+`.gemini/settings.json`:
 ```json
 {
   "mcpServers": {
@@ -191,6 +207,10 @@ Then write the config with those paths:
 [mcp_servers.jcodemunch]
 command = "/path/to/jcodemunch-mcp/.venv/bin/jcodemunch-mcp"
 ```
+
+Using the direct local binary matters here: the current local server exposes 16
+tools, including the `find_*` xref APIs. A CLI pointed at an older published
+package can still come up with the older 11-tool set.
 
 ### 6. Kill running processes to apply
 

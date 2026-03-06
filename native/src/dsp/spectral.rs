@@ -6,14 +6,15 @@ use rustfft::{Fft, FftPlanner};
 use crate::dsp::SyncedAudioFrame;
 
 const EPSILON: f32 = 1.0e-12;
-const SPEECH_LOW_HZ: f32 = 1_000.0;
-const SPEECH_HIGH_HZ: f32 = 4_000.0;
+const SPEECH_LOW_HZ: f32 = 300.0;
+const SPEECH_HIGH_HZ: f32 = 3_400.0;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SpectralMetrics {
     pub dialogue_centroid_hz: f32,
     pub background_centroid_hz: f32,
-    pub speech_pocket_masked: bool,
+    pub dialogue_spectral_entropy: f32,
+    pub masking_intensity: f32,
     pub dialogue_speech_energy: f32,
     pub background_speech_energy: f32,
     pub snr_db: f32,
@@ -82,6 +83,7 @@ impl SpectralAnalyzer {
             spectral_centroid_hz(&self.dialogue_magnitudes, self.sample_rate);
         let background_centroid_hz =
             spectral_centroid_hz(&self.background_magnitudes, self.sample_rate);
+        let dialogue_spectral_entropy = spectral_entropy(&self.dialogue_magnitudes);
         let dialogue_speech_energy = speech_band_energy(
             &self.dialogue_magnitudes,
             self.sample_rate,
@@ -99,7 +101,8 @@ impl SpectralAnalyzer {
         SpectralMetrics {
             dialogue_centroid_hz,
             background_centroid_hz,
-            speech_pocket_masked: background_speech_energy > dialogue_speech_energy,
+            dialogue_spectral_entropy,
+            masking_intensity: masking_intensity(dialogue_speech_energy, background_speech_energy),
             dialogue_speech_energy,
             background_speech_energy,
             snr_db,
@@ -188,6 +191,27 @@ fn speech_band_energy(magnitudes: &[f32], sample_rate: u32, low_hz: f32, high_hz
         .sum::<f32>()
 }
 
+fn spectral_entropy(magnitudes: &[f32]) -> f32 {
+    let total = magnitudes.iter().copied().sum::<f32>();
+    if total <= EPSILON {
+        return 0.0;
+    }
+
+    magnitudes
+        .iter()
+        .copied()
+        .filter(|&m| m > EPSILON)
+        .map(|m| {
+            let probability = m / total;
+            -probability * probability.log2()
+        })
+        .sum()
+}
+
+fn masking_intensity(dialogue_energy: f32, background_energy: f32) -> f32 {
+    (background_energy / (dialogue_energy + EPSILON)).clamp(0.0, 1.0)
+}
+
 fn signal_to_noise_ratio_db(dialogue: &[f32], background: &[f32]) -> f32 {
     let len = dialogue.len().min(background.len());
     if len == 0 {
@@ -228,5 +252,22 @@ mod tests {
 
         let metrics = analyzer.process_frame(&frame);
         assert!((metrics.dialogue_centroid_hz - tone_hz).abs() < 250.0);
+    }
+
+    #[test]
+    fn spectral_entropy_tracks_texture_spread() {
+        let narrowband = spectral_entropy(&[1.0, 0.0, 0.0, 0.0]);
+        let broadband = spectral_entropy(&[1.0, 1.0, 1.0, 1.0]);
+
+        assert!(narrowband < 0.001);
+        assert!((broadband - 2.0).abs() < 0.01);
+        assert!(broadband > narrowband);
+    }
+
+    #[test]
+    fn masking_intensity_is_ratio_clamped_to_one() {
+        assert!((masking_intensity(4.0, 1.0) - 0.25).abs() < 1.0e-6);
+        assert_eq!(masking_intensity(0.0, 10.0), 1.0);
+        assert_eq!(masking_intensity(0.0, 0.0), 0.0);
     }
 }

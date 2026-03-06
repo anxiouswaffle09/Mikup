@@ -5,6 +5,7 @@ use vizia::prelude::*;
 use vizia::vg::{Color, Paint, PaintStyle, Path};
 
 use crate::dsp::scanner::WaveformPeak;
+use crate::models::{AppData, AppEvent, AudioEngineStore, AudioEngineStoreUpdate};
 
 const WAVEFORM_SCALE: f32 = 0.45;
 
@@ -33,8 +34,11 @@ struct CachedPath {
 
 pub struct WaveformView {
     pub peaks: Vec<WaveformPeak>,
+    pub total_duration_ms: u64,
     pub scroll_offset: f32,
     pub zoom: f32,
+    pub scrub_anchor_x: f32,
+    pub scrub_anchor_ts_ms: u64,
     path_cache: RefCell<Option<CachedPath>>,
 }
 
@@ -49,22 +53,65 @@ impl WaveformView {
             let max = chunk.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             peaks[chunk_idx] = WaveformPeak { min, max };
         }
-        Self::from_peaks(&peaks)
+        Self::from_peaks(&peaks, 0)
     }
 
-    pub fn from_peaks(peaks: &[WaveformPeak]) -> Self {
+    pub fn from_peaks(peaks: &[WaveformPeak], total_duration_ms: u64) -> Self {
         Self {
             peaks: peaks.to_vec(),
+            total_duration_ms,
             scroll_offset: 0.0,
             zoom: 1.0,
+            scrub_anchor_x: 0.0,
+            scrub_anchor_ts_ms: 0,
             path_cache: RefCell::new(None),
         }
     }
 
     /// Insert into the Vizia tree and return a Handle.
     /// Accepts `Arc<Vec<WaveformPeak>>` to avoid a deep copy at the call site.
-    pub fn insert(cx: &mut Context, peaks: Arc<Vec<WaveformPeak>>) -> Handle<'_, Self> {
-        Self::from_peaks(peaks.as_slice()).build(cx, |_| {})
+    pub fn insert(
+        cx: &mut Context,
+        peaks: Arc<Vec<WaveformPeak>>,
+        total_duration_ms: u64,
+    ) -> Handle<'_, Self> {
+        Self::from_peaks(peaks.as_slice(), total_duration_ms).build(cx, |_| {})
+    }
+
+    fn timestamp_to_x(&self, bounds: &BoundingBox, ts_ms: u64) -> f32 {
+        if self.total_duration_ms == 0 {
+            return bounds.x;
+        }
+
+        let t = ts_ms as f32 / self.total_duration_ms as f32;
+        bounds.x + t * bounds.w
+    }
+
+    fn clamp_timestamp_ms(&self, ts_ms: f32) -> u64 {
+        ts_ms.clamp(0.0, self.total_duration_ms as f32).round() as u64
+    }
+
+    fn absolute_timestamp_ms(&self, bounds: &BoundingBox, x: f32) -> u64 {
+        if self.total_duration_ms == 0 || bounds.w <= 0.0 {
+            return 0;
+        }
+
+        let rel_x = ((x - bounds.x) / bounds.w).clamp(0.0, 1.0);
+        self.clamp_timestamp_ms(rel_x * self.total_duration_ms as f32)
+    }
+
+    fn scrub_timestamp_ms(&self, bounds: &BoundingBox, x: f32, sensitivity: f32) -> u64 {
+        if self.total_duration_ms == 0 || bounds.w <= 0.0 {
+            return 0;
+        }
+
+        if (sensitivity - 1.0).abs() <= f32::EPSILON {
+            return self.absolute_timestamp_ms(bounds, x);
+        }
+
+        let delta_ms =
+            ((x - self.scrub_anchor_x) / bounds.w) * self.total_duration_ms as f32 * sensitivity;
+        self.clamp_timestamp_ms(self.scrub_anchor_ts_ms as f32 + delta_ms)
     }
 
     /// LOD + viewport culling. Returns at most `canvas_width` peaks covering the visible range.
@@ -122,8 +169,49 @@ impl WaveformView {
 }
 
 impl View for WaveformView {
+    fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
+        event.map(|_update: &AudioEngineStoreUpdate, _meta| {
+            cx.needs_redraw();
+        });
+
+        event.take(|window_event: WindowEvent, _| match window_event {
+            WindowEvent::MouseDown(MouseButton::Left) => {
+                let bounds = cx.bounds();
+                let x = cx.mouse().cursor_x;
+                let ts_ms = self.absolute_timestamp_ms(&bounds, x);
+
+                self.scrub_anchor_x = x;
+                self.scrub_anchor_ts_ms = ts_ms;
+
+                cx.capture();
+                cx.emit(AppEvent::StartScrubbing);
+                cx.emit(AppEvent::SeekTo(ts_ms));
+                cx.needs_redraw();
+            }
+            WindowEvent::MouseMove(x, _) => {
+                if AppData::is_scrubbing.get(cx) {
+                    let bounds = cx.bounds();
+                    let sensitivity = AppData::seek_sensitivity.get(cx).clamp(0.1, 10.0);
+                    let ts_ms = self.scrub_timestamp_ms(&bounds, x, sensitivity);
+                    cx.emit(AppEvent::SeekTo(ts_ms));
+                    cx.needs_redraw();
+                }
+            }
+            WindowEvent::MouseUp(MouseButton::Left) => {
+                cx.release();
+                cx.emit(AppEvent::StopScrubbing);
+                cx.needs_redraw();
+            }
+            _ => {}
+        });
+    }
+
     fn draw(&self, cx: &mut DrawContext, canvas: &Canvas) {
         let b = cx.bounds();
+        if b.w <= 0.0 || b.h <= 0.0 {
+            return;
+        }
+
         let new_key = CacheKey::from_viewport(b.w, self.scroll_offset, self.zoom);
 
         let mut cache = self.path_cache.borrow_mut();
@@ -156,6 +244,18 @@ impl View for WaveformView {
         paint.set_color(Color::from_rgb(137, 180, 250));
         paint.set_stroke_width(1.0);
         canvas.draw_path(&c.path, &paint);
+
+        let playhead_x = self.timestamp_to_x(&b, AudioEngineStore::playhead_ms.get(cx));
+        let mut playhead_path = Path::new();
+        playhead_path.move_to((playhead_x, b.y));
+        playhead_path.line_to((playhead_x, b.y + b.h));
+
+        let mut playhead_paint = Paint::default();
+        playhead_paint.set_style(PaintStyle::Stroke);
+        playhead_paint.set_color(Color::from_rgb(255, 255, 255));
+        playhead_paint.set_stroke_width(1.5);
+        playhead_paint.set_anti_alias(true);
+        canvas.draw_path(&playhead_path, &playhead_paint);
     }
 }
 
@@ -173,7 +273,7 @@ mod tests {
     #[test]
     fn peak_table_length_matches_chunks() {
         let view = make_view(44100);
-        // Default chunk = 256 samples → ceil(44100/256) = 173 entries
+        // Default chunk = 256 samples \u2192 ceil(44100/256) = 173 entries
         assert_eq!(view.peaks.len(), (44100 + 255) / 256);
     }
 
@@ -187,7 +287,7 @@ mod tests {
     #[test]
     fn lod_returns_fewer_peaks_when_zoomed_in() {
         let view = make_view(44100 * 60);
-        // zoom=2.0 → 2px per peak → need canvas_width/2 peaks
+        // zoom=2.0 \u2192 2px per peak \u2192 need canvas_width/2 peaks
         let visible = view.visible_peaks(0.0, 2.0, 800);
         assert_eq!(visible.len(), 400);
     }
@@ -195,7 +295,7 @@ mod tests {
     #[test]
     fn lod_clamps_to_available_peaks() {
         let view = make_view(1024);
-        // Request more pixels than peaks → returns all peaks
+        // Request more pixels than peaks \u2192 returns all peaks
         let visible = view.visible_peaks(0.0, 1.0, 10_000);
         assert_eq!(visible.len(), view.peaks.len());
     }

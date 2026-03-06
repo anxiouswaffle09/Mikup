@@ -15,7 +15,7 @@ use symphonia::core::probe::Hint;
 use symphonia::default::{get_codecs, get_probe};
 
 use super::loudness::{LoudnessAnalyzer, LoudnessError};
-use super::{AudioDecodeError, MikupAudioDecoder, SyncedAudioFrame, shared_default_stem_states};
+use super::{shared_default_stem_states, AudioDecodeError, MikupAudioDecoder, SyncedAudioFrame};
 
 const LUFS_FLOOR: f32 = -70.0;
 const LUFS_CEILING: f32 = 0.0;

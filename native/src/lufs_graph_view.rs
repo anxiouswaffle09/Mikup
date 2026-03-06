@@ -4,7 +4,7 @@ use vizia::prelude::*;
 use vizia::vg::{Color, Font, Paint, PaintStyle, Path, PathDirection, PathEffect};
 
 use crate::dsp::scanner::LufsTelemetrySample;
-use crate::models::{AppData, AppEvent, ForensicMarker, MarkerKind};
+use crate::models::{AppData, AppEvent, AudioEngineStoreUpdate, ForensicMarker, MarkerKind};
 
 const LUFS_MIN: f32 = -60.0;
 const LUFS_MAX: f32 = 0.0;
@@ -21,15 +21,23 @@ const CURVES: [(Color, fn(&LufsTelemetrySample) -> f32); 3] = [
 const MASTER_CURVE_COLOR: Color = Color::from_rgb(240, 240, 245);
 const PACING_CURVE_COLOR: Color = Color::from_argb(220, 255, 255, 255);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HoveredMarker {
+    Static(usize),
+    LiveMasking,
+}
+
 pub struct LufsGraphView {
     samples: Arc<Vec<LufsTelemetrySample>>,
     master_lufs: Arc<Vec<f32>>,
     pacing_density: Arc<Vec<f32>>,
     markers: Arc<Vec<ForensicMarker>>,
     total_duration_ms: u64,
-    hovered_marker: Option<usize>,
+    hovered_marker: Option<HoveredMarker>,
     scrub_anchor_x: f32,
     scrub_anchor_ts_ms: u64,
+    live_playhead_ms: u64,
+    live_masking_intensity: f32,
 }
 
 impl LufsGraphView {
@@ -50,6 +58,8 @@ impl LufsGraphView {
             hovered_marker: None,
             scrub_anchor_x: 0.0,
             scrub_anchor_ts_ms: 0,
+            live_playhead_ms: 0,
+            live_masking_intensity: 0.0,
         }
         .build(cx, |_| {})
     }
@@ -90,8 +100,17 @@ impl LufsGraphView {
         self.clamp_timestamp_ms(self.scrub_anchor_ts_ms as f32 + delta_ms)
     }
 
+    fn live_masking_marker(&self) -> Option<ForensicMarker> {
+        (self.live_masking_intensity > 0.7).then(|| {
+            ForensicMarker::masking_alert(
+                self.live_playhead_ms,
+                format!("Masking: {:.2}", self.live_masking_intensity),
+            )
+        })
+    }
+
     /// Find marker index under the given (x, y) position, if any.
-    fn hit_test_marker(&self, bounds: &BoundingBox, x: f32, y: f32) -> Option<usize> {
+    fn hit_test_marker(&self, bounds: &BoundingBox, x: f32, y: f32) -> Option<HoveredMarker> {
         let marker_y = bounds.y + 8.0; // Markers sit near top
         let half = MARKER_SIZE / 2.0;
 
@@ -99,7 +118,14 @@ impl LufsGraphView {
             let mx = self.timestamp_to_x(bounds, m.timestamp_ms);
             // Check if (x, y) is within the marker icon bounding box
             if x >= mx - half && x <= mx + half && y >= marker_y - half && y <= marker_y + half {
-                return Some(i);
+                return Some(HoveredMarker::Static(i));
+            }
+        }
+
+        if let Some(marker) = self.live_masking_marker() {
+            let mx = self.timestamp_to_x(bounds, marker.timestamp_ms);
+            if x >= mx - half && x <= mx + half && y >= marker_y - half && y <= marker_y + half {
+                return Some(HoveredMarker::LiveMasking);
             }
         }
         None
@@ -227,6 +253,17 @@ impl LufsGraphView {
 
 impl View for LufsGraphView {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
+        event.map(|update: &AudioEngineStoreUpdate, _meta| {
+            self.live_playhead_ms = update.playhead_ms;
+            self.live_masking_intensity = update.masking_intensity;
+            if self.live_masking_intensity <= 0.7
+                && self.hovered_marker == Some(HoveredMarker::LiveMasking)
+            {
+                self.hovered_marker = None;
+            }
+            cx.needs_redraw();
+        });
+
         event.take(|window_event: WindowEvent, _| match window_event {
             WindowEvent::MouseDown(MouseButton::Left) => {
                 let bounds = cx.bounds();
@@ -270,6 +307,7 @@ impl View for LufsGraphView {
 
     fn draw(&self, cx: &mut DrawContext, canvas: &Canvas) {
         let b = cx.bounds();
+        let live_masking_marker = self.live_masking_marker();
         if b.w <= 0.0
             || b.h <= 0.0
             || (self.samples.is_empty()
@@ -376,6 +414,18 @@ impl View for LufsGraphView {
             canvas.draw_path(&path, &paint);
         }
 
+        let playhead_x = self.timestamp_to_x(&b, self.live_playhead_ms);
+        let mut playhead_path = Path::new();
+        playhead_path.move_to((playhead_x, b.y));
+        playhead_path.line_to((playhead_x, b.y + b.h));
+
+        let mut playhead_paint = Paint::default();
+        playhead_paint.set_style(PaintStyle::Stroke);
+        playhead_paint.set_color(Color::from_rgb(255, 255, 255));
+        playhead_paint.set_stroke_width(1.5);
+        playhead_paint.set_anti_alias(true);
+        canvas.draw_path(&playhead_path, &playhead_paint);
+
         // ── Forensic Markers Layer ───────────────────────────────────────────
         for (i, marker) in self.markers.iter().enumerate() {
             let x = self.timestamp_to_x(&b, marker.timestamp_ms);
@@ -383,13 +433,25 @@ impl View for LufsGraphView {
             if x < b.x || x > b.x + b.w {
                 continue;
             }
-            let hovered = self.hovered_marker == Some(i);
+            let hovered = self.hovered_marker == Some(HoveredMarker::Static(i));
             Self::draw_marker(canvas, &b, marker, x, hovered);
         }
 
+        if let Some(marker) = live_masking_marker.as_ref() {
+            let x = self.timestamp_to_x(&b, marker.timestamp_ms);
+            if x >= b.x && x <= b.x + b.w {
+                let hovered = self.hovered_marker == Some(HoveredMarker::LiveMasking);
+                Self::draw_marker(canvas, &b, marker, x, hovered);
+            }
+        }
+
         // Draw tooltip text for hovered marker (separate pass — drawn above all curves).
-        if let Some(idx) = self.hovered_marker {
-            if let Some(marker) = self.markers.get(idx) {
+        if let Some(hovered_marker) = self.hovered_marker {
+            let marker = match hovered_marker {
+                HoveredMarker::Static(idx) => self.markers.get(idx),
+                HoveredMarker::LiveMasking => live_masking_marker.as_ref(),
+            };
+            if let Some(marker) = marker {
                 let x = self.timestamp_to_x(&b, marker.timestamp_ms);
                 let tooltip_y = b.y + 8.0 + MARKER_SIZE / 2.0 + 4.0;
                 let tooltip_w = 180.0f32.min(b.w * 0.4);

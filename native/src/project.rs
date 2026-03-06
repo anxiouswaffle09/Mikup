@@ -4,8 +4,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::scanner::{
-    ScannerError, TELEMETRY_CACHE_FILE_NAME, TelemetryCache, generate_telemetry_cache,
-    load_telemetry_cache,
+    generate_telemetry_cache, load_telemetry_cache, ScannerError, TelemetryCache,
+    TELEMETRY_CACHE_FILE_NAME,
 };
 use crate::models::ProjectMetadata;
 

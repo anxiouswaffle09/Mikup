@@ -22,6 +22,7 @@ The server auto-refreshes the index before every tool call — no manual `index_
 3. `jcm_get_file_outline` — all symbols and signatures without reading the full file
 4. `jcm_get_symbol` / `jcm_get_symbols` — fetch only the specific function/struct needed
 5. `jcm_search_text` — string literals, comments, config values
+6. `jcm_find_constructors` / `jcm_find_callers` / `jcm_find_references` / `jcm_find_field_reads` / `jcm_find_field_writes` — wiring verification, dead-code detection, field access tracking
 
 **Hard bans:**
 - 🚫 `Read` on `.rs` / `.py` / `.ts` to understand structure — use `jcm_get_file_outline` instead
@@ -30,8 +31,10 @@ The server auto-refreshes the index before every tool call — no manual `index_
 - 🚫 `Grep` for plain string searches — use `jcm_search_text` instead. Grep is only for regex that jcm cannot express.
 
 **`Read` is reserved for:** `.toml`, `.json`, `.md`, shell scripts — non-indexed files only.
-**`Grep` is reserved for:** regex patterns jcodemunch cannot match (anchors, character classes, lookaheads). A plain literal like `print(` is a `search_text` job, not a Grep job.
-**`search_text` max_results:** Default is 20 — for common patterns this truncates after 1-2 files. Always pass `file_pattern` to narrow scope, or set `max_results` explicitly (e.g. 100) for broad searches. Check `files_searched` in the response to confirm coverage.
+**`Grep` is reserved for:** regex patterns jcodemunch cannot match (anchors, character classes, lookaheads). For punctuation-heavy exact string literals — macro invocations (`Slider::new(`), call-site enumeration (`SeekTo(`), log/error text — use `jcm_search_text(exact=True)` instead (case-sensitive native match, no shell needed). `rg -n -F` is the fallback only when jcm is unavailable.
+**`search_text` truncation:** Check `total_hits` in every response. If a `warning` field is present, results are truncated — rerun with `exhaustive=True` or `offset` to page before drawing conclusions.
+**Cross-ref limits:** `jcm_find_*` coverage is strongest for Rust and Python; unsupported languages may return coverage warnings. If multiple in-repo symbols share the same short name, `jcm_find_*` may withhold merged results and return candidates instead of a conflated count.
+**Wiring verification (mandatory):** Before claiming a struct/type is wired in production, call `jcm_find_constructors(type_name, production_only=True)`. Zero production hits = not wired, regardless of whether the symbol exists in the index. If `refs.json` is missing, re-index before trusting `jcm_find_*`.
 
 **`Read` fallback (source files):** Permitted when — (a) jcm tools are unavailable or returning incomplete/stale results, or (b) symbol-level context is insufficient and wider file context is genuinely required. Use `offset` + `limit` to target the relevant range, not the full file.
 
