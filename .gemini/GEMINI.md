@@ -53,6 +53,7 @@ The server auto-refreshes the index before every tool call — no manual `index_
 - **New tech:** Research and update the relevant `best_practices/reference/` file. These are the single source of truth for implementation standards.
 - **Task delegation:** All delegated tasks must include context, technical specs (referencing `best_practices/`), and clear acceptance criteria.
 - **Progress:** Update `Status/PROGRESS.md` before starting a task (plan) and after finishing (result).
+- **Auto-Update Docs:** Automatically identify and update all relevant technical documentation (`docs/SPEC.md`, `docs/UI_LAYOUT.md`, etc.) immediately after any architectural decision or implementation completion. Never allow documentation to drift from the actual codebase or design state.
 
 ---
 

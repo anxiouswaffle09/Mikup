@@ -1,7 +1,7 @@
 # Mikup Technical Specification (Source of Truth)
 
-**Version:** 0.3.0-beta
-**Focus:** Hybrid Surgical Separation (MBR + CDX23)
+**Version:** 0.3.6-beta
+**Focus:** Forensic Baselines & Theatrical Translation
 **Platforms:** Windows (10/11), macOS (Silicon/Intel)
 
 ## 1. Surgical Separation Pipeline (Stage 1)
@@ -46,9 +46,9 @@ The project officially deprecates the 5-stem "Cinematic Trinity" split in favor 
 - **FFmpeg:** Must be in system PATH (e.g., via `scoop` or manual install).
 - **UI:** Native Vizia 0.3.0 binary (DirectX/Skia).
 
-### Runtime Environment (WSL2)
-- **Agent Context:** All implementation agents (Gemini, Claude, Codex) and the Python processing pipeline run within **WSL2 (Ubuntu 24.04)**.
-- **Execution:** While processing happens in WSL2, hardware-accelerated tasks (DirectML/CUDA) are passed through to the Windows GPU drivers.
+### Runtime Environment (WSL2 / Darwin / Windows)
+- **Rust/Python Boundary:** Python is strictly an **Offline ML Engine** (Separation, Transcription, Semantics). **Rust owns all real-time DSP, level metering, and historical telemetry generation.**
+- **Telemetry Cache:** To ensure instant project loading, Rust performs a high-speed offline scan of all stems on the first project open and saves a binary `.mikup_cache` file. Subsequent opens read from this cache instead of re-analyzing audio.
 - **Dev Environment Setup:** Running the Vizia binary inside WSL2 requires Mesa and an ALSA→PulseAudio bridge. Run `bash scripts/setup-wsl2-dev.sh` once per WSL2 installation before attempting to launch `cargo run` in `native/`. See `AGENTS.md` for full details.
 
 ## 4. Engineering Standards
@@ -66,6 +66,7 @@ The project officially deprecates the 5-stem "Cinematic Trinity" split in favor 
 - **Mikup Console:** A real-time, autoscrolling terminal log in the "Processing" view.
 - **Visuals:** Minimalist Light / Pastel (`oklch()`).
 - **Telemetry:** 120fps live metering (LUFS, Phase, Vectorscope) via Vizia Model/Lens architecture.
+- **Unified Scrubbing:** The entire Forensic Canvas (Waveforms + Graphs) is interactive. Mouse interactions utilize a "Seek Sensitivity" multiplier for precise timeline navigation.
 
 ## 6. Workspace Layout
 
@@ -86,6 +87,7 @@ Projects/
       dsp_metrics.json
       semantics.json
       .mikup_context.md
+      .mikup_cache   ← binary telemetry cache (Rust generated)
     mikup_payload.json
     mikup_report.md     ← written only if AI Director runs
 ```
@@ -94,9 +96,6 @@ Projects/
 `data/` is reserved for machine-level state only:
 - `data/history.json` — ordered index of all processed projects (last 50).
 - `data/config.json` — settings: `default_projects_dir`, future preferences.
-
-`data/processed/`, `data/raw/`, `data/output/` are legacy paths; do not create
-new artifacts there.
 
 ## 7. Versioned Iteration & Invalidation Protocol
 
@@ -133,38 +132,29 @@ The bi-directional chat uses a persistent stdin/stdout pipe.
 - **User Override:** If a user manually specifies a timestamp in their text (e.g., "Check the noise at 01:20"), the AI should prioritize the text-based timestamp over the silent `playhead_time` context.
 - **Timestamp Interaction:** Clicking a `[MM:SS:ms]` timestamp in the chat UI will **move the playhead only**. No auto-looping or soloing is performed.
 
-**Graceful Cancellation Protocol:**
-To prevent VRAM corruption or stranded processes during heavy ML tasks (Separation/Transcription):
-- **Signal Handling:** The Python backend implements a `SIGTERM` handler.
-- **Rust Command:** When the user clicks "Cancel," Rust sends a `SIGTERM` to the child process.
-- **Python Response:** The backend catches the signal, flushes all pending JSON logs, deletes any partial transient artifacts, and exits with a `130` code.
-
 ## 9. UI-First Forensic Dashboards
 Project Mikup is a visual-first forensic application. The UI is architected as a **2-Column Forensic Suite** (70/30 split) using Vizia's `HStack`. For a detailed visual blueprint, refer to [docs/UI_LAYOUT.md](UI_LAYOUT.md).
 
 ### 9.1 Column 1: The Forensic Canvas (Left - 70%)
 The primary research area for visualizing time-based data.
-- **Reference Waveform:** Top-most track showing the original file waveform (Visual Truth).
-- **Unified Forensic Graph:** Middle track showing high-resolution curves on a **fixed -60 to 0 LUFS scale**:
+- **Reference Waveform:** Top-most track showing the original file waveform (Visual Truth). Interactive for scrubbing.
+- **Unified Forensic Graph:** Middle track showing high-resolution curves on a **fixed -60 to 0 LUFS scale**. These curves are pre-calculated by the **Rust Offline Scanner** at 10Hz and read from the binary cache:
     - **Yellow (Solid):** `DX` Integrated LUFS.
     - **Purple (Solid):** `Music` Integrated LUFS.
     - **Cyan (Solid):** `Effects` Integrated LUFS.
     - **White (Solid):** `Master` Integrated LUFS.
     - **White (Dashed):** `Pacing Density` (Syllables per second).
-- **Forensic Markers (Anomalies):** Discrete icons pinned to the graph at exact timestamps:
-    - **Masking Alert ( ! ):** STOI or Spectral SNR drops below thresholds.
-    - **Impact Peak ( ⚡ ):** Sudden transients in Effects/Music.
-    - **Ducking Signature ( ⬇️ ):** Mathematical detection of deliberate gain reduction.
-    - **Pacing Milestone ( 🏁 ):** Acceleration or deceleration points (>30% shift).
+- **Forensic Markers (Anomalies):** Discrete icons pinned to the graph at exact timestamps.
 - **Main Stage (Footer):** Semantic tags (e.g., `[TRAFFIC]`, `[RAIN]`) and the system log terminal.
 
 ### 9.2 Column 2: The Data Center (Right - 30%)
-The research deep-dive area, starting parallel to the Reference Waveform.
-- **Global Vitals (Persistent Top):** High-density meters for Master LUFS, Clarity (STOI), and Energy (Speech Rate).
-- **Forensic Radar (Tabbed Research):** A tabbed workstations area:
-    - **[ MIX ]:** Full Dynamics/LRA dials for all stems.
-    - **[ PACE ]:** nPVI Rhythm Index, Articulation Rate, and Silence Ratio dials.
-    - **[ TEX ]:** Spectral Centroid, Stereo Width, and Texture markers.
+The research cockpit for the **Master Mix** in real-time.
+- **Master Metrics (Persistent Top):** Unified real-time meters for **Master LUFS**, **Master Peak (dBTP)**, and **Master Dynamics (Crest Factor)**.
+- **Forensic Baselines:** The UI allows users to select a **Project Mode** (e.g., Cinema, Audio Drama, Web). This updates real-time target markers and delta (Δ) readouts based on `Audio_Standards.md`.
+- **Forensic Radar (Tabbed Research):** 
+    - **[ MIX ]:** Vectorscope (Master Phase/Width), LRA, and Crest Factor. Features a **Fader 5 Safety Check** to simulate real-world theater playback.
+    - **[ PACE ]:** Pacing Density (derived from Transcription) and Speech Rate.
+    - **[ TEX ]:** **Vocal Texture** (Spectral Entropy) - *Note: This remains mapped specifically to the DX stem for diagnostic clarity.*
 
 ### 9.3 The Floating AI Director
 - **Visualization:** A floating overlay bubble ( (AI) ) in the bottom-right corner, implemented via Vizia `ZStack`.
