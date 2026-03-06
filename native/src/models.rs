@@ -187,6 +187,8 @@ impl Data for ProjectMetadata {
 pub struct AppData {
     pub volume: f32,
     pub playing: bool,
+    pub seek_sensitivity: f32,
+    pub is_scrubbing: bool,
     pub project_name: String,
     pub current_view: ViewState,
     pub available_projects: Vec<ProjectMetadata>,
@@ -211,6 +213,9 @@ pub enum AppEvent {
     TogglePlay,
     SetVolume(f32),
     SeekTo(u64),
+    SetSeekSensitivity(f32),
+    StartScrubbing,
+    StopScrubbing,
     LoadProject(PathBuf),
     SelectNewAudioFile,
     StartPipeline(PathBuf),
@@ -248,6 +253,13 @@ impl AppData {
                         let _ = guard.cmd_tx.push(AudioCmd::Seek(ms));
                     }
                 }
+            }
+            AppEvent::SetSeekSensitivity(v) => self.seek_sensitivity = v.clamp(0.1, 10.0),
+            AppEvent::StartScrubbing => {
+                self.is_scrubbing = true;
+            }
+            AppEvent::StopScrubbing => {
+                self.is_scrubbing = false;
             }
             AppEvent::ProjectReady(assets) => {
                 self.loaded_project = MaybeProject(Some(assets));
@@ -654,6 +666,8 @@ mod tests {
         AppData {
             volume: 1.0,
             playing: false,
+            seek_sensitivity: 1.0,
+            is_scrubbing: false,
             project_name: String::new(),
             current_view: ViewState::Landing,
             available_projects: Vec::new(),
@@ -688,6 +702,24 @@ mod tests {
         assert_eq!(data.volume, 1.0);
         data.apply_event(AppEvent::SetVolume(-0.1));
         assert_eq!(data.volume, 0.0);
+    }
+
+    #[test]
+    fn set_seek_sensitivity_clamps_to_supported_range() {
+        let mut data = make_appdata();
+        data.apply_event(AppEvent::SetSeekSensitivity(12.0));
+        assert_eq!(data.seek_sensitivity, 10.0);
+        data.apply_event(AppEvent::SetSeekSensitivity(0.05));
+        assert_eq!(data.seek_sensitivity, 0.1);
+    }
+
+    #[test]
+    fn scrubbing_events_flip_flag() {
+        let mut data = make_appdata();
+        data.apply_event(AppEvent::StartScrubbing);
+        assert!(data.is_scrubbing);
+        data.apply_event(AppEvent::StopScrubbing);
+        assert!(!data.is_scrubbing);
     }
 
     #[test]

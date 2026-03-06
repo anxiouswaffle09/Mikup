@@ -184,6 +184,35 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                         .height(Pixels(16.0));
                 });
 
+                Label::new(cx, "Scrubbing Settings")
+                    .color(Color::rgb(180, 180, 200))
+                    .height(Pixels(20.0))
+                    .top(Pixels(8.0));
+
+                HStack::new(cx, |cx| {
+                    Label::new(cx, "Seek Sensitivity")
+                        .color(Color::rgb(160, 160, 180))
+                        .width(Stretch(1.0));
+
+                    Label::new(
+                        cx,
+                        AppData::seek_sensitivity.map(|value| format!("{value:.1}x")),
+                    )
+                    .color(Color::rgb(200, 200, 220))
+                    .width(Pixels(44.0));
+                })
+                .height(Pixels(18.0))
+                .width(Stretch(1.0));
+
+                Slider::new(cx, AppData::seek_sensitivity)
+                    .range(0.1..10.0)
+                    .step(0.1)
+                    .on_change(|cx, value| {
+                        cx.emit(AppEvent::SetSeekSensitivity(value));
+                    })
+                    .width(Stretch(1.0))
+                    .height(Pixels(24.0));
+
                 // ── Redo Stage Buttons ──────────────────────────────────────
                 Label::new(cx, "Re-run Stage")
                     .color(Color::rgb(180, 180, 200))

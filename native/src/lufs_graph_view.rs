@@ -4,7 +4,7 @@ use vizia::prelude::*;
 use vizia::vg::{Color, Font, Paint, PaintStyle, Path, PathDirection, PathEffect};
 
 use crate::dsp::scanner::LufsTelemetrySample;
-use crate::models::{ForensicMarker, MarkerKind};
+use crate::models::{AppData, AppEvent, ForensicMarker, MarkerKind};
 
 const LUFS_MIN: f32 = -60.0;
 const LUFS_MAX: f32 = 0.0;
@@ -28,6 +28,8 @@ pub struct LufsGraphView {
     markers: Arc<Vec<ForensicMarker>>,
     total_duration_ms: u64,
     hovered_marker: Option<usize>,
+    scrub_anchor_x: f32,
+    scrub_anchor_ts_ms: u64,
 }
 
 impl LufsGraphView {
@@ -46,6 +48,8 @@ impl LufsGraphView {
             markers,
             total_duration_ms,
             hovered_marker: None,
+            scrub_anchor_x: 0.0,
+            scrub_anchor_ts_ms: 0,
         }
         .build(cx, |_| {})
     }
@@ -57,6 +61,33 @@ impl LufsGraphView {
         }
         let t = ts_ms as f32 / self.total_duration_ms as f32;
         bounds.x + t * bounds.w
+    }
+
+    fn clamp_timestamp_ms(&self, ts_ms: f32) -> u64 {
+        ts_ms.clamp(0.0, self.total_duration_ms as f32) as u64
+    }
+
+    fn absolute_timestamp_ms(&self, bounds: &BoundingBox, x: f32) -> u64 {
+        if self.total_duration_ms == 0 || bounds.w <= 0.0 {
+            return 0;
+        }
+
+        let rel_x = ((x - bounds.x) / bounds.w).clamp(0.0, 1.0);
+        self.clamp_timestamp_ms(rel_x * self.total_duration_ms as f32)
+    }
+
+    fn scrub_timestamp_ms(&self, bounds: &BoundingBox, x: f32, sensitivity: f32) -> u64 {
+        if self.total_duration_ms == 0 || bounds.w <= 0.0 {
+            return 0;
+        }
+
+        if (sensitivity - 1.0).abs() <= f32::EPSILON {
+            return self.absolute_timestamp_ms(bounds, x);
+        }
+
+        let delta_ms =
+            ((x - self.scrub_anchor_x) / bounds.w) * self.total_duration_ms as f32 * sensitivity;
+        self.clamp_timestamp_ms(self.scrub_anchor_ts_ms as f32 + delta_ms)
     }
 
     /// Find marker index under the given (x, y) position, if any.
@@ -197,9 +228,36 @@ impl LufsGraphView {
 impl View for LufsGraphView {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
         event.take(|window_event: WindowEvent, _| match window_event {
+            WindowEvent::MouseDown(MouseButton::Left) => {
+                let bounds = cx.bounds();
+                let x = cx.mouse().cursor_x;
+                let y = cx.mouse().cursor_y;
+                let ts_ms = self.absolute_timestamp_ms(&bounds, x);
+
+                self.scrub_anchor_x = x;
+                self.scrub_anchor_ts_ms = ts_ms;
+                self.hovered_marker = self.hit_test_marker(&bounds, x, y);
+
+                cx.capture();
+                cx.emit(AppEvent::StartScrubbing);
+                cx.emit(AppEvent::SeekTo(ts_ms));
+                cx.needs_redraw();
+            }
             WindowEvent::MouseMove(x, y) => {
                 let bounds = cx.bounds();
                 self.hovered_marker = self.hit_test_marker(&bounds, x, y);
+
+                if AppData::is_scrubbing.get(cx) {
+                    let sensitivity = AppData::seek_sensitivity.get(cx).clamp(0.1, 10.0);
+                    let ts_ms = self.scrub_timestamp_ms(&bounds, x, sensitivity);
+                    cx.emit(AppEvent::SeekTo(ts_ms));
+                }
+
+                cx.needs_redraw();
+            }
+            WindowEvent::MouseUp(MouseButton::Left) => {
+                cx.release();
+                cx.emit(AppEvent::StopScrubbing);
                 cx.needs_redraw();
             }
             WindowEvent::MouseOut => {
