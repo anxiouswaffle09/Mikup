@@ -46,10 +46,10 @@ The project officially deprecates the 5-stem "Cinematic Trinity" split in favor 
 - **FFmpeg:** Must be in system PATH (e.g., via `scoop` or manual install).
 - **UI:** Native Vizia 0.3.0 binary (DirectX/Skia).
 
-### Runtime Environment (WSL2 Hybrid)
-- **Agent Context:** All implementation agents (Gemini, Claude, Codex) and the Python processing pipeline run within **WSL2 (Ubuntu)**.
-- **Cross-OS Access:** The codebase resides on the Windows host (`/mnt/d/SoftwareDev/Mikup`), allowing agents to modify files that the Windows-native Vizia UI then consumes.
+### Runtime Environment (WSL2)
+- **Agent Context:** All implementation agents (Gemini, Claude, Codex) and the Python processing pipeline run within **WSL2 (Ubuntu 24.04)**.
 - **Execution:** While processing happens in WSL2, hardware-accelerated tasks (DirectML/CUDA) are passed through to the Windows GPU drivers.
+- **Dev Environment Setup:** Running the Vizia binary inside WSL2 requires Mesa and an ALSA→PulseAudio bridge. Run `bash scripts/setup-wsl2-dev.sh` once per WSL2 installation before attempting to launch `cargo run` in `native/`. See `AGENTS.md` for full details.
 
 ## 4. Engineering Standards
 

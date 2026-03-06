@@ -1,10 +1,11 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 use vizia::prelude::*;
 use vizia::style::Color;
 
 use crate::audio_engine::VOLUME;
+use crate::lufs_graph_view::LufsGraphView;
 use crate::lufs_meter::LufsMeterRow;
 use crate::models::{AppData, AppEvent, AudioEngineStore, StageName, WorkspaceAssets};
 use crate::vectorscope_view::{VectorscopeData, VectorscopeView};
@@ -35,14 +36,17 @@ fn storage_color(_usage: u64, total: u64, available: u64) -> Color {
     }
 }
 
-/// Builds the full workspace layout (waveforms + sidebar).
-/// All data is accessed via `Arc` clones so this can be called from a
-/// `Fn + 'static` Binding closure.
+/// Builds the 2-Column Forensic Suite (70/30 split).
+/// Column 1: Reference waveform (Master) + Unified LUFS graph.
+/// Column 2: Vectorscope, LUFS meters, Storage gauge, Redo buttons, Transcript.
 pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<VectorscopeData>>) {
-    let dx_arc = Arc::clone(&assets.dx_samples);
-    let music_arc = Arc::clone(&assets.music_samples);
-    let effects_arc = Arc::clone(&assets.effects_samples);
+    let master_waveform_arc = Arc::clone(&assets.master_waveform);
+    let lufs_arc = Arc::clone(&assets.lufs_samples);
+    let master_lufs_arc = Arc::clone(&assets.master_lufs);
+    let pacing_density_arc = Arc::clone(&assets.pacing_density);
     let transcript_arc = Arc::clone(&assets.transcript_items);
+    let markers_arc = Arc::clone(&assets.forensic_markers);
+    let total_duration_ms = assets.total_duration_ms;
     let scope_arc = scope_data;
 
     VStack::new(cx, move |cx| {
@@ -74,49 +78,51 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
         })
         .height(Pixels(40.0));
 
-        // ── Main content: waveforms left + sidebar right ──────────────────────
+        // ── 2-Column Forensic Suite ───────────────────────────────────────────
         HStack::new(cx, move |cx| {
-            // ── Waveform stack ────────────────────────────────────────────────
-            let dx = dx_arc.clone();
-            let music = music_arc.clone();
-            let fx = effects_arc.clone();
+            // ── Column 1: Forensic Canvas (70%) ──────────────────────────────
+            let master_waveform = master_waveform_arc.clone();
+            let lufs = lufs_arc.clone();
+            let master_lufs = master_lufs_arc.clone();
+            let pacing_density = pacing_density_arc.clone();
+            let markers = markers_arc.clone();
+            let duration = total_duration_ms;
             VStack::new(cx, move |cx| {
-                Label::new(cx, "Dialogue (DX)")
-                    .color(Color::rgb(137, 180, 250))
+                // Reference Waveform — master mix, original source audio.
+                Label::new(cx, "Reference Waveform (Master)")
+                    .color(Color::rgb(220, 220, 235))
                     .height(Pixels(16.0));
-                if !dx.is_empty() {
-                    WaveformView::insert(cx, Arc::clone(&dx))
+                if !master_waveform.is_empty() {
+                    WaveformView::insert(cx, Arc::clone(&master_waveform))
                         .width(Stretch(1.0))
                         .height(Stretch(1.0));
                 } else {
-                    Label::new(cx, "(no DX stem)").height(Stretch(1.0));
+                    Label::new(cx, "(no reference waveform)").height(Stretch(1.0));
                 }
 
-                Label::new(cx, "Music")
-                    .color(Color::rgb(166, 227, 161))
-                    .height(Pixels(16.0));
-                if !music.is_empty() {
-                    WaveformView::insert(cx, Arc::clone(&music))
-                        .width(Stretch(1.0))
-                        .height(Stretch(1.0));
-                } else {
-                    Label::new(cx, "(no Music stem)").height(Stretch(1.0));
-                }
-
-                Label::new(cx, "Effects")
-                    .color(Color::rgb(249, 226, 175))
-                    .height(Pixels(16.0));
-                if !fx.is_empty() {
-                    WaveformView::insert(cx, Arc::clone(&fx))
-                        .width(Stretch(1.0))
-                        .height(Stretch(1.0));
-                } else {
-                    Label::new(cx, "(no FX stem)").height(Stretch(1.0));
-                }
+                // Unified LUFS graph with Forensic Markers overlay
+                Label::new(
+                    cx,
+                    "LUFS Analysis  ■ Master  ■ DX  ■ Music  ■ Effects  ╍ Pacing",
+                )
+                .color(Color::rgb(160, 160, 180))
+                .height(Pixels(16.0))
+                .top(Pixels(6.0));
+                LufsGraphView::new(
+                    cx,
+                    Arc::clone(&lufs),
+                    Arc::clone(&master_lufs),
+                    Arc::clone(&pacing_density),
+                    Arc::clone(&markers),
+                    duration,
+                )
+                .width(Stretch(1.0))
+                .height(Stretch(1.0));
             })
-            .width(Stretch(1.0));
+            .width(Stretch(7.0))
+            .height(Stretch(1.0));
 
-            // ── Sidebar ───────────────────────────────────────────────────────
+            // ── Column 2: Data Center (30%) ───────────────────────────────────
             let scope = scope_arc.clone();
             let tr = transcript_arc.clone();
             VStack::new(cx, move |cx| {
@@ -146,7 +152,6 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                     .height(Pixels(20.0))
                     .top(Pixels(8.0));
 
-                // Gauge track
                 Binding::new(cx, AppData::project_disk_usage, |cx, _| {
                     let usage = AppData::project_disk_usage.get(cx);
                     let available = AppData::system_available_space.get(cx);
@@ -195,14 +200,12 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                     ];
                     for (label, stage) in stages {
                         let s = stage.clone();
-                        Button::new(cx, move |cx| {
-                            Label::new(cx, label)
-                        })
-                        .on_press(move |cx| {
-                            cx.emit(AppEvent::RedoStage(s.clone()));
-                        })
-                        .width(Stretch(1.0))
-                        .height(Pixels(24.0));
+                        Button::new(cx, move |cx| Label::new(cx, label))
+                            .on_press(move |cx| {
+                                cx.emit(AppEvent::RedoStage(s.clone()));
+                            })
+                            .width(Stretch(1.0))
+                            .height(Pixels(24.0));
                     }
                 })
                 .height(Pixels(24.0))
@@ -236,7 +239,7 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
                 .width(Stretch(1.0))
                 .height(Stretch(1.0));
             })
-            .width(Pixels(300.0))
+            .width(Stretch(3.0))
             .height(Stretch(1.0));
         })
         .width(Stretch(1.0))

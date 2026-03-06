@@ -40,7 +40,7 @@ impl View for VectorscopeView {
             return;
         }
 
-        let data = self.data.lock().unwrap();
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         let points = &data.points;
         let corr = data.correlation.clamp(-1.0, 1.0);
 
@@ -215,11 +215,11 @@ mod tests {
     fn data_round_trips_through_mutex() {
         let shared = Arc::new(Mutex::new(VectorscopeData::default()));
         {
-            let mut d = shared.lock().unwrap();
+            let mut d = shared.lock().unwrap_or_else(|e| e.into_inner());
             d.points = vec![0.1, 0.2, 0.3, 0.4];
             d.correlation = 0.85;
         }
-        let d = shared.lock().unwrap();
+        let d = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(d.points.len(), 4);
         assert!((d.correlation - 0.85).abs() < 1e-6);
     }

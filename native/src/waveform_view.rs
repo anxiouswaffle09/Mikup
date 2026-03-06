@@ -4,13 +4,9 @@ use std::sync::Arc;
 use vizia::prelude::*;
 use vizia::vg::{Color, Paint, PaintStyle, Path};
 
-const PEAK_CHUNK: usize = 256;
+use crate::dsp::scanner::WaveformPeak;
 
-#[derive(Clone, Copy, Default)]
-pub struct Peak {
-    pub min: f32,
-    pub max: f32,
-}
+const WAVEFORM_SCALE: f32 = 0.45;
 
 /// Integer viewport key — avoids float NaN/equality issues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,23 +32,29 @@ struct CachedPath {
 }
 
 pub struct WaveformView {
-    pub peaks: Vec<Peak>,
+    pub peaks: Vec<WaveformPeak>,
     pub scroll_offset: f32,
     pub zoom: f32,
     path_cache: RefCell<Option<CachedPath>>,
 }
 
 impl WaveformView {
+    #[cfg(test)]
     pub fn new(samples: &[f32]) -> Self {
+        const PEAK_CHUNK: usize = 256;
         let n_peaks = samples.len().div_ceil(PEAK_CHUNK);
-        let mut peaks = vec![Peak::default(); n_peaks];
+        let mut peaks = vec![WaveformPeak::default(); n_peaks];
         for (chunk_idx, chunk) in samples.chunks(PEAK_CHUNK).enumerate() {
             let min = chunk.iter().copied().fold(f32::INFINITY, f32::min);
             let max = chunk.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            peaks[chunk_idx] = Peak { min, max };
+            peaks[chunk_idx] = WaveformPeak { min, max };
         }
+        Self::from_peaks(&peaks)
+    }
+
+    pub fn from_peaks(peaks: &[WaveformPeak]) -> Self {
         Self {
-            peaks,
+            peaks: peaks.to_vec(),
             scroll_offset: 0.0,
             zoom: 1.0,
             path_cache: RefCell::new(None),
@@ -60,9 +62,9 @@ impl WaveformView {
     }
 
     /// Insert into the Vizia tree and return a Handle.
-    /// Accepts `Arc<Vec<f32>>` to avoid a deep copy at the call site.
-    pub fn insert(cx: &mut Context, samples: Arc<Vec<f32>>) -> Handle<'_, Self> {
-        Self::new(&*samples).build(cx, |_| {})
+    /// Accepts `Arc<Vec<WaveformPeak>>` to avoid a deep copy at the call site.
+    pub fn insert(cx: &mut Context, peaks: Arc<Vec<WaveformPeak>>) -> Handle<'_, Self> {
+        Self::from_peaks(peaks.as_slice()).build(cx, |_| {})
     }
 
     /// LOD + viewport culling. Returns at most `canvas_width` peaks covering the visible range.
@@ -70,7 +72,12 @@ impl WaveformView {
     /// - `scroll_offset`: first visible peak index (float, in peak-table units)
     /// - `zoom`: canvas pixels per peak (zoom > 1 = zoomed in, < 1 = zoomed out)
     /// - `canvas_width`: number of pixels (= max peaks to return)
-    pub fn visible_peaks(&self, scroll_offset: f32, zoom: f32, canvas_width: usize) -> Vec<Peak> {
+    pub fn visible_peaks(
+        &self,
+        scroll_offset: f32,
+        zoom: f32,
+        canvas_width: usize,
+    ) -> Vec<WaveformPeak> {
         let total = self.peaks.len();
         if total == 0 || canvas_width == 0 {
             return Vec::new();
@@ -107,7 +114,7 @@ impl WaveformView {
                     .iter()
                     .map(|p| p.max)
                     .fold(f32::NEG_INFINITY, f32::max);
-                out.push(Peak { min, max });
+                out.push(WaveformPeak { min, max });
             }
             out
         }
@@ -134,9 +141,9 @@ impl View for WaveformView {
 
             for (i, peak) in peaks.iter().enumerate() {
                 let x = b.x + i as f32 * x_step;
-                path.move_to((x, mid_y - peak.max.abs() * b.h * 0.45));
+                path.move_to((x, mid_y - peak.max.abs() * b.h * WAVEFORM_SCALE));
                 path.line_to((x, mid_y));
-                path.line_to((x, mid_y + peak.min.abs() * b.h * 0.45));
+                path.line_to((x, mid_y + peak.min.abs() * b.h * WAVEFORM_SCALE));
             }
 
             *cache = Some(CachedPath { key: new_key, path });

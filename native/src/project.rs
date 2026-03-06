@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::dsp::{self, AudioDecodeError};
+use crate::dsp::scanner::{
+    ScannerError, TELEMETRY_CACHE_FILE_NAME, TelemetryCache, generate_telemetry_cache,
+    load_telemetry_cache,
+};
 use crate::models::ProjectMetadata;
 
 /// Recursively sum file sizes under `path`. Returns 0 on error.
@@ -131,15 +134,21 @@ pub struct PacingMikup {
     pub context: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct LufsGraph {
+    #[serde(default, alias = "DX", alias = "dialogue_raw")]
+    pub dx: Option<LufsChannel>,
+    #[serde(default, alias = "Music")]
+    pub music: Option<LufsChannel>,
+    #[serde(default, alias = "Effects", alias = "background_raw")]
+    pub effects: Option<LufsChannel>,
+    #[serde(default, alias = "Master", alias = "master")]
+    pub master: Option<LufsChannel>,
     #[serde(default)]
-    pub dialogue_raw: Option<LufsChannel>,
-    #[serde(default)]
-    pub background_raw: Option<LufsChannel>,
+    pub pacing_density: Vec<f32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LufsChannel {
     pub integrated: f64,
     #[serde(default)]
@@ -148,14 +157,58 @@ pub struct LufsChannel {
     pub short_term: Vec<f64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct DiagnosticMeters {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_snr_value")]
     pub intelligibility_snr: f64,
     #[serde(default)]
     pub stereo_correlation: f64,
     #[serde(default)]
     pub stereo_balance: f64,
+    #[serde(default)]
+    pub masking_alerts: Vec<MaskingAlert>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MaskingAlert {
+    pub timestamp: f64,
+    #[serde(default)]
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub snr: f64,
+    #[serde(default)]
+    pub context: String,
+}
+
+fn deserialize_snr_value<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(extract_numeric_min(&value).unwrap_or(0.0))
+}
+
+fn extract_numeric_min(value: &serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(number) => {
+            number.as_f64().filter(|candidate| candidate.is_finite())
+        }
+        serde_json::Value::Array(values) => values
+            .iter()
+            .filter_map(extract_numeric_min)
+            .reduce(f64::min),
+        serde_json::Value::Object(map) => {
+            for key in ["snr", "value", "series", "values", "samples", "timeline"] {
+                if let Some(candidate) = map.get(key).and_then(extract_numeric_min) {
+                    return Some(candidate);
+                }
+            }
+            map.values()
+                .filter_map(extract_numeric_min)
+                .reduce(f64::min)
+        }
+        _ => None,
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -178,28 +231,26 @@ pub struct Artifacts {
     pub stem_paths: Vec<String>,
 }
 
-/// Resolved project: payload + decoded stem samples ready for the UI.
+/// Resolved project: payload + cached telemetry ready for the UI.
 pub struct Project {
     pub payload: MikupPayload,
     pub project_dir: PathBuf,
     pub stems: ResolvedStems,
+    pub telemetry: TelemetryCache,
 }
 
 pub struct ResolvedStems {
     pub dx_path: PathBuf,
     pub music_path: PathBuf,
     pub effects_path: PathBuf,
-    pub dx_samples: Vec<f32>,
-    pub music_samples: Vec<f32>,
-    pub effects_samples: Vec<f32>,
-    pub sample_rate: u32,
+    pub source_path: Option<PathBuf>,
 }
 
 #[derive(Debug)]
 pub enum ProjectError {
     Io(std::io::Error),
     Json(serde_json::Error),
-    Decode(AudioDecodeError),
+    Scanner(ScannerError),
     MissingStems(String),
 }
 
@@ -208,13 +259,22 @@ impl std::fmt::Display for ProjectError {
         match self {
             Self::Io(e) => write!(f, "project I/O error: {e}"),
             Self::Json(e) => write!(f, "payload parse error: {e}"),
-            Self::Decode(e) => write!(f, "stem decode error: {e}"),
+            Self::Scanner(e) => write!(f, "telemetry cache error: {e}"),
             Self::MissingStems(msg) => write!(f, "missing stems: {msg}"),
         }
     }
 }
 
-impl std::error::Error for ProjectError {}
+impl std::error::Error for ProjectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Json(err) => Some(err),
+            Self::Scanner(err) => Some(err),
+            Self::MissingStems(_) => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for ProjectError {
     fn from(e: std::io::Error) -> Self {
@@ -228,9 +288,9 @@ impl From<serde_json::Error> for ProjectError {
     }
 }
 
-impl From<AudioDecodeError> for ProjectError {
-    fn from(e: AudioDecodeError) -> Self {
-        Self::Decode(e)
+impl From<ScannerError> for ProjectError {
+    fn from(e: ScannerError) -> Self {
+        Self::Scanner(e)
     }
 }
 
@@ -408,7 +468,7 @@ fn default_projects_dir() -> PathBuf {
 }
 
 impl Project {
-    /// Load a mikup_payload.json and decode all stems into mono sample buffers.
+    /// Load a mikup_payload.json and hydrate fast waveform/LUFS telemetry.
     /// `path` should point to the payload JSON file.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ProjectError> {
         let path = path.as_ref();
@@ -418,11 +478,46 @@ impl Project {
         let payload: MikupPayload = serde_json::from_slice(&json_bytes)?;
 
         let stems = Self::resolve_stems(&payload, &project_dir)?;
+        let cache_path = telemetry_cache_path(path);
+        let mut dependencies = vec![path, &stems.dx_path, &stems.music_path, &stems.effects_path];
+        if let Some(source_path) = stems.source_path.as_ref() {
+            dependencies.push(source_path);
+        }
+        let pacing_density = payload
+            .metrics
+            .lufs_graph
+            .as_ref()
+            .map(|graph| graph.pacing_density.as_slice())
+            .unwrap_or(&[]);
+        let telemetry = if telemetry_cache_is_fresh(&cache_path, &dependencies) {
+            if let Some(cache) = load_telemetry_cache(&cache_path) {
+                cache
+            } else {
+                generate_telemetry_cache(
+                    &stems.dx_path,
+                    &stems.music_path,
+                    &stems.effects_path,
+                    stems.source_path.as_deref(),
+                    pacing_density,
+                    &cache_path,
+                )?
+            }
+        } else {
+            generate_telemetry_cache(
+                &stems.dx_path,
+                &stems.music_path,
+                &stems.effects_path,
+                stems.source_path.as_deref(),
+                pacing_density,
+                &cache_path,
+            )?
+        };
 
         Ok(Self {
             payload,
             project_dir,
             stems,
+            telemetry,
         })
     }
 
@@ -483,24 +578,42 @@ impl Project {
         let dx_path = resolve(&stem_paths[dx_idx]);
         let music_path = resolve(&stem_paths[music_idx]);
         let effects_path = resolve(&stem_paths[effects_idx]);
-
-        eprintln!("[mikup] Loading DX stem: {}", dx_path.display());
-        let (dx_samples, dx_rate) = dsp::decode_wav_to_mono(&dx_path)?;
-        eprintln!("[mikup] Loading Music stem: {}", music_path.display());
-        let (music_samples, _) = dsp::decode_wav_to_mono(&music_path)?;
-        eprintln!("[mikup] Loading Effects stem: {}", effects_path.display());
-        let (effects_samples, _) = dsp::decode_wav_to_mono(&effects_path)?;
+        let source_path = {
+            let candidate = payload.metadata.source_file.trim();
+            if candidate.is_empty() {
+                None
+            } else {
+                let resolved = resolve(candidate);
+                resolved.exists().then_some(resolved)
+            }
+        };
 
         Ok(ResolvedStems {
             dx_path,
             music_path,
             effects_path,
-            dx_samples,
-            music_samples,
-            effects_samples,
-            sample_rate: dx_rate,
+            source_path,
         })
     }
+}
+
+fn telemetry_cache_path(payload_path: &Path) -> PathBuf {
+    payload_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(TELEMETRY_CACHE_FILE_NAME)
+}
+
+fn telemetry_cache_is_fresh(cache_path: &Path, dependencies: &[&Path]) -> bool {
+    let Ok(cache_modified) = std::fs::metadata(cache_path).and_then(|meta| meta.modified()) else {
+        return false;
+    };
+
+    dependencies.iter().all(|path| {
+        std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|modified| modified <= cache_modified)
+    })
 }
 
 #[cfg(test)]
@@ -550,7 +663,7 @@ mod tests {
 
     #[test]
     fn load_and_save_config_round_trip() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = make_temp_root("config_round_trip");
         std::fs::create_dir_all(root.join("Projects")).unwrap();
 

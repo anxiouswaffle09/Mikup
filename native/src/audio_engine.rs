@@ -1,4 +1,8 @@
 use std::path::PathBuf;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use atomic_float::AtomicF32;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -8,6 +12,8 @@ use crate::dsp::spatial::SpatialAnalyzer;
 use crate::dsp::{MikupAudioDecoder, shared_default_stem_states};
 
 pub static VOLUME: AtomicF32 = AtomicF32::new(1.0);
+
+const LISSAJOUS_MAX_POINTS: usize = 256;
 
 #[derive(Debug, Clone)]
 pub enum AudioCmd {
@@ -61,6 +67,26 @@ pub struct AudioController {
 const CHUNK_SIZE: usize = 2048;
 const DSP_SAMPLE_RATE: u32 = 48_000;
 
+fn drain_audio_buffer(audio_rx: &mut rtrb::Consumer<f32>) {
+    while audio_rx.pop().is_ok() {}
+}
+
+fn fill_output_buffer(
+    data: &mut [f32],
+    audio_rx: &mut rtrb::Consumer<f32>,
+    flush_requested: &AtomicBool,
+) {
+    if flush_requested.load(Ordering::Acquire) {
+        drain_audio_buffer(audio_rx);
+        flush_requested.store(false, Ordering::Release);
+    }
+
+    let vol = VOLUME.load(Ordering::Relaxed);
+    for sample in data.iter_mut() {
+        *sample = audio_rx.pop().unwrap_or(0.0) * vol;
+    }
+}
+
 impl AudioController {
     /// Spawn the DSP thread with real stem decoding via MikupAudioDecoder.
     pub fn new(
@@ -72,7 +98,9 @@ impl AudioController {
         use rtrb::RingBuffer;
         let (cmd_tx, cmd_rx) = RingBuffer::<AudioCmd>::new(32);
         let (telemetry_tx, telemetry_rx) = RingBuffer::<Telemetry>::new(128);
-        let (audio_tx, mut audio_rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 8);
+        let (audio_tx, audio_rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 4);
+        let flush_requested = Arc::new(AtomicBool::new(false));
+        let flush_for_dsp = Arc::clone(&flush_requested);
 
         std::thread::Builder::new()
             .name("dsp-thread".into())
@@ -85,12 +113,13 @@ impl AudioController {
                     dx_path,
                     music_path,
                     effects_path,
+                    flush_for_dsp,
                 )
             })
             .expect("spawn dsp thread");
 
         // ── cpal output stream (optional — headless/CI graceful degradation) ──
-        let _stream = try_build_audio_stream(audio_rx);
+        let _stream = try_build_audio_stream(audio_rx, flush_requested);
 
         AudioController {
             cmd_tx,
@@ -102,7 +131,10 @@ impl AudioController {
 
 /// Attempt to open a cpal output stream. Returns `None` (silent mode) if no
 /// audio device is available — logs a warning but does NOT panic.
-fn try_build_audio_stream(mut audio_rx: rtrb::Consumer<f32>) -> Option<cpal::Stream> {
+fn try_build_audio_stream(
+    mut audio_rx: rtrb::Consumer<f32>,
+    flush_requested: Arc<AtomicBool>,
+) -> Option<cpal::Stream> {
     let host = cpal::default_host();
     let device = host.default_output_device().or_else(|| {
         eprintln!("[mikup] WARNING: no audio output device — running in silent mode");
@@ -116,10 +148,7 @@ fn try_build_audio_stream(mut audio_rx: rtrb::Consumer<f32>) -> Option<cpal::Str
         .build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
-                for sample in data.iter_mut() {
-                    *sample = audio_rx.pop().unwrap_or(0.0) * vol;
-                }
+                fill_output_buffer(data, &mut audio_rx, flush_requested.as_ref());
             },
             |err| eprintln!("cpal stream error: {err}"),
             None,
@@ -137,13 +166,13 @@ fn dsp_thread_main(
     dx_path: impl AsRef<std::path::Path>,
     music_path: impl AsRef<std::path::Path>,
     effects_path: impl AsRef<std::path::Path>,
+    flush_requested: Arc<AtomicBool>,
 ) {
     use audioadapter_buffers::direct::SequentialSliceOfVecs;
     use rubato::{
         Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
         WindowFunction,
     };
-    use std::sync::atomic::Ordering;
 
     // Open the production stem decoder
     let mut decoder = match MikupAudioDecoder::new(
@@ -195,13 +224,16 @@ fn dsp_thread_main(
                 AudioCmd::SetVolume(v) => VOLUME.store(v, Ordering::Relaxed),
                 AudioCmd::Seek(ms) => {
                     if let Some(ref mut dec) = decoder {
+                        flush_requested.store(true, Ordering::Release);
                         let secs = ms as f32 / 1000.0;
                         if let Err(e) = dec.seek(secs) {
                             eprintln!("[mikup] Seek error: {e}");
+                            flush_requested.store(false, Ordering::Release);
                         } else {
+                            resampler.reset();
+                            loudness.reset();
                             playhead_samples = ms * DSP_SAMPLE_RATE as u64 / 1000;
                             finished = false;
-                            resampler.reset();
                         }
                     }
                 }
@@ -272,14 +304,18 @@ fn dsp_thread_main(
         };
 
         // EBU R128 loudness metering
-        let lufs_metrics = loudness.process_frame(&frame).unwrap_or_default();
+        let lufs_metrics = loudness.process_frame(frame).unwrap_or_default();
 
         // Spatial analysis → Lissajous points + phase correlation
-        let spatial_metrics = spatial.process_frame(&frame);
-        let mut spatial_xy = [0.0_f32; 512];
+        let spatial_metrics = spatial.process_frame(frame);
+        let mut spatial_xy = [0.0_f32; LISSAJOUS_MAX_POINTS * 2];
         let pts = spatial.lissajous_points();
-        let n_out = pts.len().min(256);
-        let stride = if pts.len() > 256 { pts.len() / 256 } else { 1 };
+        let n_out = pts.len().min(LISSAJOUS_MAX_POINTS);
+        let stride = if pts.len() > LISSAJOUS_MAX_POINTS {
+            pts.len() / LISSAJOUS_MAX_POINTS
+        } else {
+            1
+        };
         for i in 0..n_out {
             let src = i * stride;
             spatial_xy[i * 2] = pts[src].x;
@@ -329,8 +365,10 @@ fn dsp_thread_main(
 
         // ── Fade state transitions ───────────────────────────────────────
         if let FadeState::FadingOut { remaining: 0, .. } = &fade_state {
-            if let FadeState::FadingOut { pending: (dx, mx, fx), .. } =
-                std::mem::replace(&mut fade_state, FadeState::Steady)
+            if let FadeState::FadingOut {
+                pending: (dx, mx, fx),
+                ..
+            } = std::mem::replace(&mut fade_state, FadeState::Steady)
             {
                 decoder = match MikupAudioDecoder::new(
                     dx,
@@ -410,9 +448,10 @@ mod tests {
     #[test]
     fn init_stream_does_not_panic_when_called() {
         use rtrb::RingBuffer;
-        let (_, rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 8);
+        let (_, rx) = RingBuffer::<f32>::new(CHUNK_SIZE * 4);
+        let flush_requested = Arc::new(AtomicBool::new(false));
         // Must not panic regardless of audio device availability (headless/CI)
-        let _stream: Option<cpal::Stream> = try_build_audio_stream(rx);
+        let _stream: Option<cpal::Stream> = try_build_audio_stream(rx, flush_requested);
     }
 
     #[test]
@@ -420,13 +459,30 @@ mod tests {
         use rtrb::RingBuffer;
         fn assert_send<T: Send + 'static>(_: T) {}
         let (_, mut consumer) = RingBuffer::<f32>::new(64);
+        let flush_requested = Arc::new(AtomicBool::new(false));
         let cb = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            let vol = VOLUME.load(std::sync::atomic::Ordering::Relaxed);
-            for sample in data.iter_mut() {
-                *sample = consumer.pop().unwrap_or(0.0) * vol;
-            }
+            fill_output_buffer(data, &mut consumer, flush_requested.as_ref());
         };
         assert_send(cb);
+    }
+
+    #[test]
+    fn flush_requested_drains_buffer_before_render() {
+        use rtrb::RingBuffer;
+
+        let (mut producer, mut consumer) = RingBuffer::<f32>::new(16);
+        let flush_requested = AtomicBool::new(true);
+        let mut rendered = [1.0_f32; 4];
+
+        for sample in [0.25_f32, 0.5, 0.75, 1.0] {
+            producer.push(sample).unwrap();
+        }
+
+        fill_output_buffer(&mut rendered, &mut consumer, &flush_requested);
+
+        assert_eq!(rendered, [0.0; 4]);
+        assert!(!flush_requested.load(Ordering::Acquire));
+        assert!(consumer.pop().is_err());
     }
 
     #[test]

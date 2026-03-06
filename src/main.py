@@ -130,6 +130,9 @@ _M = TypeVar("_M", bound=BaseModel)
 STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "director")
 REDO_STAGE_CHOICES = ("separation", "transcription", "dsp", "semantics", "llm")
 PIPELINE_ORDER = ("separation", "transcription", "dsp", "semantics", "director")
+LUFS_TIMELINE_HZ = 10
+MASKING_ALERT_SNR_THRESHOLD = 10.0
+MASKING_ALERT_MIN_DURATION_MS = 100
 REDO_STAGE_ALIASES = {
     "separation": "separation",
     "transcription": "transcription",
@@ -649,7 +652,10 @@ def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_rep
 
     transcription_data = _load_transcription_data(transcription_path)
     semantic_tags = _load_semantic_tags(semantics_path)
-    dsp_metrics = _load_dsp_metrics(dsp_metrics_path)
+    dsp_metrics = _enrich_metrics_payload(
+        _load_dsp_metrics(dsp_metrics_path),
+        transcription_data,
+    )
     generated_stem_paths = _collect_existing_stem_paths(stems)
 
     missing_artifacts = _check_missing_artifacts(
@@ -686,8 +692,6 @@ def _build_final_payload(args, output_dir, artifacts, stems, stage_state, ai_rep
             "dsp_metrics": dsp_metrics_path,
         },
     }
-
-    payload["metrics"]["pacing_mikups"] = transcription_data.get("pacing_mikups", [])
 
     if isinstance(ai_report, str) and ai_report.strip():
         payload["ai_report"] = ai_report
@@ -902,6 +906,294 @@ def _format_metric(value, decimals=2):
     if number is None:
         return "N/A"
     return f"{number:.{decimals}f}"
+
+
+def _coerce_float_list(values):
+    if not isinstance(values, list):
+        return []
+    parsed = []
+    for value in values:
+        number = _safe_float(value)
+        if number is not None:
+            parsed.append(number)
+    return parsed
+
+
+def _resolve_lufs_series_length(metrics, transcription_data):
+    lufs_graph = _as_dict(metrics.get("lufs_graph"))
+    lengths = []
+    for channel in lufs_graph.values():
+        if not isinstance(channel, dict):
+            continue
+        lengths.extend(
+            len(series)
+            for series in (
+                _coerce_float_list(channel.get("momentary")),
+                _coerce_float_list(channel.get("short_term")),
+            )
+            if series
+        )
+
+    if lengths:
+        return max(lengths)
+
+    spatial_metrics = _as_dict(metrics.get("spatial_metrics"))
+    duration_seconds = _safe_float(spatial_metrics.get("total_duration"))
+    if duration_seconds is None or duration_seconds <= 0.0:
+        timeline_end = 0.0
+        for segment in transcription_data.get("word_segments", []):
+            if not isinstance(segment, dict):
+                continue
+            timeline_end = max(
+                timeline_end,
+                _safe_float(segment.get("start")) or 0.0,
+                _safe_float(segment.get("end")) or 0.0,
+            )
+        for segment in transcription_data.get("segments", []):
+            if not isinstance(segment, dict):
+                continue
+            timeline_end = max(
+                timeline_end,
+                _safe_float(segment.get("start")) or 0.0,
+                _safe_float(segment.get("end")) or 0.0,
+            )
+        duration_seconds = timeline_end
+
+    if duration_seconds is None or duration_seconds <= 0.0:
+        return 0
+    return max(1, int(math.ceil(duration_seconds * LUFS_TIMELINE_HZ)))
+
+
+def _iter_pacing_density_spans(transcription_data):
+    word_segments = transcription_data.get("word_segments")
+    if isinstance(word_segments, list):
+        spans = []
+        for segment in word_segments:
+            if not isinstance(segment, dict):
+                continue
+            start = _safe_float(segment.get("start"))
+            end = _safe_float(segment.get("end"))
+            if start is None or end is None or end < start:
+                continue
+            spans.append((start, max(end, start + (1.0 / LUFS_TIMELINE_HZ)), 1.0))
+        if spans:
+            return spans
+
+    spans = []
+    for segment in transcription_data.get("segments", []):
+        if not isinstance(segment, dict):
+            continue
+        start = _safe_float(segment.get("start"))
+        end = _safe_float(segment.get("end"))
+        if start is None or end is None or end < start:
+            continue
+        word_count = len([token for token in str(segment.get("text") or "").split() if token.strip()])
+        if word_count <= 0:
+            continue
+        spans.append((start, max(end, start + (1.0 / LUFS_TIMELINE_HZ)), float(word_count)))
+    return spans
+
+
+def _build_pacing_density_series(transcription_data, metrics):
+    series_length = _resolve_lufs_series_length(metrics, transcription_data)
+    if series_length <= 0:
+        return []
+
+    density = [0.0] * series_length
+    bin_duration = 1.0 / LUFS_TIMELINE_HZ
+    for start, end, count in _iter_pacing_density_spans(transcription_data):
+        span_duration = max(end - start, bin_duration)
+        start_idx = max(0, int(math.floor(start * LUFS_TIMELINE_HZ)))
+        end_idx = min(series_length, int(math.ceil(end * LUFS_TIMELINE_HZ)))
+        for index in range(start_idx, max(start_idx + 1, end_idx)):
+            bin_start = index * bin_duration
+            bin_end = bin_start + bin_duration
+            overlap = max(0.0, min(end, bin_end) - max(start, bin_start))
+            if overlap <= 0.0:
+                continue
+            density[index] += count * (overlap / span_duration) / bin_duration
+
+    return [round(value, 4) for value in density]
+
+
+def _normalise_masking_alert(alert):
+    if not isinstance(alert, dict):
+        return None
+    timestamp = _safe_float(alert.get("timestamp", alert.get("start")))
+    if timestamp is None or timestamp < 0.0:
+        return None
+    snr = _safe_float(alert.get("snr", alert.get("value")))
+    duration_ms = _safe_float(alert.get("duration_ms"))
+    context = str(alert.get("context") or "").strip()
+    normalized = {
+        "timestamp": round(timestamp, 4),
+        "duration_ms": max(MASKING_ALERT_MIN_DURATION_MS, int(round(duration_ms or 0.0))),
+        "context": context,
+    }
+    if snr is not None:
+        normalized["snr"] = round(snr, 3)
+        if not context:
+            normalized["context"] = f"SNR: {snr:.1f} dB"
+    elif not context:
+        normalized["context"] = "Masking alert"
+    return normalized
+
+
+def _extract_snr_timeline(raw_snr):
+    if isinstance(raw_snr, list):
+        if raw_snr and all(isinstance(item, dict) for item in raw_snr):
+            points = []
+            for item in raw_snr:
+                timestamp = _safe_float(item.get("timestamp", item.get("time")))
+                value = _safe_float(item.get("snr", item.get("value")))
+                if timestamp is None or value is None:
+                    continue
+                points.append((timestamp, value))
+            return points
+        values = _coerce_float_list(raw_snr)
+        return [(index / LUFS_TIMELINE_HZ, value) for index, value in enumerate(values)]
+
+    if isinstance(raw_snr, dict):
+        timestamps = _coerce_float_list(raw_snr.get("timestamps"))
+        sample_rate_hz = _safe_float(raw_snr.get("sample_rate_hz")) or LUFS_TIMELINE_HZ
+        for key in ("series", "values", "samples", "timeline"):
+            series = raw_snr.get(key)
+            if not isinstance(series, list):
+                continue
+            if series and all(isinstance(item, dict) for item in series):
+                points = []
+                for item in series:
+                    timestamp = _safe_float(item.get("timestamp", item.get("time")))
+                    value = _safe_float(item.get("snr", item.get("value")))
+                    if timestamp is None or value is None:
+                        continue
+                    points.append((timestamp, value))
+                if points:
+                    return points
+            values = _coerce_float_list(series)
+            if values:
+                if len(timestamps) == len(values):
+                    return list(zip(timestamps, values))
+                return [
+                    (index / sample_rate_hz, value)
+                    for index, value in enumerate(values)
+                ]
+        return []
+
+    scalar = _safe_float(raw_snr)
+    if scalar is None:
+        return []
+    return [(0.0, scalar)]
+
+
+def _build_masking_alerts(metrics):
+    diagnostic_meters = _as_dict(metrics.get("diagnostic_meters"))
+    existing_alerts = []
+    if isinstance(diagnostic_meters.get("masking_alerts"), list):
+        existing_alerts = [
+            normalized
+            for alert in diagnostic_meters["masking_alerts"]
+            if (normalized := _normalise_masking_alert(alert)) is not None
+        ]
+
+    snr_points = sorted(_extract_snr_timeline(diagnostic_meters.get("intelligibility_snr")))
+    if not snr_points:
+        return existing_alerts
+
+    step_seconds = 1.0 / LUFS_TIMELINE_HZ
+    if len(snr_points) > 1:
+        deltas = [
+            current[0] - previous[0]
+            for previous, current in zip(snr_points, snr_points[1:])
+            if current[0] > previous[0]
+        ]
+        if deltas:
+            step_seconds = min(deltas)
+
+    computed_alerts = []
+    run_start = None
+    run_end = None
+    run_min_snr = None
+    previous_timestamp = None
+
+    for timestamp, snr in snr_points:
+        below_threshold = snr < MASKING_ALERT_SNR_THRESHOLD
+        contiguous = (
+            previous_timestamp is not None
+            and timestamp - previous_timestamp <= step_seconds * 1.5
+        )
+        if below_threshold:
+            if run_start is None or not contiguous:
+                if run_start is not None and run_end is not None and run_min_snr is not None:
+                    computed_alerts.append({
+                        "timestamp": round(run_start, 4),
+                        "duration_ms": max(
+                            MASKING_ALERT_MIN_DURATION_MS,
+                            int(round((run_end - run_start + step_seconds) * 1000.0)),
+                        ),
+                        "snr": round(run_min_snr, 3),
+                        "context": f"SNR: {run_min_snr:.1f} dB",
+                    })
+                run_start = timestamp
+                run_min_snr = snr
+            else:
+                run_min_snr = min(run_min_snr, snr)
+            run_end = timestamp
+        elif run_start is not None and run_end is not None and run_min_snr is not None:
+            computed_alerts.append({
+                "timestamp": round(run_start, 4),
+                "duration_ms": max(
+                    MASKING_ALERT_MIN_DURATION_MS,
+                    int(round((run_end - run_start + step_seconds) * 1000.0)),
+                ),
+                "snr": round(run_min_snr, 3),
+                "context": f"SNR: {run_min_snr:.1f} dB",
+            })
+            run_start = None
+            run_end = None
+            run_min_snr = None
+        previous_timestamp = timestamp
+
+    if run_start is not None and run_end is not None and run_min_snr is not None:
+        computed_alerts.append({
+            "timestamp": round(run_start, 4),
+            "duration_ms": max(
+                MASKING_ALERT_MIN_DURATION_MS,
+                int(round((run_end - run_start + step_seconds) * 1000.0)),
+            ),
+            "snr": round(run_min_snr, 3),
+            "context": f"SNR: {run_min_snr:.1f} dB",
+        })
+
+    deduped = {}
+    for alert in [*existing_alerts, *computed_alerts]:
+        normalized = _normalise_masking_alert(alert)
+        if normalized is None:
+            continue
+        key = (
+            normalized["timestamp"],
+            normalized["duration_ms"],
+            normalized.get("snr"),
+            normalized["context"],
+        )
+        deduped[key] = normalized
+    return list(deduped.values())
+
+
+def _enrich_metrics_payload(metrics, transcription_data):
+    normalized_metrics = metrics if isinstance(metrics, dict) else {}
+    lufs_graph = _as_dict(normalized_metrics.get("lufs_graph"))
+    lufs_graph["pacing_density"] = _build_pacing_density_series(
+        transcription_data,
+        normalized_metrics,
+    )
+    normalized_metrics["lufs_graph"] = lufs_graph
+
+    diagnostic_meters = _as_dict(normalized_metrics.get("diagnostic_meters"))
+    diagnostic_meters["masking_alerts"] = _build_masking_alerts(normalized_metrics)
+    normalized_metrics["diagnostic_meters"] = diagnostic_meters
+    normalized_metrics["pacing_mikups"] = transcription_data.get("pacing_mikups", [])
+    return normalized_metrics
 
 
 def build_mikup_context_markdown(payload):

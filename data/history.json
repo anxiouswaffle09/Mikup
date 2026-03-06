@@ -1,452 +1,83 @@
 [
   {
-    "id": "2fb31075-2d5e-4062-ba30-52312af56ad5",
+    "id": "12144627-1e6c-4368-9195-2bd1c556c37f",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.256696",
+    "date": "2026-03-05T20:44:03.470368",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpq0mkakcj/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "76ac14aa-629e-42e2-b697-e5ead19f74fd",
+    "id": "801d364a-61fc-4891-b42a-be35d8bdd81b",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.249592",
+    "date": "2026-03-05T20:44:03.459469",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpq0mkakcj/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "d291880d-4fc9-4f07-bef6-1ed9a87251b1",
+    "id": "0deb9bd4-ee15-4d0c-b657-fa665edd5049",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.242527",
+    "date": "2026-03-05T20:44:03.448770",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpq0mkakcj/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "4327232a-da42-4283-b37d-81ed783c29a7",
+    "id": "00727028-875c-4b58-8a9a-9b34897954d2",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.236104",
+    "date": "2026-03-05T20:44:03.438916",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpq0mkakcj/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "acfe272f-4526-4320-bd10-ba15de510cc1",
+    "id": "b174fc03-6335-4689-977a-365755f0d024",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.228607",
+    "date": "2026-03-05T20:44:03.431563",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpq0mkakcj/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "17fa4467-21db-4082-9295-5578215dd4d2",
+    "id": "bf5c0ff7-134e-4da2-a50b-0d182b97d042",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.219589",
+    "date": "2026-03-05T20:44:03.423203",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpr_zt__1r/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "d8f064a6-d70e-42ee-87c1-11a8735b3b36",
+    "id": "adf72521-42f1-4e7f-bba6-2f4565eebe30",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.212493",
+    "date": "2026-03-05T20:44:03.410702",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpr_zt__1r/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "3992ec7b-82cb-4b6e-9905-9dfc8e8921e5",
+    "id": "b8a6d909-8f3d-4255-a91b-89e4fcec48d7",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:42:12.203559",
+    "date": "2026-03-05T20:44:03.403794",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpr_zt__1r/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   },
   {
-    "id": "b5bc9d57-1767-4502-9a7f-71a6ab584847",
+    "id": "b786c5c8-9401-443a-aad9-21b34f23f40a",
     "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.395438",
+    "date": "2026-03-05T20:44:03.392547",
     "duration": 0,
     "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "998d14e8-a53c-4d5c-b981-aa396785066e",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.388969",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "f3c478cf-740e-4077-a275-84662d50870e",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.382137",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "34594eea-894f-4a6d-8693-a751a8e61536",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.375093",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "da622e46-d8c2-4710-9433-be1e5d2194ab",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.372766",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "8c0ea7e8-0955-4575-97b3-c6e17b153651",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.366562",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "43cf5dd1-bcd2-4cb1-9e51-c514d85bb944",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.360117",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "dfc1508c-e153-4031-a864-ac7581907b40",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.353635",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "6ab6d0da-fbcf-4fdd-9f58-d58e6bbfec6a",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T13:41:30.344713",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmppzdqov5l/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "81479b10-3f8f-4844-b50b-f5230bc40ae7",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:23:17.309483",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpulm8z4mq/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "e514a127-a18c-4e00-953d-a3b24957c51e",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:23:17.299346",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpulm8z4mq/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "007f4269-a57b-4b65-80d7-3d0f50de108c",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.317409",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpexyj55yi/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "8b107d99-803c-44a6-9fe2-3720985501fd",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.306158",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpexyj55yi/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "d1c8f2fa-90e7-4497-8768-f69bca98b63f",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.267326",
-    "duration": 321.0,
-    "is_complete": true,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "844fe863-baea-464e-9f78-89c47cbae9fc",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.259910",
-    "duration": 321.0,
-    "is_complete": true,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "4d9e51ff-c22b-4718-9b99-0eb4a5d2293f",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.250599",
-    "duration": 321.0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "24ebf8f7-c009-4d36-a2fc-acbac60979d5",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.247886",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "da8d03af-d833-4bd5-8c36-02fb0e348b0c",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.240593",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "eccc6494-805d-41b0-9c1e-523daed82403",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.231989",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "1c55de2b-f1cf-4ba1-8ef5-9f84a1016e40",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.220358",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "c643fccd-6195-4ba4-a72d-c0ec52be5d4d",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.210700",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp7984eag7/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "44b67abf-ccb9-4585-8acb-cc5e57acd59b",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.199139",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpxsndm2no/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "6621ecab-c735-400e-9813-4f9b0ce2dd81",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.191529",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpxsndm2no/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "32832371-f1e8-49d0-827b-8c492661d700",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.184914",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpxsndm2no/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "674151a5-e254-4c15-abd8-e1bce0d891c1",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.178421",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpxsndm2no/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "ae242d8a-f4e0-4c56-a44b-f2aa948d1ad2",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.171840",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpxsndm2no/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "fe5dd3cf-ad83-4eca-9e5f-93048e99dabb",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.164019",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwztzfmn_/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "3d195da5-7692-4e3e-9992-f03339a97fa6",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.156961",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwztzfmn_/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "058b40fb-c05b-4ea5-9f10-9cd16c3f0c19",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:17:00.148169",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwztzfmn_/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "f270e622-e8a4-4169-a2d7-048cb49e130e",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.720337",
-    "duration": 321.0,
-    "is_complete": true,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "8c85d0ff-befb-43e2-a754-fc41ec8cf7fc",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.712899",
-    "duration": 321.0,
-    "is_complete": true,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "380eb810-8f66-4e5a-8e99-5855bcabd9e1",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.705098",
-    "duration": 321.0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "66f79786-4786-43c4-8dfc-dcdf395f8f5c",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.702628",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "eee7e97d-a9d5-4fb3-a840-fb8afe44351a",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.695128",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "387638ba-cfaa-4dd9-9584-3976e5e925bb",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.687822",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "ae92be36-2555-4249-8f79-5fd6f9d7b6ed",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.679982",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "5e510122-9763-4ec4-97c8-b88e84df04e0",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.670753",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmp4l8o2gyj/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "d8d3525b-e5c3-43cb-b48c-563b9a79a8b9",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.658009",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwqbksdd1/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "53b1d64e-3428-44e3-8fbb-7df57b9c0af3",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.647965",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwqbksdd1/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "1e2ccf4d-5ab5-4ae3-ada8-9098376b14fc",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.639241",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwqbksdd1/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "66960935-e129-4ef6-842a-7dde1649b237",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.632913",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwqbksdd1/workspace",
-    "pipeline_version": "0.2.0-beta"
-  },
-  {
-    "id": "70dd2d2e-63e5-4539-aca9-ab5fd05c5bac",
-    "filename": "dummy.wav",
-    "date": "2026-03-05T12:16:45.625548",
-    "duration": 0,
-    "is_complete": false,
-    "output_dir": "/private/var/folders/8r/fyy1g64x4w76thc40cxblp0r0000gp/T/tmpwqbksdd1/workspace",
+    "output_dir": "/tmp/tmp_tl6qfv5/workspace",
     "pipeline_version": "0.2.0-beta"
   }
 ]

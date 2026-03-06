@@ -3,7 +3,7 @@
 Updated as of: March 2, 2026
 
 ## Machine Learning & Performance
-- **Environment Context:** Codebase in Windows (`/mnt/d/SoftwareDev/Mikup/`); Agents/Runtime in WSL2 (Linux). Ensure CUDA/DirectML acceleration is correctly mapped from WSL2 to the Windows host GPU.
+- **Environment Context:** Codebase and Agents/Runtime are unified in WSL2 (Linux). Ensure CUDA/DirectML acceleration is correctly mapped from WSL2 to the Windows host GPU.
 - **PyTorch Security (Torch 2.4/2.10+):** Use `weights_only=True` with **Safe Globals** in `bootstrap.py`.
 - **Mandatory Procedure:**
   1.  **Strict Weights Loading:** All `torch.load` calls should default to `weights_only=True`.

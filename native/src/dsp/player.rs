@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -116,7 +116,7 @@ impl AudioOutputPlayer {
     {
         let drained_for_err = Arc::clone(&drained);
         let error_callback = move |err: cpal::StreamError| {
-            eprintln!("Audio output stream error: {err}");
+            tracing::error!("Audio output stream error: {err}");
             drained_for_err.store(true, Ordering::Release);
         };
 
@@ -159,7 +159,7 @@ impl AudioOutputPlayer {
     }
 
     pub fn free_slots(&self) -> usize {
-        self.producer.lock().unwrap().slots()
+        self.lock_producer().slots()
     }
 
     pub fn clear(&self) {
@@ -179,7 +179,7 @@ impl AudioOutputPlayer {
     }
 
     pub fn push_interleaved_nonblocking(&self, interleaved_samples: &[f32]) {
-        let mut producer = self.producer.lock().unwrap();
+        let mut producer = self.lock_producer();
         for &sample in interleaved_samples {
             if producer.push(sample).is_err() {
                 self.dropped_samples.fetch_add(1, Ordering::Relaxed);
@@ -209,7 +209,7 @@ impl AudioOutputPlayer {
     where
         F: Fn() -> bool,
     {
-        let mut producer = self.producer.lock().unwrap();
+        let mut producer = self.lock_producer();
         for &sample in interleaved_samples {
             loop {
                 if is_cancelled() {
@@ -220,7 +220,7 @@ impl AudioOutputPlayer {
                     Err(_) => {
                         drop(producer);
                         std::thread::sleep(BACKPRESSURE_SLEEP);
-                        producer = self.producer.lock().unwrap();
+                        producer = self.lock_producer();
                     }
                 }
             }
@@ -231,7 +231,7 @@ impl AudioOutputPlayer {
 
     pub fn mark_producer_finished(&self) {
         self.producer_finished.store(true, Ordering::Release);
-        let producer = self.producer.lock().unwrap();
+        let producer = self.lock_producer();
         if producer.slots() == self.capacity {
             self.drained.store(true, Ordering::Release);
         }
@@ -246,6 +246,10 @@ impl AudioOutputPlayer {
     #[allow(dead_code)]
     pub fn underrun_samples(&self) -> u64 {
         self.underrun_samples.load(Ordering::Relaxed)
+    }
+
+    fn lock_producer(&self) -> MutexGuard<'_, Producer<f32>> {
+        self.producer.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

@@ -29,7 +29,7 @@ Treats audio as a sequence of **Mikups** (Atomic Events):
 ### Installation
 
 1. Clone the repository
-2. **Hybrid Environment Note:** This project is designed for a **WSL2 (Linux)** agent environment with the codebase residing in a **Windows mount** (`/mnt/d/SoftwareDev/Mikup/`). Ensure all commands (Python, Cargo, npm) are executed within your WSL2 distribution.
+2. **Environment Note:** This project is designed for a native **WSL2 (Linux)** agent environment. The codebase resides natively in your WSL2 directory (`/home/wendy/Projects/Mikup`). Ensure all commands (Python, Cargo, npm) are executed within your WSL2 distribution.
 3. Set up the virtual environment:
    ```bash
    python3 -m venv .venv

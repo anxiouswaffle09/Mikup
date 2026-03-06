@@ -3,7 +3,7 @@
 Updated as of: March 5, 2026
 
 ## Core Language (v1.86+)
-- **Hybrid Environment:** Codebase in Windows (`/mnt/d/SoftwareDev/Mikup/`); Runtime in WSL2 (Linux). 
+- **Environment:** Codebase and Runtime in WSL2 (Linux). 
 - **`std::sync::LazyLock`:** The standard for global audio device handles. Replace `lazy_static` or `once_cell`.
 - **Wait-Free Audio Thread:** The audio callback is sacred. 
   - **NO** Allocations (`Box`, `Vec`).

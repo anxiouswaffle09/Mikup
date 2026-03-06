@@ -1,6 +1,7 @@
 mod audio_engine;
 mod dsp;
 mod landing_view;
+mod lufs_graph_view;
 mod lufs_meter;
 mod models;
 mod project;
@@ -17,7 +18,7 @@ use vizia::style::Color;
 use audio_engine::AudioController;
 use models::{
     AppData, AudioEngineStore, AudioEngineStoreUpdate, MaybeProject, ProjectMetadata, ViewState,
-    WorkspaceAssets,
+    WorkspaceAssets, build_forensic_markers,
 };
 use project::Project;
 use vectorscope_view::VectorscopeData;
@@ -33,11 +34,12 @@ fn main() {
     let project = match Project::load(&payload_path) {
         Ok(p) => {
             eprintln!(
-                "[mikup] Loaded project: {} ({} DX samples, {} Music, {} FX)",
+                "[mikup] Loaded project: {} ({} cached DX cols, {} Music, {} FX, {} LUFS points)",
                 p.payload.metadata.source_file,
-                p.stems.dx_samples.len(),
-                p.stems.music_samples.len(),
-                p.stems.effects_samples.len(),
+                p.telemetry.dx_waveform.len(),
+                p.telemetry.music_waveform.len(),
+                p.telemetry.effects_waveform.len(),
+                p.telemetry.lufs_samples.len(),
             );
             Some(p)
         }
@@ -51,19 +53,34 @@ fn main() {
 
     let hw_rate = audio_engine::detect_hw_rate();
 
-    let dx_samples = project
+    let dx_waveform = project
         .as_ref()
-        .map(|p| p.stems.dx_samples.clone())
+        .map(|p| p.telemetry.dx_waveform.clone())
         .unwrap_or_default();
-    let music_samples = project
+    let master_waveform = project
         .as_ref()
-        .map(|p| p.stems.music_samples.clone())
+        .map(|p| p.telemetry.master_waveform.clone())
         .unwrap_or_default();
-    let effects_samples = project
+    let music_waveform = project
         .as_ref()
-        .map(|p| p.stems.effects_samples.clone())
+        .map(|p| p.telemetry.music_waveform.clone())
         .unwrap_or_default();
-
+    let effects_waveform = project
+        .as_ref()
+        .map(|p| p.telemetry.effects_waveform.clone())
+        .unwrap_or_default();
+    let lufs_samples = project
+        .as_ref()
+        .map(|p| p.telemetry.lufs_samples.clone())
+        .unwrap_or_default();
+    let master_lufs = project
+        .as_ref()
+        .map(|p| p.telemetry.master_lufs.clone())
+        .unwrap_or_default();
+    let pacing_density = project
+        .as_ref()
+        .map(|p| p.telemetry.pacing_density.clone())
+        .unwrap_or_default();
     let transcript_segments = project
         .as_ref()
         .map(|p| p.payload.transcription.segments.clone())
@@ -92,7 +109,11 @@ fn main() {
                     .unwrap_or(&proj.payload.metadata.source_file)
                     .to_string(),
                 timestamp: chrono::Utc::now(),
-                source_path: proj.stems.dx_path.clone(),
+                source_path: proj
+                    .stems
+                    .source_path
+                    .clone()
+                    .unwrap_or_else(|| proj.stems.dx_path.clone()),
                 workspace_path,
                 version: proj.payload.metadata.pipeline_version.clone(),
             });
@@ -133,6 +154,16 @@ fn main() {
         })
         .collect();
 
+    // Extract forensic markers from payload metrics (pacing mikups, masking alerts).
+    let forensic_markers = project
+        .as_ref()
+        .map(|p| build_forensic_markers(&p.payload.metrics))
+        .unwrap_or_default();
+    eprintln!("[mikup] Loaded {} forensic markers", forensic_markers.len());
+
+    // Compute total duration from LUFS samples (each sample ~100ms).
+    let total_duration_ms: u64 = lufs_samples.len() as u64 * 100;
+
     let engine_for_timer = Arc::clone(&engine);
     let engine_for_appdata = Arc::clone(&engine);
 
@@ -145,10 +176,16 @@ fn main() {
     // and the 60 Hz timer (scope_for_timer points into the same scope Arc).
     let initial_assets = MaybeProject(if project.is_some() {
         Some(Arc::new(WorkspaceAssets {
-            dx_samples: Arc::new(dx_samples),
-            music_samples: Arc::new(music_samples),
-            effects_samples: Arc::new(effects_samples),
+            master_waveform: Arc::new(master_waveform),
+            dx_waveform: Arc::new(dx_waveform),
+            music_waveform: Arc::new(music_waveform),
+            effects_waveform: Arc::new(effects_waveform),
+            lufs_samples: Arc::new(lufs_samples),
+            master_lufs: Arc::new(master_lufs),
+            pacing_density: Arc::new(pacing_density),
             transcript_items: Arc::new(transcript_items),
+            forensic_markers: Arc::new(forensic_markers),
+            total_duration_ms,
         }))
     } else {
         None
@@ -196,7 +233,7 @@ fn main() {
         // 60 Hz telemetry poll.
         let timer = cx.add_timer(Duration::from_nanos(16_666_667), None, move |cx, action| {
             if let TimerAction::Tick(_) = action {
-                let mut eng = engine_for_timer.lock().unwrap();
+                let mut eng = engine_for_timer.lock().unwrap_or_else(|e| e.into_inner());
                 let mut latest = None;
                 while let Ok(t) = eng.telemetry_rx.pop() {
                     latest = Some(t);
@@ -205,7 +242,7 @@ fn main() {
                     let n = t.spatial_point_count as usize * 2;
                     let xy_slice = &t.spatial_xy[..n];
                     {
-                        let mut sd = scope_for_timer.lock().unwrap();
+                        let mut sd = scope_for_timer.lock().unwrap_or_else(|e| e.into_inner());
                         sd.points.clear();
                         sd.points.extend_from_slice(xy_slice);
                         sd.correlation = t.phase_correlation;
@@ -225,59 +262,54 @@ fn main() {
         cx.start_timer(timer);
 
         // ── View switcher ─────────────────────────────────────────────────────
-        Binding::new(
-            cx,
-            AppData::current_view,
-            move |cx, view_lens| {
-                let scope = scope_for_ws.clone();
-                match view_lens.get(cx) {
-                    ViewState::Landing => {
-                        let projs = AppData::available_projects.get(cx);
-                        landing_view::build(cx, projs);
-                    }
-                    ViewState::Processing => {
-                        VStack::new(cx, |cx| {
-                            Label::new(cx, "Processing…")
-                                .color(Color::rgb(180, 180, 200));
-
-                            Binding::new(cx, AppData::pipeline_message, |cx, msg_lens| {
-                                Label::new(cx, msg_lens.get(cx).as_str())
-                                    .color(Color::rgb(120, 120, 140))
-                                    .top(Pixels(8.0));
-                            });
-
-                            // Progress track
-                            VStack::new(cx, |cx| {
-                                Element::new(cx)
-                                    .width(AppData::pipeline_progress.map(|pct| {
-                                        Percentage(*pct * 100.0)
-                                    }))
-                                    .height(Stretch(1.0))
-                                    .background_color(Color::rgb(100, 120, 220));
-                            })
-                            .width(Pixels(400.0))
-                            .height(Pixels(8.0))
-                            .background_color(Color::rgb(50, 50, 65))
-                            .top(Pixels(16.0));
-                        })
-                        .width(Stretch(1.0))
-                        .height(Stretch(1.0))
-                        .left(Stretch(1.0))
-                        .right(Stretch(1.0))
-                        .top(Stretch(1.0))
-                        .bottom(Stretch(1.0))
-                        .background_color(Color::rgb(30, 30, 30));
-                    }
-                    ViewState::Workspace => {
-                        Binding::new(cx, AppData::loaded_project, move |cx, proj_lens| {
-                            if let Some(assets) = proj_lens.get(cx).0 {
-                                workspace_view::build(cx, &assets, scope.clone());
-                            }
-                        });
-                    }
+        Binding::new(cx, AppData::current_view, move |cx, view_lens| {
+            let scope = scope_for_ws.clone();
+            match view_lens.get(cx) {
+                ViewState::Landing => {
+                    let projs = AppData::available_projects.get(cx);
+                    landing_view::build(cx, projs);
                 }
-            },
-        );
+                ViewState::Processing => {
+                    VStack::new(cx, |cx| {
+                        Label::new(cx, "Processing…").color(Color::rgb(180, 180, 200));
+
+                        Binding::new(cx, AppData::pipeline_message, |cx, msg_lens| {
+                            Label::new(cx, msg_lens.get(cx).as_str())
+                                .color(Color::rgb(120, 120, 140))
+                                .top(Pixels(8.0));
+                        });
+
+                        // Progress track
+                        VStack::new(cx, |cx| {
+                            Element::new(cx)
+                                .width(
+                                    AppData::pipeline_progress.map(|pct| Percentage(*pct * 100.0)),
+                                )
+                                .height(Stretch(1.0))
+                                .background_color(Color::rgb(100, 120, 220));
+                        })
+                        .width(Pixels(400.0))
+                        .height(Pixels(8.0))
+                        .background_color(Color::rgb(50, 50, 65))
+                        .top(Pixels(16.0));
+                    })
+                    .width(Stretch(1.0))
+                    .height(Stretch(1.0))
+                    .left(Stretch(1.0))
+                    .right(Stretch(1.0))
+                    .top(Stretch(1.0))
+                    .bottom(Stretch(1.0))
+                    .background_color(Color::rgb(30, 30, 30));
+                }
+                ViewState::Workspace => {
+                    Binding::new(cx, AppData::loaded_project, move |cx, proj_lens| {
+                        if let Some(assets) = proj_lens.get(cx).0 {
+                            workspace_view::build(cx, &assets, scope.clone());
+                        }
+                    });
+                }
+            }
+        });
     })
     .title("Mikup Native")
     .inner_size((1400, 600))

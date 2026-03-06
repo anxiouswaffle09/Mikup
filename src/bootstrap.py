@@ -58,6 +58,14 @@ def _register_torch_safe_globals() -> None:
     Allowlist the exact classes used by our trusted models so that
     torch.load(weights_only=True) does not raise UnpicklingError.
     Only our specific model architectures are registered — not a blanket bypass.
+
+    numpy.core.multiarray._reconstruct is included because virtually every
+    checkpoint serializes numpy arrays in its state_dict. Allowlisting it is
+    safe here exclusively because (a) model file integrity is verified via
+    SHA-256 in MikupSeparator._verify_model_integrity before any weights are
+    loaded, and (b) all model sources are pinned in versions.json['ml_models'].
+    Do not carry this registration into contexts where weight source or
+    integrity cannot be guaranteed.
     """
     import torch
 

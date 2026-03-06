@@ -485,17 +485,19 @@ impl StemStreamDecoder {
         Ok(())
     }
 
-    fn pop_frame(&mut self, frame_size: usize) -> Vec<f32> {
+    fn pop_frame(&mut self, output: &mut Vec<f32>, frame_size: usize) {
         let take = self.pending_samples.len().min(frame_size);
-        self.pending_samples.drain(0..take).collect()
+        output.clear();
+        output.extend(self.pending_samples.drain(..take));
     }
 
     fn is_finished(&self) -> bool {
         self.eof && self.pending_samples.is_empty()
     }
 
-    fn drain_remaining(&mut self) -> Vec<f32> {
-        self.pending_samples.drain(..).collect()
+    fn drain_remaining(&mut self, output: &mut Vec<f32>) {
+        output.clear();
+        output.extend(self.pending_samples.drain(..));
     }
 
     fn seek(&mut self, seconds: f32) -> Result<(), AudioDecodeError> {
@@ -524,13 +526,14 @@ impl StemStreamDecoder {
     /// Decode the entire stem into a mono sample buffer. Used for waveform peak generation.
     fn decode_all_samples(&mut self) -> Result<Vec<f32>, AudioDecodeError> {
         let mut all = Vec::new();
+        let mut chunk = Vec::new();
         while !self.eof {
             self.fill_until(8192)?;
-            let chunk = self.pending_samples.drain(..).collect::<Vec<_>>();
+            self.drain_remaining(&mut chunk);
             if chunk.is_empty() {
                 break;
             }
-            all.extend(chunk);
+            all.extend_from_slice(&chunk);
         }
         Ok(all)
     }
@@ -652,6 +655,8 @@ pub struct MikupAudioDecoder {
     stem_states: SharedStemStates,
     stem_runtime_gains: StemRuntimeGains,
     gain_step_per_sample: f32,
+    zero_buffer: Vec<f32>,
+    frame: SyncedAudioFrame,
     pub alignment_mismatch_detected: bool,
 }
 
@@ -689,7 +694,7 @@ impl MikupAudioDecoder {
 
         let source = source_path.and_then(|p| {
             StemStreamDecoder::open("source", p, target_sample_rate)
-                .map_err(|e| eprintln!("[mikup] Source decoder unavailable: {e}"))
+                .map_err(|e| tracing::warn!("[mikup] Source decoder unavailable: {e}"))
                 .ok()
         });
 
@@ -707,6 +712,17 @@ impl MikupAudioDecoder {
             stem_states,
             stem_runtime_gains: StemRuntimeGains::default(),
             gain_step_per_sample: 1.0 / fade_samples,
+            zero_buffer: vec![0.0; frame_size],
+            frame: SyncedAudioFrame {
+                sample_rate: target_sample_rate,
+                dialogue_raw: Vec::with_capacity(frame_size),
+                background_raw: Vec::with_capacity(frame_size),
+                music_raw: Vec::with_capacity(frame_size),
+                effects_raw: Vec::with_capacity(frame_size),
+                source_raw: Vec::with_capacity(frame_size),
+                stem_flags: AudioFrameStemFlags::default(),
+                static_loudness: None,
+            },
             alignment_mismatch_detected: false,
         })
     }
@@ -735,7 +751,7 @@ impl MikupAudioDecoder {
         self.frame_size
     }
 
-    pub fn read_frame(&mut self) -> Result<Option<SyncedAudioFrame>, AudioDecodeError> {
+    pub fn read_frame(&mut self) -> Result<Option<&SyncedAudioFrame>, AudioDecodeError> {
         self.dx.fill_until(self.frame_size)?;
         self.music.fill_until(self.frame_size)?;
         self.effects.fill_until(self.frame_size)?;
@@ -747,60 +763,84 @@ impl MikupAudioDecoder {
             return Ok(None);
         }
 
-        let mut dx = self.dx.pop_frame(self.frame_size);
-        let mut music = self.music.pop_frame(self.frame_size);
-        let mut effects = self.effects.pop_frame(self.frame_size);
+        self.dx
+            .pop_frame(&mut self.frame.dialogue_raw, self.frame_size);
+        self.music
+            .pop_frame(&mut self.frame.music_raw, self.frame_size);
+        self.effects
+            .pop_frame(&mut self.frame.effects_raw, self.frame_size);
 
-        if dx.is_empty() && music.is_empty() && effects.is_empty() {
+        if self.frame.dialogue_raw.is_empty()
+            && self.frame.music_raw.is_empty()
+            && self.frame.effects_raw.is_empty()
+        {
             if self.dx.is_finished() && self.music.is_finished() && self.effects.is_finished() {
                 return Ok(None);
             }
 
-            dx = vec![0.0; self.frame_size];
-            music = vec![0.0; self.frame_size];
-            effects = vec![0.0; self.frame_size];
+            self.ensure_zero_buffer_len(self.frame_size);
+            let zeroes = &self.zero_buffer[..self.frame_size];
+            copy_from_zero_buffer(&mut self.frame.dialogue_raw, zeroes);
+            copy_from_zero_buffer(&mut self.frame.music_raw, zeroes);
+            copy_from_zero_buffer(&mut self.frame.effects_raw, zeroes);
         }
 
-        let max_len = dx.len().max(music.len()).max(effects.len());
+        let max_len = self
+            .frame
+            .dialogue_raw
+            .len()
+            .max(self.frame.music_raw.len())
+            .max(self.frame.effects_raw.len());
 
-        if max_len > 0 && (dx.len() < max_len || music.len() < max_len || effects.len() < max_len) {
+        if max_len > 0
+            && (self.frame.dialogue_raw.len() < max_len
+                || self.frame.music_raw.len() < max_len
+                || self.frame.effects_raw.len() < max_len)
+        {
             self.alignment_mismatch_detected = true;
         }
 
-        dx.resize(max_len, 0.0);
-        music.resize(max_len, 0.0);
-        effects.resize(max_len, 0.0);
+        self.ensure_zero_buffer_len(max_len);
+        let zeroes = &self.zero_buffer[..max_len];
+        pad_from_zero_buffer(&mut self.frame.dialogue_raw, max_len, zeroes);
+        pad_from_zero_buffer(&mut self.frame.music_raw, max_len, zeroes);
+        pad_from_zero_buffer(&mut self.frame.effects_raw, max_len, zeroes);
 
-        let source = if let Some(ref mut src) = self.source {
-            let mut s = src.pop_frame(self.frame_size);
-            s.resize(max_len, 0.0);
-            s
+        if let Some(ref mut src) = self.source {
+            src.pop_frame(&mut self.frame.source_raw, self.frame_size);
+            pad_from_zero_buffer(&mut self.frame.source_raw, max_len, zeroes);
         } else {
-            Vec::new()
-        };
+            self.frame.source_raw.clear();
+        }
 
-        Ok(Some(self.process_frame(dx, music, effects, source)))
+        Ok(Some(self.process_frame()))
     }
 
-    pub fn drain_tail(&mut self) -> SyncedAudioFrame {
-        let mut dx = self.dx.drain_remaining();
-        let mut music = self.music.drain_remaining();
-        let mut effects = self.effects.drain_remaining();
+    pub fn drain_tail(&mut self) -> &SyncedAudioFrame {
+        self.dx.drain_remaining(&mut self.frame.dialogue_raw);
+        self.music.drain_remaining(&mut self.frame.music_raw);
+        self.effects.drain_remaining(&mut self.frame.effects_raw);
 
-        let max_len = dx.len().max(music.len()).max(effects.len());
-        dx.resize(max_len, 0.0);
-        music.resize(max_len, 0.0);
-        effects.resize(max_len, 0.0);
+        let max_len = self
+            .frame
+            .dialogue_raw
+            .len()
+            .max(self.frame.music_raw.len())
+            .max(self.frame.effects_raw.len());
+        self.ensure_zero_buffer_len(max_len);
+        let zeroes = &self.zero_buffer[..max_len];
+        pad_from_zero_buffer(&mut self.frame.dialogue_raw, max_len, zeroes);
+        pad_from_zero_buffer(&mut self.frame.music_raw, max_len, zeroes);
+        pad_from_zero_buffer(&mut self.frame.effects_raw, max_len, zeroes);
 
-        let source = if let Some(ref mut src) = self.source {
-            let mut s = src.drain_remaining();
-            s.resize(max_len, 0.0);
-            s
+        if let Some(ref mut src) = self.source {
+            src.drain_remaining(&mut self.frame.source_raw);
+            pad_from_zero_buffer(&mut self.frame.source_raw, max_len, zeroes);
         } else {
-            Vec::new()
-        };
+            self.frame.source_raw.clear();
+        }
 
-        self.process_frame(dx, music, effects, source)
+        self.process_frame()
     }
 
     pub fn seek(&mut self, seconds: f32) -> Result<(), AudioDecodeError> {
@@ -814,46 +854,40 @@ impl MikupAudioDecoder {
         self.effects.seek(seconds)?;
         if let Some(ref mut src) = self.source {
             if let Err(e) = src.seek(seconds) {
-                eprintln!("[mikup] Source decoder seek failed: {e}");
+                tracing::warn!("[mikup] Source decoder seek failed: {e}");
             }
         }
+        self.frame.dialogue_raw.clear();
+        self.frame.background_raw.clear();
+        self.frame.music_raw.clear();
+        self.frame.effects_raw.clear();
+        self.frame.source_raw.clear();
         Ok(())
     }
 
-    fn process_frame(
-        &mut self,
-        mut dx: Vec<f32>,
-        mut music: Vec<f32>,
-        mut effects: Vec<f32>,
-        source: Vec<f32>,
-    ) -> SyncedAudioFrame {
+    fn process_frame(&mut self) -> &SyncedAudioFrame {
         let stem_flags = self.snapshot_stem_flags();
         let target_gains = StemTargetGains::from_flags(stem_flags);
 
         apply_gain_ramp(
-            &mut dx,
+            &mut self.frame.dialogue_raw,
             &mut self.stem_runtime_gains.dx,
             target_gains.dx,
             self.gain_step_per_sample,
         );
-        let background = sum_background_stems(
-            &mut music,
-            &mut effects,
+        sum_background_stems(
+            &mut self.frame.background_raw,
+            &mut self.frame.music_raw,
+            &mut self.frame.effects_raw,
             &mut self.stem_runtime_gains,
             target_gains,
             self.gain_step_per_sample,
         );
 
-        SyncedAudioFrame {
-            sample_rate: self.target_sample_rate,
-            dialogue_raw: dx,
-            background_raw: background,
-            music_raw: music,
-            effects_raw: effects,
-            source_raw: source,
-            stem_flags,
-            static_loudness: None,
-        }
+        self.frame.sample_rate = self.target_sample_rate;
+        self.frame.stem_flags = stem_flags;
+        self.frame.static_loudness = None;
+        &self.frame
     }
 
     fn snapshot_stem_flags(&self) -> AudioFrameStemFlags {
@@ -862,6 +896,12 @@ impl MikupAudioDecoder {
             Err(_) => return AudioFrameStemFlags::default(),
         };
         AudioFrameStemFlags::from_map(&map)
+    }
+
+    fn ensure_zero_buffer_len(&mut self, len: usize) {
+        if self.zero_buffer.len() < len {
+            self.zero_buffer.resize(len, 0.0);
+        }
     }
 }
 
@@ -882,15 +922,34 @@ fn apply_gain_ramp(buffer: &mut [f32], current_gain: &mut f32, target_gain: f32,
     }
 }
 
+fn copy_from_zero_buffer(output: &mut Vec<f32>, zeroes: &[f32]) {
+    output.clear();
+    output.extend_from_slice(zeroes);
+}
+
+fn pad_from_zero_buffer(output: &mut Vec<f32>, len: usize, zeroes: &[f32]) {
+    debug_assert!(zeroes.len() >= len);
+    if output.len() < len {
+        output.extend_from_slice(&zeroes[..len - output.len()]);
+    } else {
+        output.truncate(len);
+    }
+}
+
 fn sum_background_stems(
+    mixed: &mut Vec<f32>,
     music: &mut [f32],
     effects: &mut [f32],
     runtime_gains: &mut StemRuntimeGains,
     target_gains: StemTargetGains,
     gain_step_per_sample: f32,
-) -> Vec<f32> {
+) {
     let len = music.len().max(effects.len());
-    let mut mixed = vec![0.0; len];
+    if mixed.len() < len {
+        mixed.resize(len, 0.0);
+    } else {
+        mixed.truncate(len);
+    }
 
     for (i, mixed_sample) in mixed.iter_mut().enumerate() {
         let music_sample = apply_gain_step(
@@ -915,8 +974,6 @@ fn sum_background_stems(
 
         *mixed_sample = music_sample + effects_sample;
     }
-
-    mixed
 }
 
 fn apply_gain_step(sample: f32, current_gain: &mut f32, target_gain: f32, step: f32) -> f32 {

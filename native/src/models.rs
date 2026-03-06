@@ -2,11 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use rfd::{FileDialog, MessageDialog, MessageDialogResult, MessageButtons, MessageLevel};
+use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use vizia::prelude::*;
 
 use crate::audio_engine::{AudioCmd, AudioController};
-use crate::project::{Project, TranscriptSegment, WordSegment};
+use crate::dsp::scanner::{LufsTelemetrySample, WaveformPeak};
+use crate::project::{MaskingAlert, Metrics, PacingMikup, Project, TranscriptSegment, WordSegment};
 use crate::vectorscope_view::VectorscopeData;
 
 // ── Pipeline stages ──────────────────────────────────────────────────────────
@@ -48,6 +49,87 @@ impl Data for ViewState {
     }
 }
 
+// ── Forensic markers ─────────────────────────────────────────────────────────
+
+/// Marker type rendered on the Forensic Graph overlay.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MarkerKind {
+    /// 🏁 Pacing milestone (acceleration/deceleration >30%).
+    PacingMilestone,
+    /// ⚠ Masking alert (intelligibility SNR below threshold).
+    MaskingAlert,
+    /// ⚡ Impact peak (sudden transient in Effects/Music).
+    ImpactPeak,
+    /// ⬇️ Ducking signature (deliberate gain reduction).
+    DuckingSignature,
+}
+
+/// Single forensic marker pinned to the timeline.
+#[derive(Debug, Clone)]
+pub struct ForensicMarker {
+    /// Timestamp in milliseconds from start of audio.
+    pub timestamp_ms: u64,
+    /// Duration hint for the marker event (if applicable).
+    pub duration_ms: u64,
+    /// Marker type determines the icon rendered.
+    pub kind: MarkerKind,
+    /// Context label (e.g., "[TRAFFIC]", "SNR: 6.2 dB").
+    pub context: String,
+}
+
+impl ForensicMarker {
+    /// Build marker from PacingMikup payload data.
+    pub fn from_pacing(p: &PacingMikup) -> Self {
+        Self {
+            timestamp_ms: (p.timestamp * 1000.0) as u64,
+            duration_ms: p.duration_ms,
+            kind: MarkerKind::PacingMilestone,
+            context: if p.context.is_empty() {
+                "Pacing shift".to_string()
+            } else {
+                p.context.clone()
+            },
+        }
+    }
+
+    /// Build masking alert if SNR is below threshold.
+    pub fn masking_alert(timestamp_ms: u64, snr: f64) -> Self {
+        Self {
+            timestamp_ms,
+            duration_ms: 0,
+            kind: MarkerKind::MaskingAlert,
+            context: format!("SNR: {snr:.1} dB"),
+        }
+    }
+
+    pub fn from_masking(alert: &MaskingAlert) -> Self {
+        let mut marker = Self::masking_alert((alert.timestamp * 1000.0) as u64, alert.snr);
+        marker.duration_ms = alert.duration_ms;
+        if !alert.context.is_empty() {
+            marker.context = alert.context.clone();
+        }
+        marker
+    }
+}
+
+pub fn build_forensic_markers(metrics: &Metrics) -> Vec<ForensicMarker> {
+    let mut markers: Vec<ForensicMarker> = metrics
+        .pacing_mikups
+        .iter()
+        .map(ForensicMarker::from_pacing)
+        .collect();
+    if let Some(diagnostic_meters) = metrics.diagnostic_meters.as_ref() {
+        markers.extend(
+            diagnostic_meters
+                .masking_alerts
+                .iter()
+                .map(ForensicMarker::from_masking),
+        );
+    }
+    markers.sort_by_key(|marker| marker.timestamp_ms);
+    markers
+}
+
 // ── Workspace assets ──────────────────────────────────────────────────────────
 
 /// Arc-based bundle of all data the workspace view needs.
@@ -55,10 +137,18 @@ impl Data for ViewState {
 /// on a background thread and sent back via `ContextProxy::emit`.
 #[derive(Clone)]
 pub struct WorkspaceAssets {
-    pub dx_samples: Arc<Vec<f32>>,
-    pub music_samples: Arc<Vec<f32>>,
-    pub effects_samples: Arc<Vec<f32>>,
+    pub master_waveform: Arc<Vec<WaveformPeak>>,
+    pub dx_waveform: Arc<Vec<WaveformPeak>>,
+    pub music_waveform: Arc<Vec<WaveformPeak>>,
+    pub effects_waveform: Arc<Vec<WaveformPeak>>,
+    pub lufs_samples: Arc<Vec<LufsTelemetrySample>>,
+    pub master_lufs: Arc<Vec<f32>>,
+    pub pacing_density: Arc<Vec<f32>>,
     pub transcript_items: Arc<Vec<(String, u64)>>,
+    /// Forensic markers (pacing mikups, masking alerts, etc.) for overlay rendering.
+    pub forensic_markers: Arc<Vec<ForensicMarker>>,
+    /// Total duration of the audio in milliseconds (for X-axis scaling).
+    pub total_duration_ms: u64,
 }
 
 /// Newtype so we can implement `Data` for `Option<Arc<WorkspaceAssets>>`
@@ -128,7 +218,11 @@ pub enum AppEvent {
     SwitchView(ViewState),
     PipelineProgress(f32, String),
     RedoStage(StageName),
-    StorageUpdate { usage: u64, available: u64, total: u64 },
+    StorageUpdate {
+        usage: u64,
+        available: u64,
+        total: u64,
+    },
     RefreshStorage,
 }
 
@@ -167,7 +261,11 @@ impl AppData {
                 self.pipeline_progress = pct;
                 self.pipeline_message = msg;
             }
-            AppEvent::StorageUpdate { usage, available, total } => {
+            AppEvent::StorageUpdate {
+                usage,
+                available,
+                total,
+            } => {
                 self.project_disk_usage = usage;
                 self.system_available_space = available;
                 self.system_total_space = total;
@@ -177,7 +275,9 @@ impl AppData {
             | AppEvent::SelectNewAudioFile
             | AppEvent::StartPipeline(_)
             | AppEvent::RedoStage(_)
-            | AppEvent::RefreshStorage => {}
+            | AppEvent::RefreshStorage => {
+                tracing::trace!("apply_event: deferred to Model::event context handler");
+            }
         }
     }
 }
@@ -213,11 +313,19 @@ impl Model for AppData {
                                 )
                             })
                             .collect();
+                        let forensic_markers = build_forensic_markers(&proj.payload.metrics);
+                        let total_duration_ms = proj.telemetry.lufs_samples.len() as u64 * 100;
                         let assets = Arc::new(WorkspaceAssets {
-                            dx_samples: Arc::new(proj.stems.dx_samples),
-                            music_samples: Arc::new(proj.stems.music_samples),
-                            effects_samples: Arc::new(proj.stems.effects_samples),
+                            master_waveform: Arc::new(proj.telemetry.master_waveform),
+                            dx_waveform: Arc::new(proj.telemetry.dx_waveform),
+                            music_waveform: Arc::new(proj.telemetry.music_waveform),
+                            effects_waveform: Arc::new(proj.telemetry.effects_waveform),
+                            lufs_samples: Arc::new(proj.telemetry.lufs_samples),
+                            master_lufs: Arc::new(proj.telemetry.master_lufs),
+                            pacing_density: Arc::new(proj.telemetry.pacing_density),
                             transcript_items: Arc::new(transcript_items),
+                            forensic_markers: Arc::new(forensic_markers),
+                            total_duration_ms,
                         });
                         proxy.emit(AppEvent::ProjectReady(assets)).ok();
                         proxy.emit(AppEvent::RefreshStorage).ok();
@@ -587,10 +695,16 @@ mod tests {
         let mut data = make_appdata();
         data.current_view = ViewState::Processing;
         let assets = Arc::new(WorkspaceAssets {
-            dx_samples: Arc::new(vec![]),
-            music_samples: Arc::new(vec![]),
-            effects_samples: Arc::new(vec![]),
+            master_waveform: Arc::new(vec![]),
+            dx_waveform: Arc::new(vec![]),
+            music_waveform: Arc::new(vec![]),
+            effects_waveform: Arc::new(vec![]),
+            lufs_samples: Arc::new(vec![]),
+            master_lufs: Arc::new(vec![]),
+            pacing_density: Arc::new(vec![]),
             transcript_items: Arc::new(vec![]),
+            forensic_markers: Arc::new(vec![]),
+            total_duration_ms: 0,
         });
         data.apply_event(AppEvent::ProjectReady(Arc::clone(&assets)));
         assert!(data.loaded_project.0.is_some());

@@ -365,7 +365,7 @@ class MikupSeparator:
             from demucs.htdemucs import HTDemucs as _HTDemucs
             torch.serialization.add_safe_globals([_HTDemucs])
         except ImportError:
-            pass
+            logger.debug("demucs.htdemucs unavailable; HTDemucs safe-global registration skipped.")
 
         logger.info("Pass 2: CDX23 instrumental split...")
         models_dir = self._cdx23_models_dir()
