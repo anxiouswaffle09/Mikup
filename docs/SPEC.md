@@ -149,14 +149,18 @@ The primary research area for visualizing time-based data.
 
 ### 9.2 Column 2: The Data Center (Right - 30%)
 The research cockpit for the **Master Mix** in real-time.
-- **Master Metrics (Persistent Top):** Unified real-time meters for **Master LUFS**, **Master Peak (dBTP)**, and **Master Dynamics (Crest Factor)**.
-- **Forensic Baselines:** The UI allows users to select a **Project Mode** (e.g., Cinema, Audio Drama, Web). This updates real-time target markers and delta (Δ) readouts based on `Audio_Standards.md`.
+- **Audio Standards & Targets (Top Config):** Dropdown for **Standard Preset** (Cinema, Streaming, Broadcast, Web, Custom). Updates targets for LUFS, dBTP, and Phase Correlation.
+- **Master Vitals (Split Display):**
+    - **Static Analysis (Initial Scan):** Integrated LUFS, Max True Peak, Overall Phase Correlation, and SNR (if available). Computed file-wide during the initial scan; violations turn **RED**.
+    - **Live Vitals (Real-time):** Momentary LUFS, Live Peak, and Live Phase meters tracking the current playhead.
 - **Forensic Radar (Tabbed Research):** 
     - **[ MIX ]:** Vectorscope (Master Phase/Width), LRA, and Crest Factor. Features a **Fader 5 Safety Check** to simulate real-world theater playback.
     - **[ PACE ]:** Pacing Density (derived from Transcription) and Speech Rate.
     - **[ TEX ]:** **Vocal Texture** (Spectral Entropy) - *Note: This remains mapped specifically to the DX stem for diagnostic clarity.*
 
-### 9.3 The Floating AI Director
-- **Visualization:** A floating overlay bubble ( (AI) ) in the bottom-right corner, implemented via Vizia `ZStack`.
-- **Behavior:** Clicking the bubble expands a non-intrusive chat window over the Forensic Radar.
-- **Alert Integration:** The AI automatically summarizes the forensic markers from Section 9.1 in its initial report.
+### 9.3 Floating Forensic Modules
+- **The Floating AI Director:** A floating overlay bubble ( (AI) ) in the bottom-right corner, implemented via Vizia `ZStack`.
+- **Tonal Balance Analyzer (Floating Window):** A high-fidelity analyzer modeled after iZotope Tonal Balance Control.
+    - **Spectral Distribution:** 4-band analysis (Low, Low-Mid, High-Mid, High) with blue **Target Zones** (statistical norms) and a real-time FFT indicator line.
+    - **Low-End Crest Factor:** Dedicated "Punch vs. Sustain" meter for low-frequency dynamics.
+    - **Internal Overlay:** Implemented via root `ZStack` and absolute positioning; behaves like a draggable plugin window within the main application.

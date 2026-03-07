@@ -48,9 +48,19 @@ The documentation is indexed under the repo name `local/Mikup`. Use this instead
 3. `get_document_outline` — quickly map out a single large document without reading it all.
 4. `get_section` / `get_sections` — fetch specific pieces of documentation as needed.
 
-**`Read` only for:** Small files not in the index or when exact line numbers are needed for `replace` (though `get_section` is preferred for context).
+**`Read` only for:** Small files not in the index or when exact line numbers are needed for `replace`. In the case of `replace`, always use surgical reads (`start_line`/`end_line`) based on `jdocmunch` metadata to minimize token overhead.
 
 **Sniper discipline:** Identify the relevant section first; do not dump whole documents into context. Use `search_sections` to locate concepts before retrieving content.
+
+---
+
+## 🎯 Surgical Read-then-Replace (Mandatory SOP)
+To ensure character-perfect edits while minimizing token overhead:
+1. **Locate (Cheap):** Use JCM (`get_file_outline`) or JDM (`get_document_outline`) to find the target and its line numbers. These tools return metadata ONLY, saving thousands of tokens. Do NOT use `get_symbol` or `get_sections` if you intend to edit the target.
+2. **Read Ground Truth (Surgical):** Once line numbers are known, execute a surgical `read_file(path, start_line=X, end_line=Y)` for the target range. This is your single source of truth for whitespace and indentation.
+3. **Replace:** Use the raw text from the surgical read as the `old_string`.
+
+This protocol is mandatory for all edits to both source code and documentation.
 
 ---
 

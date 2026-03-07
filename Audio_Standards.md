@@ -57,6 +57,11 @@ Measures the relationship between the Left and Right channels.
 *   **Low Crest Factor in Stems:** If an AI-separated `DX` (Dialogue) stem has a Crest Factor below 10dB while the master was 18dB, it indicates the AI has "smeared" the transients or added internal limiting.
 *   **Excessive LRA:** If the `DX` stem LRA is significantly higher than the `Master` LRA, the separation may have introduced "pumping" artifacts or inconsistent gain.
 
+### Spectral Balance (Tonal Balance)
+Mikup evaluates the frequency distribution of the Master mix against genre-specific statistical norms.
+*   **Target Zones:** Acceptable energy ranges for 4 key bands: Low (20-250Hz), Low-Mid (250Hz-2kHz), High-Mid (2kHz-8kHz), and High (8kHz-20kHz).
+*   **Low-End Crest Factor (Punch):** Measures the micro-dynamics of low-frequency transients vs. sustained energy. The target is the "middle third" of the scale (statistical professional average).
+
 ### Intelligibility (SNR)
 *   **Masking Threshold:** In Mikup, we calculate the energy ratio between `DX` and `(Music + Effects)`. 
 *   **Warning:** If `DX` is less than **3dB louder** than the background in frequency ranges between 1kHz and 4kHz, an **Intelligibility Alert** is triggered.

@@ -25,11 +25,15 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 - [x] **Python Cleanup:** Removed the stale `src/dsp` directory to clarify the Rust/Python boundary.
 
 ### 🚧 In Progress
+- [ ] **Audio Standards & Targets:** Implementing split Static vs. Live analytics and target-based UI alerts (Insight 2 style).
+- [ ] **Tonal Balance Analyzer:** Developing the floating spectral analysis window with statistical target zones (TBC style).
 - [ ] **Metric Refinement:** Locking Vocal Texture (Spectral Entropy) to the `DX` stem and ensuring Transient Density targets `Music`/`Effects`.
 
 ## Decision Vault 🏛️
 | Date | Decision | Rationale |
 | :--- | :--- | :--- |
+| 2026-03-07 | **Insight 2 / TBC UI Pivot** | Incorporate industry-standard metering paradigms (split Integrated/Momentary metrics and statistical tonal zones) into the native Vizia UI. |
+| 2026-03-07 | **Floating Forensic Modules** | Use root `ZStack` overlays for secondary analysis windows (Tonal Balance) to bypass OS-level multi-window GPU constraints while maintaining 120fps sync. |
 | 2026-03-06 | **Master-First Telemetry** | Reduce UI clutter and CPU overhead in the DSP thread; provide a focused "Cockpit" experience for the final output while relying on the graph for surgical stem forensics. |
 | 2026-03-05 | **Postpone AI Director** | The floating AI Director chat interface is deprioritized for much later to focus on core UI, data accuracy, and ergonomics. |
 | 2026-03-02 | **Versioned Iteration (Redo)** | Allow users to redo stages (e.g., Separation) with downstream invalidation to fix errors. |
@@ -38,5 +42,7 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 | 2026-02-28 | **Interactive DAW Pivot** | Moving away from static reports to a real-time diagnostic workspace via Vizia. |
 
 ## Next Steps 🚀
-1.  **[Claude/Codex]** Finalize Transcription rewrite design for the dialogue-only data flow.
-2.  **[Claude/Opus]** Detail the Forensic Marker expansion (Impact Peaks for FX/MX).
+1.  **[Claude/Sonnet]** Implement the `AudioTargets` model and persistent `AppConfig` in Rust.
+2.  **[Claude/Sonnet]** Redesign the Data Center (Column 2) to show the split Static vs. Live analytics.
+3.  **[Claude/Opus]** Build the Floating Tonal Balance overlay and the custom spectral canvas.
+4.  **[Claude/Codex]** Finalize Transcription rewrite design for the dialogue-only data flow.

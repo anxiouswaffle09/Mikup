@@ -10,34 +10,41 @@ ________________________________________________________________________________
 |_______________________________________________________________________________________|
 |                                                      |                                |
 | [ COLUMN 1: THE FORENSIC CANVAS (70% Width) ]        | [ COLUMN 2: DATA CENTER (30%)] |
+| COLUMN 1: THE FORENSIC CANVAS (70% Width) ]        | [ COLUMN 2: DATA CENTER (30%)] |
 |                                                      | ______________________________ |
-| 1. REFERENCE WAVEFORM (Original File)                | | [ MASTER VITALS ]          | |
-| |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~| | MASTER:  [|||||--] -14 LUFS | |
-| | (Scrubbable - Playhead Master Sync)              | | PEAK:    [||||---] -1.2 dBTP | |
-| |__________________________________________________| | DYNAMICS: [|||||--]  4.2 CF   | |
-|                                                      | |____________________________| |
-| 2. THE UNIFIED FORENSIC GRAPH (Fixed -60 to 0)       | |                            | |
-|    0 dB -------------------------------------------  | | [ MIX | PACE | TEX ]       | |
-|            ! (Masking)        🏁 (Acceleration)    | |----------------------------| |
-|            |                  |                      | | [ RESEARCH WORKSTATION ]   | |
-|   -20 dB  --Yellow (DX)------/ \----(Master)-------  | |                            | |
-|   -40 dB  -------Purple (Music)-------.____.-------  | |      / Vectorscope \       | |
-|   -60 dB  - - - (Dashed White Pacing Line) - - - -  | |     (    Phase     )      | |
-| ____________________________________________________ | |      \ +0.82 Corr /       | |
+| 1. REFERENCE WAVEFORM (Original File)                | | [ TARGET STANDARDS ]        | |
+| |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~| | Preset: [ Streaming  \u25bc ]   | |
+| | (Scrubbable - Playhead Master Sync)              | | LUFS: -24.0 | Peak: -2.0     | |
+| |__________________________________________________| |____________________________| |
+|                                                      | ______________________________ |
+| 2. THE UNIFIED FORENSIC GRAPH (Fixed -60 to 0)       | | [ STATIC ANALYSIS ]         | |
+|    0 dB -------------------------------------------  | | INT. LUFS:  -23.5  (PASS)   | |
+|            ! (Masking)        \ud83c\udfc1 (Acceleration)    | | MAX PEAK:   -1.2   (FAIL)   | |
+|            |                  |                      | | CORRELATION: +0.82 (PASS)   | |
+|   -20 dB  --Yellow (DX)------/ \----(Master)-------  | |____________________________| |
+|          - - - (TARGET: -24 LUFS) - - - - - - - - -  | ______________________________ |
+|   -40 dB  -------Purple (Music)-------.____.-------  | | [ LIVE VITALS ]            | |
+|   -60 dB  - - - (Dashed White Pacing Line) - - - -  | | MOMENTARY: [|||||--] -14.2 | |
+| ____________________________________________________ | | LIVE PEAK: [||||---] -3.1  | |
+|                                                      | | DYNAMICS:  [|||||--]  4.2  | |
+| [ PLAYHEAD: 02:15:400 ]                              | |____________________________| |
+|                                                      |                                |
+| [ 3. MAIN STAGE (Semantic Tags) ]                    | | [ MIX | PACE | TEX ]       | |
+|   [TRAFFIC]   [TENSE CELLO]   [RAIN]                 | |----------------------------| |
+|______________________________________________________| | [ RESEARCH WORKSTATION ]   | |
 |                                                      | |                            | |
-| [ PLAYHEAD: 02:15:400 ]                              | | VOCAL TEX: [|||     ] 18%  | |
-|                                                      | | SPEECH:    [||||||  ] 4.2  | |
-| [ 3. MAIN STAGE (Semantic Tags) ]                    | |____________________________| |
-|   [TRAFFIC]   [TENSE CELLO]   [RAIN]                 | |                              |
-|______________________________________________________| |                              |
-| [ LOG: Analysis Complete ]                           | |         [ (AI) ] <--- BUBBLE |
+| [ LOG: Analysis Complete ]                           | |      / Vectorscope \       | |
 |______________________________________________________|________________________________|
-```
 
 ## Architectural Notes (Vizia 0.3.0)
-- **Root Layering:** A root `ZStack` overlays the absolute-positioned `[ (AI) ]` bubble over the main `HStack`.
+- **Root Layering:** A root `ZStack` overlays the absolute-positioned `[ (AI) ]` bubble and the **Floating Forensic Modules** (Tonal Balance Analyzer) over the main `HStack`.
+- **Target Line (Graph):** A dashed horizontal line rendered in the `LufsGraphView` background at the `target_lufs` level.
+- **Tonal Balance Analyzer:** A high-density spectral analyzer rendered as an absolute-positioned `VStack` over the main workspace. 
+    - Shared Memory: Uses `Arc<Vec<f32>>` pointers to the real-time FFT telemetry generated by the Rust audio engine.
+    - Custom Canvas: Draws the 4-band Target Zones (blue shaded rectangles) and the real-time white magnitude curve.
 - **Unified Scrubbing:** Both the Reference Waveform and the Forensic Graph are synchronized to the global playhead. Mouse movement during `is_scrubbing=true` utilizes the `seek_sensitivity` multiplier for precision navigation.
 - **Master-First Cockpit:** The Data Center (Column 2) exclusively tracks the Master mix in real-time. Stem-level diagnostics (DX, Music, Effects) are available visually via the historical graph in Column 1.
+
 - **Z-Order (Graph):** Rendered inside the `Canvas` API:
   - Back: LUFS Paths (`DX`, `Music`, `Effects`, `Master`).
   - Middle: Pacing Path (Dashed white).
