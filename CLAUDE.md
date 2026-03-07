@@ -46,6 +46,37 @@ The server auto-refreshes the index before every tool call — no manual `index_
 
 ---
 
+## 📚 jdocmunch Documentation Navigation (Mandatory)
+The documentation is indexed under the repo name `local/Mikup`. The unit of access is **section**, not file. Use this instead of `Read` for all text/markdown documents.
+
+**Workflow order:**
+1. `jdm_list_repos` — confirm what doc sets are indexed (repo name: `local/Mikup`)
+2. `jdm_get_toc_tree` — orient across all documents and understand project structure
+3. `jdm_get_document_outline` — section hierarchy for a known document (lighter than full TOC)
+4. `jdm_search_sections` — find sections by query; **returns summaries only, not full content**
+5. `jdm_get_section` / `jdm_get_sections` — fetch full content of one or more specific sections
+
+**Section ID format:** `{repo}::{doc_path}::{slug}#{level}`
+- Example: `local/Mikup::docs/ARCHITECTURE.md::audio-engine#2`
+- IDs returned by `jdm_get_toc_tree`, `jdm_get_document_outline`, and `jdm_search_sections`
+
+**Priority rule:** When a doc is in the index, **always use jdocmunch tools first** — never `Read` documentation files into context. Check `jdm_list_repos` at the start of any doc-heavy task.
+
+**Key rules:**
+- `jdm_search_sections` returns summaries only — always follow up with `jdm_get_section` to get content
+- Use `jdm_get_sections` (batch) instead of repeated `jdm_get_section` calls for related sections
+- Narrow `jdm_search_sections` with `doc_path` to avoid cross-document noise when the file is known
+- `verify: true` on `jdm_get_section` checks whether content has drifted since indexing
+
+**`Read` only for:** Small files not in the index or when exact line numbers are needed for `Edit`.
+
+**Sniper discipline:** Identify the relevant section first; do not dump whole documents into context. Use `jdm_search_sections` to locate concepts before retrieving content.
+
+**Stale index:** `jdm_delete_index` → `jdm_index_local` to force re-index.
+**Auto-refresh:** jdocmunch refreshes indexes before every tool call — no manual re-index at session start.
+
+---
+
 ## ✏️ Edit Protocol (Mandatory)
 
 Claude Code's `Edit` tool requires the file to have been touched by `Read` in the current session. `jcm_get_symbol` does not satisfy this guard. Required sequence for every source file edit:
@@ -62,11 +93,12 @@ Claude Code's `Edit` tool requires the file to have been touched by `Read` in th
 
 ---
 
-## ⚙️ Documentation Protocol
+## ⚙️ Documentation Protocol (Mandatory)
 Before any implementation:
-1. Read `best_practices/reference/` for the relevant technology.
-2. Enforce 2026 standards (Vizia 0.3.0, Python 3.14 No-GIL, Rust 1.86).
-3. Fallback: `get-library-docs` MCP or `context7` skill.
+1. Use **jdocmunch** to explore relevant documentation in `docs/` and `best_practices/`.
+2. Read `best_practices/reference/` for the relevant technology.
+3. Enforce 2026 standards (Vizia 0.3.0, Python 3.14 No-GIL, Rust 1.86).
+4. Fallback: `get-library-docs` MCP or `context7` skill.
 
 ---
 

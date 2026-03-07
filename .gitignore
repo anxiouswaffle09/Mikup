@@ -57,6 +57,7 @@ wheels/
 !.claude/
 !.gemini/
 .gemini/.env
+.gemini/settings.json
 *.local.json
 
 # Git worktrees

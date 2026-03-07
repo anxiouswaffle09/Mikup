@@ -39,6 +39,21 @@ The server auto-refreshes the index before every tool call — no manual `index_
 
 ---
 
+## 📚 jdocmunch Documentation Navigation (Mandatory)
+The documentation is indexed under the repo name `local/Mikup`. Use this instead of `read_file` for exploring any text/markdown documents.
+
+**Workflow order:**
+1. `get_toc_tree` — orient across all documents and understand project structure.
+2. `search_sections` — find specific design rationales, specs, or historical context.
+3. `get_document_outline` — quickly map out a single large document without reading it all.
+4. `get_section` / `get_sections` — fetch specific pieces of documentation as needed.
+
+**`Read` only for:** Small files not in the index or when exact line numbers are needed for `replace` (though `get_section` is preferred for context).
+
+**Sniper discipline:** Identify the relevant section first; do not dump whole documents into context. Use `search_sections` to locate concepts before retrieving content.
+
+---
+
 ## 🤖 Implementation Team
 | Agent | Role |
 |-------|------|

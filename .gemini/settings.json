@@ -9,7 +9,7 @@
       ]
     },
     "jcodemunch": {
-      "command": "/Users/test/Documents/MCPs/jcodemunch-mcp/.venv/bin/jcodemunch-mcp",
+      "command": "/home/wendy/MCPs/jcodemunch-mcp/.venv/bin/jcodemunch-mcp",
       "args": []
     },
     "mcp_docker": {
