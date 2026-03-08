@@ -4,69 +4,46 @@
 **Focus:** Forensic Baselines & Theatrical Translation
 **Platforms:** Windows (10/11), macOS (Silicon/Intel)
 
-## 1. Surgical Separation Pipeline (Stage 1)
-All separation follows this hybrid 2-pass architecture.
+## 1. Asynchronous DAW Environment (Core Architecture)
+Mikup operates as a non-blocking, DAW-first environment. Unlike traditional "process-then-view" tools, Mikup enters the Workspace immediately upon project creation.
 
-### Pass 1: MBR Vocal Extraction
-- **Model:** `vocals_mel_band_roformer.ckpt` (SDR 12.6) via audio-separator
-- **Stems:** `vocals` → DX candidate, `other` → instrumental
-- **Rationale:** Specialist vocal model outperforms CDX23's single-pass 3-way split for dialog clarity.
+### 1.1 Master-First Handoff
+- **Pass 1 (Rust - Instant):** Upon project creation, the Rust `scanner.rs` performs a 100x+ real-time scan of the original **Master File**.
+  - **Result:** LUFS, True Peak, and Global Transient Density (Sound Design Pacing) are available within <2 seconds. The DAW becomes functional immediately.
+- **Pass 2 (Python - Background):** The ML pipeline (Separation/Transcription) runs asynchronously in the background.
+  - **Result:** Stems and Transcript data are "hot-loaded" into the active Workspace as they become available. The UI enriches from "Master-only" to "Full Forensic" state.
 
-### Pass 2: CDX23 Instrumental Split
-- **Model:** CDX23 (Demucs4/DnR) via demucs API
-- **Input:** `other` (instrumental) from Pass 1
-- **Stems:** `Music`, `Effects` (CDX23's own dialog output is discarded)
-- **Models dir:** `~/.cache/mikup/cdx23/` (auto-downloaded on first run)
-- **Rationale:** With dialog already removed, CDX23 cleanly splits music vs. effects.
+### 1.2 Pipeline Control Modes
+- **Autonomous Mode:** The pipeline runs from Stage 1 to Stage 3 without interruption.
+- **Step-by-Step Mode:** The pipeline pauses after each major stage (Separation, Transcription) and requires user confirmation via the UI to proceed.
+- **Live Switching:** Users can toggle between these modes at any time via the Status Bar.
 
-### Pass 2b: DX Refinement (optional)
-- **Model:** `BS-Roformer-Viperx-1297` (`model_bs_roformer_ep_317_sdr_12.9755.ckpt`)
-- **Action:** Process the Pass 1 vocals stem.
-- **Outputs:** `DX` (clean dialogue), `DX_Residual` (residual bleed).
-- **Toggle:** Skipped when `fast_mode=True`.
+## 2. Surgical Separation Pipeline
+All separation follows this hybrid async architecture.
+- **Pass 1: MBR Vocal Extraction** - Isolate dialogue from background.
+- **Pass 2: CDX23 Instrumental Split** - Split background into Music and Effects.
+- **Pass 2b: DX Refinement (optional)** - Skipped when `fast_mode=True`.
 
-## 2. Canonical Stem Naming
-The project officially deprecates the 5-stem "Cinematic Trinity" split in favor of a high-fidelity 3-stem hybrid:
+## 3. Canonical Stem Naming
+The project officially uses a high-fidelity 3-stem hybrid:
 - `DX`: Primary dry dialogue.
 - `Music`: Full orchestral/electronic score.
 - `Effects`: All non-music, non-dialog audio (hard FX, ambience, foley combined).
-- `DX_Residual`: Optional residual from Pass 2b; omitted in fast mode.
+- `MASTER`: Original Source File (Bit-perfect reference).
 
-## 3. Platform Standards
-### macOS (Darwin)
-- **Dependencies:** `pip install -r requirements-mac.txt`
-- **Torch:** Use `mps` device (Metal Performance Shaders).
-- **ONNX:** Use `CoreMLExecutionProvider`.
-- **FFmpeg:** Must be available via `brew`.
+## 4. Platform Standards
+Mikup is a native WSL2/Linux application with high-performance Rust core.
 
-### Windows (NT)
-- **Dependencies:** `pip install -r requirements-windows.txt`
-- **Torch:** Use `cuda` (NVIDIA) or `directml` (AMD/Intel/Generic) via `torch-directml`.
-- **ONNX:** Use `DmlExecutionProvider` or `CUDAExecutionProvider`.
-- **FFmpeg:** Must be in system PATH (e.g., via `scoop` or manual install).
-- **UI:** Native Vizia 0.3.0 binary (DirectX/Skia).
+## 5. Engineering Standards
+- **Telemetry:** 60fps live metering (LUFS, Phase, Vectorscope) via Vizia Model/Lens architecture.
+- **Unified Scrubbing:** All canvases (Waveforms + Graphs) are synchronized to the global playhead.
+- **Master-First Playback:** By default, the engine plays the original **Master File** (Bit-perfect). Stem mixing is only utilized when a stem is Soloed or Muted.
 
-### Runtime Environment (WSL2 / Darwin / Windows)
-- **Rust/Python Boundary:** Python is strictly an **Offline ML Engine** (Separation, Transcription, Semantics). **Rust owns all real-time DSP, level metering, and historical telemetry generation.**
-- **Telemetry Cache:** To ensure instant project loading, Rust performs a high-speed offline scan of all stems on the first project open and saves a binary `.mikup_cache` file. Subsequent opens read from this cache instead of re-analyzing audio.
-- **Dev Environment Setup:** Running the Vizia binary inside WSL2 requires Mesa and an ALSA→PulseAudio bridge. Run `bash scripts/setup-wsl2-dev.sh` once per WSL2 installation before attempting to launch `cargo run` in `native/`. See `AGENTS.md` for full details.
-
-## 4. Engineering Standards
-
-### 4.1 Path Normalization
-- **Strict Pathlib:** All file system interactions must use `pathlib.Path`.
-- **Resolution:** Paths must be anchored to `PROJECT_ROOT` to ensure consistency across Windows (`\`) and macOS (`/`).
-- **No Relative Defaults:** Functions must not use relative string literals (e.g., `"data/config.json"`) for machine-level state.
-
-### 4.2 Transient Storage
-- **Platform-Agnostic Temp:** Intermediate artifacts (stems before workspace movement) must use `tempfile.gettempdir()`.
-- **Cleanup:** Temporary directories must be purged upon successful workspace migration to prevent storage bloat.
-
-## 5. UI/UX Standards
-- **Mikup Console:** A real-time, autoscrolling terminal log in the "Processing" view.
-- **Visuals:** Minimalist Light / Pastel (`oklch()`).
-- **Telemetry:** 120fps live metering (LUFS, Phase, Vectorscope) via Vizia Model/Lens architecture.
-- **Unified Scrubbing:** The entire Forensic Canvas (Waveforms + Graphs) is interactive. Mouse interactions utilize a "Seek Sensitivity" multiplier for precise timeline navigation.
+## 6. UI/UX Standards
+- **Global Menu Bar:** Integrated `File`, `View`, `Settings (Audio)`, and `Help`.
+- **New Project Wizard:** A step-by-step setup for project configuration (Name, File, Fast Mode, Flow Preference).
+- **Status Bar:** Persistent bottom bar showing pipeline progress and the Mode Toggle (Auto vs. Manual).
+- **Skeleton Loaders:** Metrics display pulsing `[ ANALYZING... ]` states during initial file scans.
 
 ## 6. Workspace Layout
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use atomic_float::AtomicF32;
@@ -10,7 +10,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::dsp::loudness::MasterLoudnessAnalyzer;
 use crate::dsp::spatial::SpatialAnalyzer;
 use crate::dsp::spectral::SpectralAnalyzer;
-use crate::dsp::{shared_default_stem_states, MikupAudioDecoder};
+use crate::dsp::{MikupAudioDecoder, shared_default_stem_states};
 
 pub static VOLUME: AtomicF32 = AtomicF32::new(1.0);
 

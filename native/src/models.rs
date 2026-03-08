@@ -3,11 +3,15 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
+use serde::{Deserialize, Serialize};
 use vizia::prelude::*;
 
 use crate::audio_engine::{AudioCmd, AudioController};
 use crate::dsp::scanner::{LufsTelemetrySample, WaveformPeak};
-use crate::project::{MaskingAlert, Metrics, PacingMikup, Project, TranscriptSegment, WordSegment};
+use crate::project::{
+    MaskingAlert, Metrics, PacingMikup, Project, TranscriptSegment, WordSegment, load_config,
+    save_config,
+};
 use crate::vectorscope_view::VectorscopeData;
 
 // ── Pipeline stages ──────────────────────────────────────────────────────────
@@ -44,6 +48,65 @@ pub enum ViewState {
 }
 
 impl Data for ViewState {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum StandardPreset {
+    Cinema,
+    Streaming,
+    Broadcast,
+    Web,
+    Custom,
+}
+
+impl Data for StandardPreset {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ForensicTab {
+    Mix,
+    Pace,
+    Tex,
+}
+
+impl Default for ForensicTab {
+    fn default() -> Self {
+        Self::Mix
+    }
+}
+
+impl Data for ForensicTab {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+#[derive(Lens, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AudioTargets {
+    pub preset: StandardPreset,
+    pub target_lufs: f32,
+    pub true_peak_max: f32,
+    pub phase_safe_min: f32,
+}
+
+impl Default for AudioTargets {
+    fn default() -> Self {
+        Self {
+            preset: StandardPreset::Streaming,
+            target_lufs: -14.0,
+            true_peak_max: -1.0,
+            phase_safe_min: 0.0,
+        }
+    }
+}
+
+impl Data for AudioTargets {
     fn same(&self, other: &Self) -> bool {
         self == other
     }
@@ -194,6 +257,8 @@ pub struct AppData {
     pub is_scrubbing: bool,
     pub project_name: String,
     pub current_view: ViewState,
+    pub audio_targets: AudioTargets,
+    pub show_tonal_balance: bool,
     pub available_projects: Vec<ProjectMetadata>,
     pub transcript_segments: Vec<TranscriptSegment>,
     pub word_segments: Vec<WordSegment>,
@@ -204,6 +269,7 @@ pub struct AppData {
     pub vectorscope_data: Arc<Mutex<VectorscopeData>>,
     pub pipeline_progress: f32,
     pub pipeline_message: String,
+    pub current_forensic_tab: ForensicTab,
     pub project_disk_usage: u64,
     pub system_available_space: u64,
     pub system_total_space: u64,
@@ -214,9 +280,11 @@ pub struct AppData {
 #[derive(Clone)]
 pub enum AppEvent {
     TogglePlay,
+    ToggleTonalBalance,
     SetVolume(f32),
     SeekTo(u64),
     SetSeekSensitivity(f32),
+    UpdateAudioTargets(AudioTargets),
     StartScrubbing,
     StopScrubbing,
     LoadProject(PathBuf),
@@ -226,6 +294,7 @@ pub enum AppEvent {
     SwitchView(ViewState),
     PipelineProgress(f32, String),
     RedoStage(StageName),
+    SetForensicTab(ForensicTab),
     StorageUpdate {
         usage: u64,
         available: u64,
@@ -249,6 +318,9 @@ impl AppData {
                 }
                 self.playing = !self.playing;
             }
+            AppEvent::ToggleTonalBalance => {
+                self.show_tonal_balance = !self.show_tonal_balance;
+            }
             AppEvent::SetVolume(v) => self.volume = v.clamp(0.0, 1.0),
             AppEvent::SeekTo(ms) => {
                 if let Some(ref eng) = self.engine {
@@ -258,6 +330,9 @@ impl AppData {
                 }
             }
             AppEvent::SetSeekSensitivity(v) => self.seek_sensitivity = v.clamp(0.1, 10.0),
+            AppEvent::UpdateAudioTargets(targets) => {
+                self.audio_targets = targets;
+            }
             AppEvent::StartScrubbing => {
                 self.is_scrubbing = true;
             }
@@ -275,6 +350,9 @@ impl AppData {
             AppEvent::PipelineProgress(pct, msg) => {
                 self.pipeline_progress = pct;
                 self.pipeline_message = msg;
+            }
+            AppEvent::SetForensicTab(tab) => {
+                self.current_forensic_tab = tab;
             }
             AppEvent::StorageUpdate {
                 usage,
@@ -295,11 +373,29 @@ impl AppData {
             }
         }
     }
+
+    fn persist_audio_preferences(&self) {
+        let mut config = load_config();
+        config.audio_targets = self.audio_targets;
+        config.show_tonal_balance = self.show_tonal_balance;
+
+        if let Err(err) = save_config(&config) {
+            eprintln!("[mikup] Failed to save audio preferences: {err}");
+        }
+    }
 }
 
 impl Model for AppData {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
         event.map(|e: &AppEvent, _meta| match e.clone() {
+            AppEvent::ToggleTonalBalance => {
+                self.apply_event(AppEvent::ToggleTonalBalance);
+                self.persist_audio_preferences();
+            }
+            AppEvent::UpdateAudioTargets(targets) => {
+                self.apply_event(AppEvent::UpdateAudioTargets(targets));
+                self.persist_audio_preferences();
+            }
             AppEvent::LoadProject(path) => {
                 self.current_view = ViewState::Processing;
                 self.project_dir = path.parent().map(Path::to_path_buf);
@@ -670,6 +766,8 @@ mod tests {
             is_scrubbing: false,
             project_name: String::new(),
             current_view: ViewState::Landing,
+            audio_targets: AudioTargets::default(),
+            show_tonal_balance: false,
             available_projects: Vec::new(),
             transcript_segments: Vec::new(),
             word_segments: Vec::new(),
@@ -678,6 +776,7 @@ mod tests {
             vectorscope_data: Arc::new(Mutex::new(VectorscopeData::default())),
             pipeline_progress: 0.0,
             pipeline_message: String::new(),
+            current_forensic_tab: ForensicTab::default(),
             project_disk_usage: 0,
             system_available_space: 0,
             system_total_space: 0,
@@ -720,6 +819,42 @@ mod tests {
         assert!(data.is_scrubbing);
         data.apply_event(AppEvent::StopScrubbing);
         assert!(!data.is_scrubbing);
+    }
+
+    #[test]
+    fn audio_targets_default_matches_streaming_standard() {
+        let targets = AudioTargets::default();
+        assert_eq!(targets.preset, StandardPreset::Streaming);
+        assert_eq!(targets.target_lufs, -14.0);
+        assert_eq!(targets.true_peak_max, -1.0);
+        assert_eq!(targets.phase_safe_min, 0.0);
+    }
+
+    #[test]
+    fn toggle_tonal_balance_flips_flag() {
+        let mut data = make_appdata();
+        assert!(!data.show_tonal_balance);
+
+        data.apply_event(AppEvent::ToggleTonalBalance);
+        assert!(data.show_tonal_balance);
+
+        data.apply_event(AppEvent::ToggleTonalBalance);
+        assert!(!data.show_tonal_balance);
+    }
+
+    #[test]
+    fn update_audio_targets_replaces_targets() {
+        let mut data = make_appdata();
+        let expected = AudioTargets {
+            preset: StandardPreset::Broadcast,
+            target_lufs: -23.0,
+            true_peak_max: -2.0,
+            phase_safe_min: -0.5,
+        };
+
+        data.apply_event(AppEvent::UpdateAudioTargets(expected));
+
+        assert_eq!(data.audio_targets, expected);
     }
 
     #[test]

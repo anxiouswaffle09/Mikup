@@ -269,11 +269,7 @@ fn crest_factor(samples: &[f32]) -> f32 {
     let mean_square = samples.iter().copied().map(|x| x * x).sum::<f32>() / samples.len() as f32;
     let rms = mean_square.sqrt();
 
-    if rms <= EPSILON {
-        0.0
-    } else {
-        peak / rms
-    }
+    if rms <= EPSILON { 0.0 } else { peak / rms }
 }
 
 fn smoothing_coefficient(sample_rate: u32, time_ms: f32) -> f32 {

@@ -9,7 +9,7 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 - [x] **WSL2 Environment:** Installed Mesa (OpenGL/Vulkan) and PulseAudio/ALSA dependencies for native Vizia UI and audio engine support.
 - [x] **SPEC.md Update:** Defined the 3-stem canonical naming (`DX`, `Music`, `Effects`).
 - [x] **Python Refactor:** `separator.py` and `main.py` updated to use the new hybrid 2-pass architecture.
-- [x] **Frontend Pivot:** Successfully migrated from Tauri/React to native **Vizia** UI for 120fps telemetry.
+- [x] **Frontend Pivot:** Successfully migrated from Tauri/React to native **Vizia** UI for high-performance telemetry.
 - [x] **Project-First Workspace:** Automated generation of `Projects/<NAME>_<TIMESTAMP>/`.
 - [x] **Real-time Vectorscope:** Integrated Rust spatial metrics into the Vizia UI.
 - [x] **3-Channel Live Meters:** Upgraded `loudness.rs` to independent DX/Music/Effects LUFS meters in the UI.
@@ -23,26 +23,27 @@ The 3-stem hybrid pipeline and core Vizia shell are fully integrated. Now focusi
 - [x] **Scrubbing Ergonomics:** Added "Seek Sensitivity" and synchronized the playhead/scrubbing across the entire Forensic Canvas.
 - [x] **Master-First Telemetry:** Consolidated real-time LUFS and dynamics meters to reflect the Master mix only, keeping stem data on the historical graph.
 - [x] **Python Cleanup:** Removed the stale `src/dsp` directory to clarify the Rust/Python boundary.
+- [x] **Audio Standards & Targets:** Implemented the `AudioTargets` model and persistent `AppConfig` in Rust for user-selected standards (Cinema, Streaming, etc.).
+- [x] **Data Center UI Redesign:** Restructured Column 2 with split Static/Live analytics and a tabbed Forensic Radar (Mix, Pace, Tex).
 
 ### 🚧 In Progress
-- [ ] **Audio Standards & Targets:** Implementing split Static vs. Live analytics and target-based UI alerts (Insight 2 style).
 - [ ] **Tonal Balance Analyzer:** Developing the floating spectral analysis window with statistical target zones (TBC style).
-- [ ] **Metric Refinement:** Locking Vocal Texture (Spectral Entropy) to the `DX` stem and ensuring Transient Density targets `Music`/`Effects`.
+- [ ] **Async DAW Core:** Refactoring `AudioController` for Master-First playback and hot-loading stems.
+- [ ] **Global Menu & Settings:** Implementing the Vizia Menu Bar and the Audio Settings Modal (Hardware/Rate).
+- [ ] **Metric Wiring:** Plumbing scalar metrics (Integrated LUFS, Max True Peak, Phase) into the WorkspaceAssets and UI.
 
 ## Decision Vault 🏛️
 | Date | Decision | Rationale |
 | :--- | :--- | :--- |
+| 2026-03-08 | **Asynchronous DAW Environment** | Transition from blocking "Processing" view to DAW-first environment. Enter Workspace instantly with Master-only telemetry while AI separation runs in the background. |
+| 2026-03-08 | **Master-First Playback** | Use original Master file for default playback (bit-perfect) to avoid stem-mixing artifacts; switch to stems only on Solo/Mute. |
+| 2026-03-07 | **STOI Deprecation** | Formally deprecated STOI and Python-based forensics in favor of real-time Rust-based SNR masking and Tonal Balance telemetry. |
 | 2026-03-07 | **Insight 2 / TBC UI Pivot** | Incorporate industry-standard metering paradigms (split Integrated/Momentary metrics and statistical tonal zones) into the native Vizia UI. |
-| 2026-03-07 | **Floating Forensic Modules** | Use root `ZStack` overlays for secondary analysis windows (Tonal Balance) to bypass OS-level multi-window GPU constraints while maintaining 120fps sync. |
+| 2026-03-07 | **Floating Forensic Modules** | Use root `ZStack` overlays for secondary analysis windows (Tonal Balance) to bypass OS-level multi-window GPU constraints while maintaining 60fps sync. |
 | 2026-03-06 | **Master-First Telemetry** | Reduce UI clutter and CPU overhead in the DSP thread; provide a focused "Cockpit" experience for the final output while relying on the graph for surgical stem forensics. |
 | 2026-03-05 | **Postpone AI Director** | The floating AI Director chat interface is deprioritized for much later to focus on core UI, data accuracy, and ergonomics. |
-| 2026-03-02 | **Versioned Iteration (Redo)** | Allow users to redo stages (e.g., Separation) with downstream invalidation to fix errors. |
-| 2026-03-01 | **3-Stem Hybrid Pivot** | CDX23's dialog separation is inferior to MBR; hybridizing MBR for Vocals + CDX23 for Instrumental provides superior clarity. |
-| 2026-03-03 | **Mikup Native (Vizia)** | Pivot from Tauri/React to native Vizia UI for 120fps telemetry and zero-IPC overhead. |
-| 2026-02-28 | **Interactive DAW Pivot** | Moving away from static reports to a real-time diagnostic workspace via Vizia. |
 
 ## Next Steps 🚀
-1.  **[Claude/Sonnet]** Implement the `AudioTargets` model and persistent `AppConfig` in Rust.
-2.  **[Claude/Sonnet]** Redesign the Data Center (Column 2) to show the split Static vs. Live analytics.
-3.  **[Claude/Opus]** Build the Floating Tonal Balance overlay and the custom spectral canvas.
-4.  **[Claude/Codex]** Finalize Transcription rewrite design for the dialogue-only data flow.
+1.  **[Claude/Opus]** Build the Floating Tonal Balance overlay and the custom spectral canvas.
+2.  **[Claude/Codex]** Finalize the Rust background scanner for Master-only Pass 1.
+3.  **[Claude/Sonnet]** Wire scalar metrics (INT LUFS, PEAK) from the scanner into the Data Center UI.

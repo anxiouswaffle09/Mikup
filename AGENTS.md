@@ -16,17 +16,17 @@ The jcodemunch MCP server **auto-refreshes all watched paths before every non-in
 ---
 
 ## 🧭 Codebase Discovery Protocol (Mandatory)
-`jcodemunch-mcp` is the default tool for all repo exploration and code navigation.
+Use `jcodemunch-mcp` as the primary tool for repo exploration and code navigation. Use normal targeted reads only as a fallback when `jcodemunch` cannot answer directly, the target is outside indexed symbol coverage, or exact patch anchors are needed.
 
 1. **Scope first:** `get_repo_outline` or `get_file_tree` to orient before opening files.
 2. **Search semantically:** `search_symbols` for functions, types, methods, classes. `search_text` for comments, config values, prose, and broad content discovery. For punctuation-heavy exact string literals (macro invocations `Slider::new(`, call-site enumeration `SeekTo(`, log strings), use `search_text(exact=True)` — case-sensitive native match, no shell needed. `rg -n -F` is the fallback only when jcm is unavailable or for regex patterns jcm cannot express.
-3. **Read symbols directly:** `get_symbol` / `get_symbols` return full source — **never follow up with a `Read` of the same file**. The returned source is ground truth.
-4. **Targeted reads only:** When context beyond a symbol is needed, use the `line` number from jcm output: `Read(path, offset=<line-5>, limit=30)`. Never read a full file. Never do sequential expanding reads to reconstruct a file.
-5. **Shell is secondary:** Use `rg`, `sed`, direct `Read` only for non-indexed targets (`.md`, `.toml`, `.json`, shell scripts) or post-patch verification. Shell regex tools are a last resort for patterns `search_text` cannot express. **`search_text` truncation:** check `total_hits` in every response — if a `warning` field is present, results are truncated; rerun with `exhaustive=True` or `offset` to page before drawing conclusions.
+3. **Read symbols directly:** `get_symbol` / `get_symbols` return full source and should be treated as ground truth for symbol-owned edits and analysis. Do not re-read the same symbol range unless `jcodemunch` output is insufficient for the task.
+4. **Normal reads are fallback-only:** When context beyond a symbol is needed, or when the edit target is a non-symbol span, use the `line` number from jcm output to do a narrow `Read(path, offset=<line-5>, limit=30)`. Never read a full file. Never do sequential expanding reads to reconstruct a file.
+5. **Shell is secondary:** Use `rg`, `sed`, and direct `Read` as fallback tools for non-indexed targets (`.md`, `.toml`, `.json`, shell scripts), non-symbol spans, or post-patch verification. Shell regex tools are a last resort for patterns `search_text` cannot express. **`search_text` truncation:** check `total_hits` in every response — if a `warning` field is present, results are truncated; rerun with `exhaustive=True` or `offset` to page before drawing conclusions.
 6. **Wiring verification:** `find_constructors` / `find_callers` / `find_references` / `find_field_reads` / `find_field_writes` — use to verify a symbol is actually instantiated or called in production. Before claiming a struct/type is wired, call `find_constructors(type_name, production_only=True)`. Zero production hits = not wired, regardless of whether the symbol exists. Cross-ref tools require the repo to have been indexed after the jcm upgrade (`refs.json` must exist), have strongest coverage for Rust and Python, and may return coverage warnings for unsupported languages. If multiple in-repo symbols share the same short name, `find_*` may withhold merged results and return candidates instead.
 
-> ❌ Never open `.rs` / `.py` / `.ts` source files with `Read` to understand structure.
-> ❌ Never `Read` a file after `get_symbol` has already returned its source.
+> ❌ Never start with raw `Read` on `.rs` / `.py` / `.ts` files when `jcm_*` can answer semantically.
+> ❌ Never re-read the same symbol range after `get_symbol` has already returned the needed source.
 > ❌ Never start with broad recursive shell scans when `jcm_*` can answer semantically.
 > ❌ Never use regex shell scans when fixed-string `rg -F` or `search_text` would answer the question more directly.
 
@@ -94,27 +94,24 @@ Installs Mesa GPU drivers, PulseAudio bridge, writes `~/.asoundrc`, runs 6 verif
 
 **Known limitations (not bugs):**
 - PulseAudio latency: ~30–80 ms — acceptable for dev, not for production latency testing.
-- GPU via D3D12→OpenGL translation — 120 fps telemetry may stutter under load.
+- GPU via D3D12 (WSLg) supports Vizia-Skia hardware acceleration.
 
 ---
 
 ## 🚫 Handoff-First Mandate
-Agents run in WSL2 and **cannot** execute GUI tasks or Windows-native installs. Every implementation task must end with a **"Handoff for Windows"** block:
-```powershell
-cargo run --bin mikup-native
-```
+Implementation is forbidden. All architectural plans must be finalized as high-fidelity prompts/specs for handoff agents.
 
 ---
 
-## 📋 Coding Standards
-| Language | Standard |
-|----------|----------|
-| **Python** | PEP 8, 4-space indent, `snake_case` functions, `PascalCase` classes |
-| **Rust** | Functional style, strong type safety, no allocations in audio callbacks |
-| **Vizia** | Model/Lens architecture, `cx.spawn()` for async, `ContextProxy` for cross-thread updates |
+## 📝 Coding Standards
+- **Clarity over cleverness:** Explicit types, minimal abstraction.
+- **Error handling:** Result/Option in Rust, Pydantic/Type-hints in Python.
+- **Documentation:** Inline docstrings for all public APIs.
+- **Testing:** Unit tests mandatory for all new logic.
 
 ---
 
 ## 📦 Commits & PRs
-- **Commit style:** Short imperative subjects (`Update Vectorscope to Canvas`).
-- **PR requirements:** Purpose, validation commands, documentation cross-references.
+- **Atomic commits:** One change per commit.
+- **Descriptive messages:** Clear, concise summaries.
+- **PR descriptions:** Detailed context, testing notes.

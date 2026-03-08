@@ -40,8 +40,6 @@ The server auto-refreshes the index before every tool call — no manual `index_
 
 **Sniper discipline:** Identify all edit targets before fetching any symbols. Only fetch symbols you will edit or that answer a blocking question. Batch `get_symbol` + the 1-line Edit stub `Read` in the same parallel call.
 
-**After creating a new source file:** call `jcm_index_folder(path=<project_root>, incremental=true)` before querying the new file with any jcm tool.
-
 ---
 
 ## 📚 jdocmunch Documentation Navigation (Mandatory)
@@ -90,13 +88,6 @@ Claude Code's `Edit` tool requires the file to have been touched by `Read` in th
 - The stub read does not replace jcm as source of truth — it only unlocks the Edit tool.
 
 ---
-
-## ⚙️ Documentation Protocol (Mandatory)
-Before any implementation:
-1. Use **jdocmunch** to explore relevant documentation in `docs/` and `best_practices/`.
-2. Read `best_practices/reference/` for the relevant technology.
-3. Enforce 2026 standards (Vizia 0.3.0, Python 3.14 No-GIL, Rust 1.86).
-4. Fallback: `get-library-docs` MCP or `context7` skill.
 
 ---
 

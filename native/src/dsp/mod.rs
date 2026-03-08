@@ -188,11 +188,7 @@ impl StemTargetGains {
         let any_solo = flags.any_solo();
         let gain_for = |stem: StemState| -> f32 {
             if any_solo {
-                if stem.is_solo {
-                    1.0
-                } else {
-                    0.0
-                }
+                if stem.is_solo { 1.0 } else { 0.0 }
             } else if stem.is_muted && !stem.is_solo {
                 0.0
             } else {

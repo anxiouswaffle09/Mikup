@@ -4,10 +4,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::scanner::{
-    generate_telemetry_cache, load_telemetry_cache, ScannerError, TelemetryCache,
-    TELEMETRY_CACHE_FILE_NAME,
+    ScannerError, TELEMETRY_CACHE_FILE_NAME, TelemetryCache, generate_telemetry_cache,
+    load_telemetry_cache,
 };
-use crate::models::ProjectMetadata;
+use crate::models::{AudioTargets, ProjectMetadata};
 
 /// Recursively sum file sizes under `path`. Returns 0 on error.
 pub fn get_disk_usage(path: &Path) -> u64 {
@@ -88,8 +88,21 @@ struct PartialPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub default_projects_dir: PathBuf,
+    pub audio_targets: AudioTargets,
+    pub show_tonal_balance: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            default_projects_dir: default_projects_dir(),
+            audio_targets: AudioTargets::default(),
+            show_tonal_balance: false,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -346,9 +359,7 @@ pub fn scan_projects_folder(root: PathBuf) -> Vec<ProjectMetadata> {
 }
 
 pub fn load_config() -> AppConfig {
-    let default = AppConfig {
-        default_projects_dir: default_projects_dir(),
-    };
+    let default = AppConfig::default();
     let config_path = config_path();
 
     let config_bytes = match std::fs::read(&config_path) {
@@ -672,9 +683,18 @@ mod tests {
         let loaded_default = load_config();
         let expected_default = std::env::current_dir().unwrap().join("Projects");
         assert_eq!(loaded_default.default_projects_dir, expected_default);
+        assert_eq!(loaded_default.audio_targets, AudioTargets::default());
+        assert!(!loaded_default.show_tonal_balance);
 
         let expected = AppConfig {
             default_projects_dir: root.join("CustomProjects"),
+            audio_targets: AudioTargets {
+                preset: crate::models::StandardPreset::Broadcast,
+                target_lufs: -23.0,
+                true_peak_max: -2.0,
+                phase_safe_min: -0.5,
+            },
+            show_tonal_balance: true,
         };
         save_config(&expected).unwrap();
 
@@ -683,6 +703,34 @@ mod tests {
             loaded_saved.default_projects_dir,
             expected.default_projects_dir
         );
+        assert_eq!(loaded_saved.audio_targets, expected.audio_targets);
+        assert_eq!(loaded_saved.show_tonal_balance, expected.show_tonal_balance);
+
+        drop(cwd_guard);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn load_config_backfills_audio_preferences_for_legacy_json() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = make_temp_root("config_legacy_fields");
+        std::fs::create_dir_all(root.join("Projects")).unwrap();
+
+        let cwd_guard = CwdGuard::set_to(&root);
+        let legacy_config = serde_json::json!({
+            "default_projects_dir": root.join("LegacyProjects"),
+        });
+
+        std::fs::write(
+            config_path(),
+            serde_json::to_vec_pretty(&legacy_config).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_config();
+        assert_eq!(loaded.default_projects_dir, root.join("LegacyProjects"));
+        assert_eq!(loaded.audio_targets, AudioTargets::default());
+        assert!(!loaded.show_tonal_balance);
 
         drop(cwd_guard);
         std::fs::remove_dir_all(root).unwrap();

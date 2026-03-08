@@ -7,7 +7,10 @@ use vizia::style::Color;
 use crate::audio_engine::VOLUME;
 use crate::lufs_graph_view::LufsGraphView;
 use crate::lufs_meter::LufsMeterRow;
-use crate::models::{AppData, AppEvent, AudioEngineStore, StageName, WorkspaceAssets};
+use crate::models::{
+    AppData, AppEvent, AudioEngineStore, AudioTargets, ForensicTab, MaybeProject, StageName,
+    StandardPreset, WorkspaceAssets,
+};
 use crate::vectorscope_view::{VectorscopeData, VectorscopeView};
 use crate::waveform_view::WaveformView;
 
@@ -126,25 +129,291 @@ pub fn build(cx: &mut Context, assets: &WorkspaceAssets, scope_data: Arc<Mutex<V
             let scope = scope_arc.clone();
             let tr = transcript_arc.clone();
             VStack::new(cx, move |cx| {
-                Label::new(cx, "Vectorscope")
-                    .color(Color::rgb(100, 255, 160))
-                    .height(Pixels(18.0));
+                // ── Block A: Audio Standards & Targets ────────────────────
+                Label::new(cx, "STANDARDS")
+                    .color(Color::rgb(120, 120, 140))
+                    .height(Pixels(16.0));
 
-                VectorscopeView::new(cx, scope.clone())
-                    .width(Stretch(1.0))
-                    .height(Pixels(240.0));
+                // Preset selector (button row)
+                Binding::new(
+                    cx,
+                    AppData::audio_targets.then(AudioTargets::preset),
+                    |cx, preset_lens| {
+                        let current = preset_lens.get(cx);
+                        HStack::new(cx, move |cx| {
+                            let presets = [
+                                ("CIN", StandardPreset::Cinema),
+                                ("STR", StandardPreset::Streaming),
+                                ("BRD", StandardPreset::Broadcast),
+                                ("WEB", StandardPreset::Web),
+                            ];
+                            for (label, preset) in presets {
+                                let is_active = current == preset;
+                                let p = preset;
+                                Button::new(cx, move |cx| Label::new(cx, label))
+                                    .on_press(move |cx| {
+                                        let targets = match p {
+                                            StandardPreset::Cinema => AudioTargets {
+                                                preset: p,
+                                                target_lufs: -24.0,
+                                                true_peak_max: -2.0,
+                                                phase_safe_min: 0.5,
+                                            },
+                                            StandardPreset::Streaming => AudioTargets {
+                                                preset: p,
+                                                target_lufs: -14.0,
+                                                true_peak_max: -1.0,
+                                                phase_safe_min: 0.0,
+                                            },
+                                            StandardPreset::Broadcast => AudioTargets {
+                                                preset: p,
+                                                target_lufs: -23.0,
+                                                true_peak_max: -2.0,
+                                                phase_safe_min: 0.3,
+                                            },
+                                            StandardPreset::Web => AudioTargets {
+                                                preset: p,
+                                                target_lufs: -16.0,
+                                                true_peak_max: -1.0,
+                                                phase_safe_min: 0.0,
+                                            },
+                                            StandardPreset::Custom => AudioTargets::default(),
+                                        };
+                                        cx.emit(AppEvent::UpdateAudioTargets(targets));
+                                    })
+                                    .width(Stretch(1.0))
+                                    .background_color(if is_active {
+                                        Color::rgb(60, 90, 130)
+                                    } else {
+                                        Color::rgb(40, 40, 55)
+                                    });
+                            }
+                        })
+                        .height(Pixels(26.0))
+                        .width(Stretch(1.0));
+                    },
+                );
 
-                Label::new(cx, "LUFS Meters")
-                    .color(Color::rgb(180, 180, 200))
-                    .height(Pixels(20.0))
-                    .top(Pixels(8.0));
+                // Numeric targets display
+                HStack::new(cx, |cx| {
+                    Label::new(
+                        cx,
+                        AppData::audio_targets.map(|t| format!("LUFS: {:.1}", t.target_lufs)),
+                    )
+                    .color(Color::rgb(180, 200, 220))
+                    .width(Stretch(1.0));
+                    Label::new(
+                        cx,
+                        AppData::audio_targets
+                            .map(|t| format!("Peak: {:.1}", t.true_peak_max)),
+                    )
+                    .color(Color::rgb(180, 200, 220))
+                    .width(Stretch(1.0));
+                })
+                .height(Pixels(18.0))
+                .width(Stretch(1.0));
 
+                // ── Block B: Master Vitals (Split Display) ────────────────
+                Label::new(cx, "MASTER VITALS")
+                    .color(Color::rgb(120, 120, 140))
+                    .height(Pixels(16.0))
+                    .top(Pixels(6.0));
+
+                // Static Analysis (from initial scan)
+                Label::new(cx, "Static Analysis")
+                    .color(Color::rgb(100, 100, 120))
+                    .height(Pixels(14.0));
+
+                Binding::new(cx, AppData::loaded_project, |cx, _proj_lens| {
+                    let has_project = AppData::loaded_project
+                        .map(|p: &MaybeProject| p.0.is_some())
+                        .get(cx);
+
+                    let (lufs_text, peak_text, phase_text) = if has_project {
+                        // TODO: wire scan metrics once WorkspaceAssets carries scalars
+                        ("--".to_string(), "--".to_string(), "--".to_string())
+                    } else {
+                        ("--".to_string(), "--".to_string(), "--".to_string())
+                    };
+
+                    HStack::new(cx, move |cx| {
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "INT. LUFS")
+                                .color(Color::rgb(100, 100, 120))
+                                .height(Pixels(12.0));
+                            Label::new(cx, &lufs_text)
+                                .color(Color::rgb(160, 160, 180))
+                                .height(Pixels(16.0));
+                        })
+                        .width(Stretch(1.0));
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "MAX PEAK")
+                                .color(Color::rgb(100, 100, 120))
+                                .height(Pixels(12.0));
+                            Label::new(cx, &peak_text)
+                                .color(Color::rgb(160, 160, 180))
+                                .height(Pixels(16.0));
+                        })
+                        .width(Stretch(1.0));
+                        VStack::new(cx, |cx| {
+                            Label::new(cx, "PHASE")
+                                .color(Color::rgb(100, 100, 120))
+                                .height(Pixels(12.0));
+                            Label::new(cx, &phase_text)
+                                .color(Color::rgb(160, 160, 180))
+                                .height(Pixels(16.0));
+                        })
+                        .width(Stretch(1.0));
+                    })
+                    .height(Pixels(30.0))
+                    .width(Stretch(1.0));
+                });
+
+                // Live Vitals (real-time from AudioEngineStore)
+                Label::new(cx, "Live Vitals")
+                    .color(Color::rgb(100, 100, 120))
+                    .height(Pixels(14.0))
+                    .top(Pixels(4.0));
+
+                HStack::new(cx, |cx| {
+                    VStack::new(cx, |cx| {
+                        Label::new(cx, "MOMENTARY")
+                            .color(Color::rgb(100, 100, 120))
+                            .height(Pixels(12.0));
+                        Label::new(
+                            cx,
+                            AudioEngineStore::master_lufs.map(|v| format!("{v:.1}")),
+                        )
+                        .color(Color::rgb(220, 220, 240))
+                        .height(Pixels(16.0));
+                    })
+                    .width(Stretch(1.0));
+                    VStack::new(cx, |cx| {
+                        Label::new(cx, "LIVE PEAK")
+                            .color(Color::rgb(100, 100, 120))
+                            .height(Pixels(12.0));
+                        Label::new(
+                            cx,
+                            AudioEngineStore::master_peak_dbtp
+                                .map(|v| format!("{v:.1}")),
+                        )
+                        .color(Color::rgb(220, 220, 240))
+                        .height(Pixels(16.0));
+                    })
+                    .width(Stretch(1.0));
+                })
+                .height(Pixels(30.0))
+                .width(Stretch(1.0));
+
+                // LUFS bar meter (master)
                 VStack::new(cx, |cx| {
                     LufsMeterRow::master(cx);
                 })
-                .height(Pixels(40.0));
+                .height(Pixels(32.0));
 
-                // ── Storage Gauge ────────────────────────────────────────────
+                // ── Block C: Forensic Radar (Tabbed) ──────────────────────
+                Label::new(cx, "FORENSIC RADAR")
+                    .color(Color::rgb(120, 120, 140))
+                    .height(Pixels(16.0))
+                    .top(Pixels(6.0));
+
+                // Tab bar
+                Binding::new(cx, AppData::current_forensic_tab, |cx, tab_lens| {
+                    let current_tab = tab_lens.get(cx);
+                    HStack::new(cx, move |cx| {
+                        let tabs = [
+                            ("MIX", ForensicTab::Mix),
+                            ("PACE", ForensicTab::Pace),
+                            ("TEX", ForensicTab::Tex),
+                        ];
+                        for (label, tab) in tabs {
+                            let is_active = current_tab == tab;
+                            let t = tab;
+                            Button::new(cx, move |cx| Label::new(cx, label))
+                                .on_press(move |cx| {
+                                    cx.emit(AppEvent::SetForensicTab(t));
+                                })
+                                .width(Stretch(1.0))
+                                .background_color(if is_active {
+                                    Color::rgb(60, 90, 130)
+                                } else {
+                                    Color::rgb(40, 40, 55)
+                                });
+                        }
+                    })
+                    .height(Pixels(26.0))
+                    .width(Stretch(1.0));
+                });
+
+                // Tab content area
+                let scope_for_tab = scope.clone();
+                Binding::new(
+                    cx,
+                    AppData::current_forensic_tab,
+                    move |cx, tab_lens| {
+                        let tab = tab_lens.get(cx);
+                        let scope_inner = scope_for_tab.clone();
+                        match tab {
+                            ForensicTab::Mix => {
+                                VStack::new(cx, move |cx| {
+                                    VectorscopeView::new(cx, scope_inner.clone())
+                                        .width(Stretch(1.0))
+                                        .height(Pixels(200.0));
+                                    HStack::new(cx, |cx| {
+                                        VStack::new(cx, |cx| {
+                                            Label::new(cx, "LRA")
+                                                .color(Color::rgb(100, 100, 120))
+                                                .height(Pixels(12.0));
+                                            Label::new(cx, "--")
+                                                .color(Color::rgb(160, 160, 180))
+                                                .height(Pixels(16.0));
+                                        })
+                                        .width(Stretch(1.0));
+                                        VStack::new(cx, |cx| {
+                                            Label::new(cx, "CREST")
+                                                .color(Color::rgb(100, 100, 120))
+                                                .height(Pixels(12.0));
+                                            Label::new(cx, "--")
+                                                .color(Color::rgb(160, 160, 180))
+                                                .height(Pixels(16.0));
+                                        })
+                                        .width(Stretch(1.0));
+                                    })
+                                    .height(Pixels(30.0))
+                                    .width(Stretch(1.0));
+                                })
+                                .width(Stretch(1.0))
+                                .height(Auto);
+                            }
+                            ForensicTab::Pace => {
+                                VStack::new(cx, |cx| {
+                                    Label::new(cx, "Pacing Density")
+                                        .color(Color::rgb(100, 100, 120))
+                                        .height(Pixels(16.0));
+                                    Label::new(cx, "(plot placeholder)")
+                                        .color(Color::rgb(80, 80, 100))
+                                        .height(Pixels(120.0));
+                                })
+                                .width(Stretch(1.0))
+                                .height(Auto);
+                            }
+                            ForensicTab::Tex => {
+                                VStack::new(cx, |cx| {
+                                    Label::new(cx, "Vocal Texture (DX)")
+                                        .color(Color::rgb(100, 100, 120))
+                                        .height(Pixels(16.0));
+                                    Label::new(cx, "(meter placeholder)")
+                                        .color(Color::rgb(80, 80, 100))
+                                        .height(Pixels(120.0));
+                                })
+                                .width(Stretch(1.0))
+                                .height(Auto);
+                            }
+                        }
+                    },
+                );
+
+                // ── Bottom: Storage, Scrubbing, Redo, Transcript ──────────
                 Label::new(cx, "Storage")
                     .color(Color::rgb(180, 180, 200))
                     .height(Pixels(20.0))

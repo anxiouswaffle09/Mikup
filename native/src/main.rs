@@ -17,8 +17,8 @@ use vizia::style::Color;
 
 use audio_engine::AudioController;
 use models::{
-    build_forensic_markers, AppData, AudioEngineStore, AudioEngineStoreUpdate, MaybeProject,
-    ProjectMetadata, ViewState, WorkspaceAssets,
+    AppData, AudioEngineStore, AudioEngineStoreUpdate, MaybeProject, ProjectMetadata, ViewState,
+    WorkspaceAssets, build_forensic_markers,
 };
 use project::Project;
 use vectorscope_view::VectorscopeData;
@@ -201,6 +201,8 @@ fn main() {
             is_scrubbing: false,
             project_name: project_name.clone(),
             current_view: initial_view.clone(),
+            audio_targets: config.audio_targets,
+            show_tonal_balance: config.show_tonal_balance,
             available_projects: available_projects.clone(),
             transcript_segments: transcript_segments.clone(),
             word_segments: word_segments.clone(),
@@ -209,6 +211,7 @@ fn main() {
             vectorscope_data: scope_for_appdata,
             pipeline_progress: 0.0,
             pipeline_message: String::new(),
+            current_forensic_tab: models::ForensicTab::default(),
             project_disk_usage: 0,
             system_available_space: 0,
             system_total_space: 0,
